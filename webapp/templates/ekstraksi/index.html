@@ -4,34 +4,71 @@
 {% block heading %}Ekstraksi dari PDF{% endblock %}
 
 {% block content %}
-<div class="panel">
-  <p class="hint" style="margin-top:0;">Unggah PDF publikasi, pilih rentang halaman satu tabel (termasuk halaman lanjutan). Hasil bisa diperiksa &amp; diedit dulu sebelum disimpan. Saat ini dioptimalkan untuk tabel per-kecamatan.</p>
-  <form method="post" action="{% url 'ekstraksi:preview' %}" enctype="multipart/form-data">
-    {% csrf_token %}
+<form method="post" action="{% url 'ekstraksi:preview' %}" enctype="multipart/form-data"
+      data-loading="Mengekstrak tabel dari PDF… untuk PDF hasil scan (OCR) ini bisa lebih lama.">
+  {% csrf_token %}
+
+  <div class="panel">
+    <div class="step-head"><span class="step-num">1</span><h2>Pilih Publikasi</h2></div>
     <div class="form-row">
       <div class="full">
-        <label>Publikasi (pilih yang ada)</label>
-        <select name="pub_id">
+        <label>Publikasi tujuan</label>
+        <select name="pub_id" id="pub-selector">
           <option value="">— Buat publikasi baru —</option>
           {% for p in pubs %}<option value="{{ p.pk }}">{{ p.judul }} ({{ p.tahun_terbit }})</option>{% endfor %}
         </select>
       </div>
-      <div><label>Judul publikasi baru</label><input type="text" name="judul_baru" placeholder="mis. Kab. Tasikmalaya Dalam Angka 2026"></div>
-      <div><label>Tahun terbit</label><input type="number" name="tahun_baru" placeholder="2026"></div>
+    </div>
+    <div class="form-row" id="pub-baru-fields">
+      <div class="full"><label>Judul publikasi baru</label><input type="text" name="judul_baru" id="judul-baru" placeholder="mis. Kab. Tasikmalaya Dalam Angka 2026"></div>
+      <div><label>Tahun terbit</label><input type="number" name="tahun_baru" id="tahun-baru" placeholder="2026"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="step-head"><span class="step-num">2</span><h2>Unggah &amp; Pilih Halaman</h2></div>
+    <p class="hint" style="margin-top:0;">Engine memisah <strong>setiap tabel</strong> dalam rentang (halaman "Lanjutan" digabung otomatis) dan mengisi identitas, kolom, satuan, tahun, serta jenis tabel.</p>
+    <div class="form-row">
+      <div class="full">
+        <label>File PDF</label>
+        <input type="file" name="pdf" accept="application/pdf" required>
+      </div>
+      <div><label>Halaman dari</label><input type="number" name="hal_awal" min="1" required placeholder="46"></div>
+      <div><label>Halaman sampai</label><input type="number" name="hal_akhir" min="1" required placeholder="63"></div>
     </div>
     <div class="form-row">
-      <div class="full"><label>File PDF</label><input type="file" name="pdf" accept="application/pdf" required></div>
-      <div><label>Halaman dari</label><input type="number" name="hal_awal" min="1" required placeholder="46"></div>
-      <div><label>Halaman sampai</label><input type="number" name="hal_akhir" min="1" required placeholder="47"></div>
-      <div>
-        <label>Jenis tabel</label>
-        <select name="mode">
-          <option value="kecamatan">Per Kecamatan</option>
-          <option value="kategori">Per Kategori (umur/partai/jabatan…)</option>
+      <div class="full">
+        <label>Mode pembacaan</label>
+        <select name="ocr">
+          <option value="auto" selected>Otomatis — deteksi teks digital, OCR bila halaman hasil scan</option>
+          <option value="tidak">Hanya teks digital (paling cepat)</option>
+          <option value="paksa">Paksa OCR semua halaman (untuk buku lama hasil scan)</option>
         </select>
+        <p class="hint" style="margin:6px 0 0;">OCR memerlukan Tesseract terpasang. Jika belum aktif, sistem akan memberi tahu cara memasangnya.</p>
       </div>
     </div>
+  </div>
+
+  <div class="toolbar" style="margin-top:18px;">
+    <span class="hint">Maksimal 80 halaman sekali jalan.</span>
     <button class="btn btn--accent" type="submit">Ekstrak &amp; Pratinjau →</button>
-  </form>
-</div>
+  </div>
+</form>
+
+<script>
+(function () {
+  var sel = document.getElementById("pub-selector");
+  var box = document.getElementById("pub-baru-fields");
+  var judul = document.getElementById("judul-baru");
+  var tahun = document.getElementById("tahun-baru");
+  function sync() {
+    var baru = sel.value === "";
+    box.hidden = !baru;
+    if (judul) judul.required = baru;
+    if (tahun) tahun.required = baru;
+  }
+  sel.addEventListener("change", sync);
+  sync();
+})();
+</script>
 {% endblock %}

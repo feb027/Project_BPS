@@ -1,7 +1,18 @@
 """
-Engine ekstraksi tabel kecamatan dari PDF digital BPS.
-Port dari extract.py: filter watermark (hitam murni), anchor baris nama
-kecamatan, petakan ke kolom via batas-x, bersihkan angka, gabung antar-halaman.
+Engine ekstraksi tabel PDF digital BPS (Kabupaten Dalam Angka).
+
+Fitur:
+- Segmentasi otomatis: satu rentang halaman bisa berisi BANYAK tabel.
+  Tiap halaman dideteksi nomor/judul tabelnya. Halaman "Lanjutan/Continued"
+  digabung ke tabel sebelumnya; halaman dengan nomor tabel baru memulai
+  tabel baru. -> preview tidak lagi menyatukan tabel berbeda.
+- Identitas tabel otomatis: nomor, judul (ID & EN), nama bab, sumber.
+- Definisi kolom otomatis: nama indikator, satuan (dari tanda kurung),
+  tahun (bila header berupa tahun), serta tipe nilai (num/teks).
+- Jenis tabel otomatis: 'kecamatan' (baris cocok master 39 kecamatan)
+  atau 'kategori' (baris label bebas: umur/partai/jabatan/...).
+
+Watermark (hitam murni 0,0,0) dibuang lebih dulu; teks data berwarna gelap.
 """
 from __future__ import annotations
 
@@ -20,7 +31,12 @@ KECAMATAN = [
 ]
 _KEC_LOWER = {k.lower(): k for k in KECAMATAN}
 
+_NOMOR_RE = re.compile(r"\d+(?:\.\d+){1,3}")
 
+
+# --------------------------------------------------------------------------- #
+#  Watermark & geometri dasar
+# --------------------------------------------------------------------------- #
 def is_watermark(obj):
     c = obj.get("non_stroking_color")
     if c is None:
@@ -53,16 +69,62 @@ def cluster_lines(chars, tol=4.0):
     return lines
 
 
-def col_edges(page):
-    tabs = page.find_tables()
-    if not tabs:
+def _edges_from_items(items, min_gap=7.0, body_left=None, body_right=None):
+    """
+    Deteksi batas kolom dari CELAH vertikal (gutter) antar teks.
+    Dipakai utk tabel TANPA garis (borderless) & hasil OCR.
+    items: list dict dengan 'x0','x1'. -> list edge (x) atau None.
+    """
+    if not items:
         return None
-    xset = set()
-    for cell in tabs[0].cells:
-        if cell:
-            xset.add(round(cell[0], 1))
-            xset.add(round(cell[2], 1))
-    return sorted(xset)
+    left = body_left if body_left is not None else min(i["x0"] for i in items)
+    right = body_right if body_right is not None else max(i["x1"] for i in items)
+    width = int(right - left) + 2
+    if width <= 1:
+        return None
+    occ = bytearray(width)
+    for it in items:
+        a = max(0, int(it["x0"] - left))
+        b = min(width - 1, int(it["x1"] - left))
+        for x in range(a, b + 1):
+            occ[x] = 1
+    edges = [left]
+    j = 0
+    while j < width:
+        if not occ[j]:
+            k = j
+            while k < width and not occ[k]:
+                k += 1
+            if (k - j) >= min_gap:
+                edges.append((j + k) / 2 + left)
+            j = k
+        else:
+            j += 1
+    edges.append(right)
+    edges = sorted(set(round(e, 1) for e in edges))
+    return edges if len(edges) >= 3 else None
+
+
+def col_edges(page):
+    """Batas kolom: utamakan garis tabel (find_tables); cadangan: celah teks."""
+    try:
+        tabs = page.find_tables()
+    except Exception:
+        tabs = []
+    if tabs:
+        xset = set()
+        for cell in tabs[0].cells:
+            if cell:
+                xset.add(round(cell[0], 1))
+                xset.add(round(cell[2], 1))
+        edges = sorted(xset)
+        if len(edges) >= 3:
+            return edges
+    # --- cadangan borderless: pakai celah teks di area badan tabel ---
+    tbl_top = _table_top(page)
+    lo = (tbl_top - 5) if tbl_top else 130
+    body = [c for c in page.chars if lo < c["top"] < 560]
+    return _edges_from_items(body, min_gap=7.0)
 
 
 def row_to_cols(line, edges):
@@ -76,6 +138,9 @@ def row_to_cols(line, edges):
     return [re.sub(r"\s+", " ", x).strip() for x in cols]
 
 
+# --------------------------------------------------------------------------- #
+#  Pembersih nilai & pencocokan
+# --------------------------------------------------------------------------- #
 def clean_num(raw):
     """-> (nilai_num_str|None, teks, flag)"""
     raw = (raw or "").strip()
@@ -115,8 +180,186 @@ def is_kab_total(name):
     return "kabupaten tasikmalaya" in n
 
 
+def _norm_label(s):
+    return (s.replace("\u2013", "-").replace("\u2014", "-")
+             .replace("û", "-").replace("Γ", "").strip())
+
+
+# --------------------------------------------------------------------------- #
+#  Deteksi identitas tabel (nomor, judul ID/EN, bab, sumber)
+# --------------------------------------------------------------------------- #
+def _font(w):
+    return w.get("fontname", "")
+
+
+def _is_italic(w):
+    """Italic/oblique terdeteksi lintas-font (tidak terikat MyriadPro)."""
+    f = _font(w).lower()
+    return "it" in f or "italic" in f or "oblique" in f
+
+
+def _table_top(page):
+    """Tepi atas tabel (anchor bebas-font utk awal area header). None bila tak ada."""
+    try:
+        tabs = page.find_tables()
+    except Exception:
+        tabs = []
+    if not tabs:
+        return None
+    return min(t.bbox[1] for t in tabs)
+
+
+def identitas_halaman(page):
+    """
+    -> dict(lanjutan, nomor, judul_id, judul_en, bab, sumber)
+    Anchor: 'Tabel'/'Table' di kolom kiri (atas), tepi atas tabel (bawah).
+    Pemisah ID/EN: baris non-italic vs italic; cadangan: batas tahun.
+    """
+    words = page.extract_words(extra_attrs=["fontname"])
+    txt = page.extract_text() or ""
+
+    lanjutan = bool(re.search(r"Lanjutan|Continued", txt))
+
+    nomor = None
+    m = re.search(r"(?:Lanjutan\s+Tabel|Continued\s+Table)[^\d]*(\d+(?:\.\d+){1,3})", txt)
+    if m:
+        nomor = m.group(1)
+    else:
+        mm = re.search(r"(?m)^\s*(\d+(?:\.\d+){1,3})\s*$", txt)
+        if mm:
+            nomor = mm.group(1)
+
+    # anchor atas: kata 'Tabel'/'Table'/'Gambar' di kolom kiri; cadangan: posisi tetap
+    kata_tabel = [w for w in words
+                  if w["text"] in ("Tabel", "Table", "Gambar", "Figure") and w["x0"] < 75]
+    tabel_top = min((w["top"] for w in kata_tabel), default=None)
+    # anchor bawah area judul: tepi atas tabel
+    header_top = _table_top(page) or 9999
+
+    def order(ws):
+        ws = sorted(ws, key=lambda w: (round(w["top"]), w["x0"]))
+        return re.sub(r"\s+", " ", " ".join(w["text"] for w in ws)).strip()
+
+    judul_id = judul_en = ""
+    if tabel_top is not None:
+        lo, hi = tabel_top - 3, header_top - 3
+        # judul ada di kolom teks (x0 > ~110), abaikan nomor tabel di kolom kiri
+        reg = [w for w in words if w["x0"] > 105 and lo <= w["top"] < hi]
+        idw = [w for w in reg if not _is_italic(w)]
+        enw = [w for w in reg if _is_italic(w)]
+        if idw and enw:
+            judul_id, judul_en = order(idw), order(enw)
+        else:
+            # font tidak memisahkan ID/EN -> pakai batas tahun pertama
+            full = order(reg)
+            mm = re.search(r",?\s*(?:19|20)\d{2}", full)
+            if mm:
+                judul_id, judul_en = full[:mm.end()].strip(), full[mm.end():].strip()
+            else:
+                judul_id = full
+
+    bab = ""
+    # nama bab = running header paling atas (kapital), bukan footer "...Dalam Angka"
+    atas = [w for w in words if w["top"] < 35]
+    cand = " ".join(w["text"] for w in sorted(atas, key=lambda w: w["x0"])).strip()
+    cand = re.sub(r"^\d+(?:\.\d+)*\s*", "", cand)  # buang nomor bab bila ada
+    if cand and "DALAM ANGKA" not in cand.upper() and len(cand) < 60:
+        bab = cand.title()
+
+    sumber = ""
+    ms = re.search(r"Sumber\s*/?\s*Source\s*:\s*(.+)", txt)
+    if not ms:
+        ms = re.search(r"Sumber\s*:\s*(.+)", txt)
+    if ms:
+        sumber = ms.group(1).strip()
+
+    return {"lanjutan": lanjutan, "nomor": nomor, "judul_id": judul_id,
+            "judul_en": judul_en, "bab": bab, "sumber": sumber}
+
+
+# --------------------------------------------------------------------------- #
+#  Deteksi header kolom + satuan + tahun + tipe
+# --------------------------------------------------------------------------- #
+def _parse_satuan(teks):
+    """Ambil satuan dari tanda kurung paling kanan, mis '(km2/sq.km)' -> 'km2'."""
+    paren = re.findall(r"\(([^)]*)\)", teks)
+    for p in reversed(paren):
+        p = p.strip()
+        if not p or p in ("1", "2", "3", "4", "5", "6"):
+            continue
+        # buang nomor kolom seperti '1', dan ambil bagian ID sebelum '/'
+        bagian = p.split("/")[0].strip()
+        bagian = re.sub(r"[a-z]\.[a-z].*", "", bagian).strip()  # buang 'a.s.l' dsb
+        if bagian:
+            return bagian
+    return ""
+
+
+def _bersih_nama_kolom(teks):
+    """Buang terjemahan EN & satuan; sisakan nama indikator ID yang ringkas."""
+    teks = re.sub(r"\([^)]*\)", "", teks)               # buang (satuan)
+    teks = re.sub(r"\s+", " ", teks).strip(" /")
+    return teks.strip()
+
+
+def detect_headers(page, edges):
+    """
+    -> list per kolom: dict(nama, satuan, tahun, tipe)
+       Kolom-0 (label baris) ikut, pemanggil membuang index 0.
+    Area header = antara tepi atas tabel dan baris '(1)(2)..'. Bebas-font:
+    nama ID = kata non-italic; terjemahan EN (italic) dibuang.
+    """
+    cpage = clean_page(page)
+    words = cpage.extract_words(extra_attrs=["fontname"])
+    tbl_top = _table_top(page) or 110
+    # baris '(1)(2)..' menandai akhir header
+    colnum_top = None
+    for ln in cluster_lines(cpage.chars, 3.0):
+        if ln["top"] < tbl_top - 2:
+            continue
+        t = "".join(c["text"] for c in ln["chars"]).strip()
+        # baris penanda kolom: deretan '(1)(2)(3)..' (kadang '(1)' diabaikan -> mulai '(2)')
+        if re.fullmatch(r"(?:\(\d+\)\s*){2,}", t):
+            colnum_top = ln["top"]
+            break
+    n = len(edges) - 1
+    nama_id = [""] * n
+    nama_full = [""] * n
+    if colnum_top is None:
+        colnum_top = tbl_top + 60
+    for w in words:
+        if not (tbl_top - 4 < w["top"] < colnum_top - 1):
+            continue
+        cx = (w["x0"] + w["x1"]) / 2
+        for i in range(n):
+            if edges[i] <= cx < edges[i + 1]:
+                nama_full[i] = (nama_full[i] + " " + w["text"]).strip()
+                if not _is_italic(w):
+                    nama_id[i] = (nama_id[i] + " " + w["text"]).strip()
+                break
+
+    out = []
+    for i in range(n):
+        full = _norm_label(nama_full[i])
+        idteks = _norm_label(nama_id[i]) or full
+        satuan = _parse_satuan(full)
+        # tahun: header berupa tahun (mungkin diikuti angka footnote)
+        tahun = ""
+        mt = re.match(r"^(19|20)\d{2}", re.sub(r"\D", "", idteks)[:4] or "")
+        if mt:
+            tahun = mt.group(0)
+        nama = _bersih_nama_kolom(idteks)
+        if tahun and not re.search(r"[A-Za-z]", nama):
+            nama = ""  # kolom murni tahun -> nama indikator diisi dari judul nanti
+        out.append({"nama": nama, "satuan": satuan, "tahun": tahun, "tipe": "num"})
+    return out
+
+
+# --------------------------------------------------------------------------- #
+#  Ekstraksi baris (mode kecamatan & kategori) per halaman
+# --------------------------------------------------------------------------- #
 def extract_page_rows(page):
-    """-> (rows[(nama, [cells])], kab_total_cells|None)"""
+    """Mode kecamatan: anchor master 39 kecamatan. -> (rows[(nama,cells)], kab|None)."""
     page = clean_page(page)
     edges = col_edges(page)
     if not edges:
@@ -148,36 +391,8 @@ def extract_page_rows(page):
     return rows, kab
 
 
-def _norm_label(s):
-    return (s.replace("\u2013", "-").replace("\u2014", "-")
-             .replace("û", "-").replace("Γ", "").strip())
-
-
-def detect_headers(page, edges):
-    """Ambil teks header tiap kolom (baris di atas '(1)(2)..'). -> list len = jml kolom."""
-    page = clean_page(page)
-    lines = cluster_lines(page.chars, 3.0)
-    colnum_top = None
-    for ln in lines:
-        t = "".join(c["text"] for c in ln["chars"])
-        if re.match(r"\s*\(1\)", t):
-            colnum_top = ln["top"]
-            break
-    n = len(edges) - 1
-    cols = [""] * n
-    if colnum_top is None:
-        return cols
-    for ln in lines:
-        if not (110 < ln["top"] < colnum_top):
-            continue
-        for i, part in enumerate(row_to_cols(ln, edges)):
-            if part and i < n:
-                cols[i] = (cols[i] + " " + part).strip()
-    return [_norm_label(c) for c in cols]
-
-
 def extract_page_rows_kategori(page):
-    """Baris generik (kategori): label di kolom-0, nilai di kolom lain. -> (rows, kab)."""
+    """Mode kategori: label kolom-0 (gabung multi-baris) + baris nilai."""
     page = clean_page(page)
     edges = col_edges(page)
     if not edges:
@@ -185,8 +400,8 @@ def extract_page_rows_kategori(page):
     lines = cluster_lines(page.chars, 3.5)
     rtop, rbot = 130, 9999
     for ln in lines:
-        t = "".join(c["text"] for c in ln["chars"])
-        if re.match(r"\s*\(1\)", t):
+        t = "".join(c["text"] for c in ln["chars"]).strip()
+        if re.fullmatch(r"(?:\(\d+\)\s*){2,}", t):
             rtop = ln["top"] + 4
         if re.search(r"Catatan/|Sumber/|Note\s*:|Source\s*:", t):
             rbot = ln["top"] - 2
@@ -198,36 +413,60 @@ def extract_page_rows_kategori(page):
         cols = row_to_cols(ln, edges)
         has_val = any(re.search(r"\d", c) or c.strip() in ("-", "–", "—") for c in cols[1:])
         label = _norm_label(cols[0])
+        # label valid bila mengandung huruf ATAU angka (mis. kelompok umur '0-4')
+        punya_label = bool(re.search(r"[A-Za-z0-9]", label))
         if has_val:
-            use = label if re.search(r"[A-Za-z0-9]", label) else pending
+            use = label if punya_label else pending
             if is_kab_total(use):
                 kab = cols
-            else:
+            elif use.strip():
                 rows.append((use, cols))
+            # baris bernilai tanpa label sama sekali = duplikat/total bayangan -> dilewati
             pending = ""
-        elif re.search(r"[A-Za-z]", label):
+        elif punya_label:
             pending = label
     return rows, kab
 
 
-def ekstrak(pdf_path, hal_awal, hal_akhir, mode="kecamatan"):
+# --------------------------------------------------------------------------- #
+#  Bangun satu tabel dari sekumpulan halaman (utama + lanjutan)
+# --------------------------------------------------------------------------- #
+def _buat_sel(cells):
+    out = []
+    for raw in cells:
+        num, teks, flag = clean_num(raw)
+        out.append({"teks": teks, "num": num, "flag": flag})
+    return out
+
+
+def _rakit_tabel(pages_info):
     """
-    -> {n_kolom, rows, total, headers:[...], label_kolom}
-    mode: 'kecamatan' (anchor master) atau 'kategori' (baris generik).
+    pages_info: list of (page, identitas) -> satu tabel.
+    Deteksi tipe (kecamatan/kategori) otomatis, gabung antar-halaman.
     """
-    gabung, urutan, total_cells = {}, [], None
-    headers, label_kolom = None, ""
-    with pdfplumber.open(pdf_path) as pdf:
-        for pno in range(hal_awal, hal_akhir + 1):
-            if pno < 1 or pno > len(pdf.pages):
-                continue
-            page = pdf.pages[pno - 1]
-            if headers is None:
-                edges = col_edges(clean_page(page))
-                if edges:
-                    allh = detect_headers(page, edges)
-                    label_kolom = allh[0] if allh else ""
-                    headers = allh[1:]
+    ident0 = pages_info[0][1]
+    ada_ocr = any(len(info) > 2 and info[2] for info in pages_info)
+
+    def _edges_of(page, is_ocr):
+        return col_edges(page if is_ocr else clean_page(page))
+
+    # --- tentukan headers dari halaman pertama ---
+    headers = []
+    label_kolom = ""
+    first_page = pages_info[0][0]
+    first_ocr = len(pages_info[0]) > 2 and pages_info[0][2]
+    edges = _edges_of(first_page, first_ocr)
+    if edges:
+        allh = detect_headers(first_page, edges)
+        if allh:
+            label_kolom = allh[0]["nama"]
+            headers = allh[1:]
+
+    # --- coba mode kecamatan dulu; bila baris sedikit -> kategori ---
+    def kumpul(mode):
+        gabung, urutan, total_cells = {}, [], None
+        for info in pages_info:
+            page = info[0]
             if mode == "kategori":
                 rows, kab = extract_page_rows_kategori(page)
             else:
@@ -239,20 +478,230 @@ def ekstrak(pdf_path, hal_awal, hal_akhir, mode="kecamatan"):
                 gabung[nama].extend(cols[1:])
             if kab:
                 total_cells = (total_cells or []) + kab[1:]
+        return gabung, urutan, total_cells
+
+    g_kec, u_kec, t_kec = kumpul("kecamatan")
+    if len(u_kec) >= 5:
+        mode = "kecamatan"
+        gabung, urutan, total_cells = g_kec, u_kec, t_kec
+    else:
+        mode = "kategori"
+        gabung, urutan, total_cells = kumpul("kategori")
 
     n_kolom = max((len(v) for v in gabung.values()), default=0)
 
-    def buat_sel(cells):
-        out = []
-        for raw in cells:
-            num, teks, flag = clean_num(raw)
-            out.append({"teks": teks, "num": num, "flag": flag})
-        return out
+    hasil_rows = [{"wilayah": n, "sel": _buat_sel(gabung[n])} for n in urutan]
+    total = ({"wilayah": "Kabupaten Tasikmalaya", "sel": _buat_sel(total_cells)}
+             if total_cells else None)
 
-    hasil_rows = [{"wilayah": n, "sel": buat_sel(gabung[n])} for n in urutan]
-    total = {"wilayah": "Kabupaten Tasikmalaya", "sel": buat_sel(total_cells)} if total_cells else None
+    # --- samakan panjang headers dengan n_kolom ---
+    while len(headers) < n_kolom:
+        headers.append({"nama": "", "satuan": "", "tahun": "", "tipe": "num"})
+    headers = headers[:n_kolom]
 
-    headers = (headers or [])[:n_kolom] + [""] * max(0, n_kolom - len(headers or []))
-    return {"n_kolom": n_kolom, "rows": hasil_rows, "total": total,
-            "headers": headers, "label_kolom": label_kolom}
+    # bila kolom tanpa nama tapi judul punya indikator tunggal (mis. 'Jumlah Desa')
+    judul = ident0.get("judul_id", "")
+    indikator_judul = _indikator_dari_judul(judul)
+    for idx, h in enumerate(headers):
+        if not h["nama"]:
+            # 1) kolom tahun murni -> pakai indikator dari judul
+            # 2) lainnya -> pakai indikator judul, atau 'Kolom N' sbg cadangan akhir
+            h["nama"] = indikator_judul or f"Kolom {idx + 1}"
 
+    halaman = [info[0].page_number for info in pages_info]
+    return {
+        "nomor": ident0.get("nomor") or "",
+        "judul_id": judul,
+        "judul_en": ident0.get("judul_en", ""),
+        "bab": ident0.get("bab", ""),
+        "sumber": ident0.get("sumber", ""),
+        "mode": mode,
+        "ocr": ada_ocr,
+        "n_kolom": n_kolom,
+        "headers": headers,
+        "label_kolom": label_kolom,
+        "rows": hasil_rows,
+        "total": total,
+        "halaman": halaman,
+        "halaman_awal": min(halaman),
+        "halaman_akhir": max(halaman),
+    }
+
+
+def _indikator_dari_judul(judul):
+    """Tebak nama indikator dari judul: ambil frasa sebelum 'Menurut'."""
+    if not judul:
+        return ""
+    m = re.split(r"\bMenurut\b", judul, maxsplit=1)
+    nama = m[0].strip().rstrip(",")
+    return nama[:120]
+
+
+def _angka(teks):
+    """Parse angka gaya Indonesia '1.946.197' / '2.706,82' -> float|None."""
+    num, _, flag = clean_num(teks)
+    if num is None:
+        return None
+    try:
+        return float(num)
+    except (TypeError, ValueError):
+        return None
+
+
+def cek_total(tabel):
+    """
+    Validasi: jumlah nilai baris per kolom == nilai baris TOTAL.
+    -> dict(ada_total, per_kolom=[{kolom, jumlah_baris, total, cocok, selisih}],
+            semua_cocok)
+    Hanya kolom numerik yang diperiksa. Toleransi kecil utk pembulatan desimal.
+    Untuk tabel berisi sub-total (mis. 'Golongan I'), penjumlahan baris bisa
+    > total -> ditandai tidak cocok agar diperiksa manusia (bukan auto-benar).
+    """
+    total = tabel.get("total")
+    if not total:
+        return {"ada_total": False, "per_kolom": [], "semua_cocok": True}
+
+    n = tabel["n_kolom"]
+    per_kolom = []
+    semua = True
+    for j in range(n):
+        tnum = _angka(total["sel"][j]["teks"]) if j < len(total["sel"]) else None
+        if tnum is None:
+            per_kolom.append({"kolom": j, "jumlah_baris": None, "total": None,
+                              "cocok": None, "selisih": None})
+            continue
+        jml = 0.0
+        ada_angka = False
+        for row in tabel["rows"]:
+            if j < len(row["sel"]):
+                v = _angka(row["sel"][j]["teks"])
+                if v is not None:
+                    jml += v
+                    ada_angka = True
+        if not ada_angka:
+            per_kolom.append({"kolom": j, "jumlah_baris": None, "total": tnum,
+                              "cocok": None, "selisih": None})
+            continue
+        tol = max(1.0, abs(tnum) * 0.005)  # toleransi 0.5% atau 1 unit
+        cocok = abs(jml - tnum) <= tol
+        if not cocok:
+            semua = False
+        per_kolom.append({
+            "kolom": j,
+            "jumlah_baris": round(jml, 2),
+            "total": tnum,
+            "cocok": cocok,
+            "selisih": round(jml - tnum, 2),
+        })
+    return {"ada_total": True, "per_kolom": per_kolom, "semua_cocok": semua}
+
+
+# --------------------------------------------------------------------------- #
+#  Halaman OCR (untuk PDF hasil scan) — meniru antarmuka pdfplumber.Page
+# --------------------------------------------------------------------------- #
+class _OcrPage:
+    """
+    Page-like dari hasil OCR. Mengekspos antarmuka minimal yang dipakai engine:
+    .chars, .page_number, .extract_words(), .extract_text(), .find_tables(), .filter().
+    Kolom dideteksi via celah teks (borderless), sebab OCR tak punya garis.
+    """
+
+    def __init__(self, words, page_number):
+        self._words = words
+        self.page_number = page_number
+        self.chars = []
+        for w in words:
+            for ch in w["text"]:
+                self.chars.append({
+                    "text": ch, "x0": w["x0"], "x1": w["x1"],
+                    "top": w["top"], "bottom": w["bottom"],
+                    "non_stroking_color": (0.1, 0.1, 0.1),
+                })
+
+    def extract_words(self, **kw):
+        return [dict(w, fontname="OCR") for w in self._words]
+
+    def extract_text(self, **kw):
+        lines = cluster_lines(self.chars, 3.5)
+        return "\n".join("".join(c["text"] for c in ln["chars"]) for ln in lines)
+
+    def find_tables(self, *a, **k):
+        return []
+
+    def filter(self, fn):
+        return self  # watermark filter tak perlu (hasil OCR sudah 'bersih')
+
+
+# --------------------------------------------------------------------------- #
+#  API utama
+# --------------------------------------------------------------------------- #
+def ekstrak_range(pdf_path, hal_awal, hal_akhir, pakai_ocr="auto"):
+    """
+    Segmentasi rentang halaman menjadi DAFTAR tabel.
+    pakai_ocr: 'auto' (OCR hanya utk halaman scan), 'paksa' (OCR semua),
+               'tidak' (jangan OCR).
+    -> list[dict] (lihat _rakit_tabel; tiap tabel punya kunci 'ocr' bool).
+    """
+    from . import ocr as _ocr
+
+    tabel_list = []
+    info_ocr = {"dipakai": False, "tersedia": _ocr.ocr_tersedia(), "pesan": ""}
+
+    with pdfplumber.open(pdf_path) as pdf:
+        n_pages = len(pdf.pages)
+        grup = []  # list of (page, identitas, is_ocr)
+
+        def page_untuk(pno):
+            """Kembalikan (page_obj, is_ocr). OCR bila perlu & tersedia."""
+            jenis = "digital"
+            if pakai_ocr == "paksa":
+                jenis = "scan"
+            elif pakai_ocr == "auto":
+                jenis = _ocr.klasifikasi_halaman(pdf_path, pno)
+            if jenis == "scan":
+                if not info_ocr["tersedia"]:
+                    info_ocr["pesan"] = _ocr.PESAN_INSTALL
+                    return pdf.pages[pno - 1], False
+                try:
+                    words, _ = _ocr.kata_ocr_halaman(pdf_path, pno)
+                    info_ocr["dipakai"] = True
+                    return _OcrPage(words, pno), True
+                except _ocr.OcrTidakTersedia as e:
+                    info_ocr["pesan"] = str(e)
+                    return pdf.pages[pno - 1], False
+            return pdf.pages[pno - 1], False
+
+        for pno in range(hal_awal, hal_akhir + 1):
+            if pno < 1 or pno > n_pages:
+                continue
+            page, is_ocr = page_untuk(pno)
+            ident = identitas_halaman(page)
+            edges = col_edges(clean_page(page) if not is_ocr else page)
+            if edges is None:
+                continue  # halaman tanpa tabel (mis. grafik) -> lewati
+            mulai_baru = (not ident["lanjutan"]) and bool(ident["nomor"]) and bool(grup)
+            if not grup:
+                grup = [(page, ident, is_ocr)]
+            elif mulai_baru:
+                tabel_list.append(_rakit_tabel(grup))
+                grup = [(page, ident, is_ocr)]
+            else:
+                grup.append((page, ident, is_ocr))
+        if grup:
+            tabel_list.append(_rakit_tabel(grup))
+
+    for t in tabel_list:
+        t["info_ocr"] = info_ocr
+    return tabel_list
+
+
+def ekstrak(pdf_path, hal_awal, hal_akhir, mode=None):
+    """Kompatibilitas lama: kembalikan tabel pertama dari rentang."""
+    daftar = ekstrak_range(pdf_path, hal_awal, hal_akhir)
+    if not daftar:
+        return {"n_kolom": 0, "rows": [], "total": None, "headers": [], "label_kolom": ""}
+    t = daftar[0]
+    return {
+        "n_kolom": t["n_kolom"], "rows": t["rows"], "total": t["total"],
+        "headers": [h["nama"] for h in t["headers"]], "label_kolom": t["label_kolom"],
+    }

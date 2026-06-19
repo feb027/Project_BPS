@@ -6,15 +6,27 @@
 {% block content %}
 <div class="toolbar">
   <span class="hint">Pilih bab, atau tambah bab baru.</span>
-  <a class="btn btn--accent" href="{% url 'katalog:bab_create' pub.pk %}">+ Tambah Bab</a>
+  <span style="display:flex;gap:8px;">
+    <a class="btn btn--ghost" href="{% url 'katalog:publikasi_edit' pub.pk %}">Edit Publikasi</a>
+    <a class="btn btn--ghost" href="{% url 'data:export_publikasi' pub.pk %}">Ekspor CSV</a>
+    <a class="btn btn--ghost" href="{% url 'data:export_publikasi' pub.pk %}?format=xlsx">Excel</a>
+    <a class="btn btn--danger" href="{% url 'katalog:publikasi_delete' pub.pk %}">Hapus</a>
+    <a class="btn btn--accent" href="{% url 'katalog:bab_create' pub.pk %}">+ Tambah Bab</a>
+  </span>
 </div>
 <div class="card-grid">
   {% for b in bab_list %}
-  <a class="pick-card" href="{% url 'data:bab' b.pk %}">
-    <span class="pick-year num">{{ b.nomor }}</span>
-    <span class="pick-name">{{ b.nama }}</span>
-    <span class="pick-meta">{{ b.jml_tabel }} tabel</span>
-  </a>
+  <div class="pick-card" style="position:relative;">
+    <a href="{% url 'data:bab' b.pk %}" style="display:flex;flex-direction:column;gap:4px;text-decoration:none;color:inherit;">
+      <span class="pick-year num">{{ b.nomor }}</span>
+      <span class="pick-name">{{ b.nama }}</span>
+      <span class="pick-meta">{{ b.jml_tabel }} tabel</span>
+    </a>
+    <span class="card-actions">
+      <a class="btn btn--sm btn--ghost" href="{% url 'katalog:bab_edit' b.pk %}">Edit</a>
+      <a class="btn btn--sm btn--danger" href="{% url 'katalog:bab_delete' b.pk %}">Hapus</a>
+    </span>
+  </div>
   {% empty %}
   <p class="empty">Belum ada bab.</p>
   {% endfor %}

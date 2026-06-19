@@ -7,7 +7,38 @@ from django.shortcuts import get_object_or_404, redirect, render
 from apps.katalog.models import Bab, Publikasi, Tabel
 from .models import Fakta
 from .services import ingest_long_rows
+from .exports import export_csv, export_xlsx
 from apps.ekstraksi.engine import KECAMATAN, clean_num
+
+
+def _slug(s):
+    import re
+    s = re.sub(r"[^A-Za-z0-9]+", "-", str(s)).strip("-").lower()
+    return s or "data"
+
+
+def export_tabel(request, pk):
+    tabel = get_object_or_404(Tabel.objects.select_related("bab__publikasi"), pk=pk)
+    fmt = request.GET.get("format", "csv")
+    qs = Tabel.objects.filter(pk=tabel.pk)
+    nama = f"tabel-{_slug(tabel.nomor_tabel)}"
+    return export_xlsx(qs, nama) if fmt == "xlsx" else export_csv(qs, nama)
+
+
+def export_publikasi(request, pk):
+    pub = get_object_or_404(Publikasi, pk=pk)
+    fmt = request.GET.get("format", "csv")
+    qs = Tabel.objects.filter(bab__publikasi=pub)
+    nama = f"publikasi-{_slug(pub.judul)}-{pub.tahun_terbit}"
+    return export_xlsx(qs, nama) if fmt == "xlsx" else export_csv(qs, nama)
+
+
+def export_bab(request, pk):
+    bab = get_object_or_404(Bab.objects.select_related("publikasi"), pk=pk)
+    fmt = request.GET.get("format", "csv")
+    qs = Tabel.objects.filter(bab=bab)
+    nama = f"bab-{bab.nomor}-{_slug(bab.nama)}"
+    return export_xlsx(qs, nama) if fmt == "xlsx" else export_csv(qs, nama)
 
 
 def _parse_angka(teks):
