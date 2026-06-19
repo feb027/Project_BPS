@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Pratinjau Ekstraksi{% endblock %}
+{% block eyebrow %}Halaman {{ hal_awal }}–{{ hal_akhir }}{% endblock %}
+{% block heading %}Pratinjau & Edit{% endblock %}
+
+{% block content %}
+<p class="prev-note">Terdeteksi <strong>{{ hasil.rows|length }} kecamatan</strong> × <strong>{{ hasil.n_kolom }} kolom</strong>. Periksa angka, beri nama kolom (header asli buku), lalu simpan. Sel bertanda merah perlu dicek.</p>
+
+<form method="post" action="{% url 'ekstraksi:simpan' %}">
+{% csrf_token %}
+<input type="hidden" name="pub_id" value="{{ pub_id }}">
+<input type="hidden" name="judul_baru" value="{{ judul_baru }}">
+<input type="hidden" name="tahun_baru" value="{{ tahun_baru }}">
+<input type="hidden" name="n_rows" value="{{ hasil.rows|length }}">
+<input type="hidden" name="n_kol" value="{{ hasil.n_kolom }}">
+<input type="hidden" name="mode" value="{{ mode }}">
+<input type="hidden" name="ada_total" value="{% if hasil.total %}1{% else %}0{% endif %}">
+
+<div class="panel">
+  <h2>Identitas Tabel</h2>
+  <div class="form-row">
+    <div><label>Nomor tabel</label><input type="text" name="nomor_tabel" placeholder="1.1.1" required></div>
+    <div><label>Bab</label><input type="text" name="bab_nama" placeholder="Geografi" required></div>
+    <div class="full"><label>Judul tabel</label><input type="text" name="judul" placeholder="Luas Daerah dan Jumlah Pulau…" required></div>
+    <div class="full"><label>Sumber</label><input type="text" name="sumber" placeholder="mis. Podes 2021, diolah"></div>
+  </div>
+</div>
+
+<div class="panel" style="overflow-x:auto;">
+  <h2>Definisi Kolom & Data</h2>
+  {% if hasil.label_kolom %}<p class="hint">Kolom baris terdeteksi: <strong>{{ hasil.label_kolom }}</strong>. Nama kolom di bawah sudah terisi otomatis dari header PDF — rapikan bila perlu.</p>{% endif %}
+  <table class="data-table wide">
+    <thead>
+      <tr>
+        <th class="rowhead">{% if mode == 'kategori' %}Rincian{% else %}Kecamatan{% endif %}</th>
+        {% for j, hdr in kolom_data %}
+        <th>
+          <input type="text" name="kol-{{ j }}-nama" value="{{ hdr }}" placeholder="Nama kolom" required style="min-width:120px;">
+          <input type="text" name="kol-{{ j }}-satuan" placeholder="satuan" style="min-width:70px;margin-top:4px;">
+          <input type="number" name="kol-{{ j }}-tahun" placeholder="tahun" style="min-width:70px;margin-top:4px;">
+        </th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in hasil.rows %}
+      <tr>
+        <td class="rowhead">
+          <input type="text" name="row-{{ forloop.counter0 }}-nama" value="{{ row.wilayah }}">
+        </td>
+        {% for c in row.sel %}
+        <td><input type="text" name="cell-{{ forloop.parentloop.counter0 }}-{{ forloop.counter0 }}"
+                   value="{{ c.teks }}" {% if c.flag == 'perlu_cek' %}style="border-color:var(--danger);background:#f7e2dd;"{% endif %}></td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+    {% if hasil.total %}
+    <tfoot>
+      <tr class="row-total">
+        <td class="rowhead">Kabupaten Tasikmalaya <span class="tag-total">TOTAL</span></td>
+        {% for c in hasil.total.sel %}
+        <td><input type="text" name="total-{{ forloop.counter0 }}" value="{{ c.teks }}"></td>
+        {% endfor %}
+      </tr>
+    </tfoot>
+    {% endif %}
+  </table>
+</div>
+
+<div class="toolbar" style="margin-top:16px;">
+  <button class="btn btn--accent" type="submit">Simpan ke Database</button>
+  <a class="btn" href="{% url 'ekstraksi:index' %}">Batal</a>
+</div>
+</form>
+{% endblock %}

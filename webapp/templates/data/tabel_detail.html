@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% load format_id %}
+{% block title %}{{ tabel.nama_tampil }}{% endblock %}
+{% block eyebrow %}Tabel {{ tabel.nomor_tabel }} · {{ tabel.bab.publikasi.tahun_terbit }}{% endblock %}
+{% block heading %}{{ tabel.nama_tampil }}{% endblock %}
+
+{% block content %}
+<div class="toolbar">
+  <p class="hint" style="margin:0;">{{ tabel.judul }}{% if tabel.sumber %} · <em>Sumber: {{ tabel.sumber }}</em>{% endif %}</p>
+  {% if edit %}
+    <span class="badge badge--perlu_cek">Mode Edit</span>
+  {% else %}
+    <span style="display:flex; gap:8px;">
+      <a class="btn btn--accent" href="{% url 'data:tabel_isi' tabel.pk %}">Isi / Tambah Data</a>
+      <a class="btn" href="?edit=1">Edit Nilai</a>
+      <a class="btn" href="{% url 'katalog:tabel_edit' tabel.pk %}">Edit Tabel</a>
+      <a class="btn" href="{% url 'katalog:tabel_delete' tabel.pk %}" style="background:var(--danger);">Hapus</a>
+    </span>
+  {% endif %}
+</div>
+
+<form method="post">
+{% csrf_token %}
+<div class="panel" style="overflow-x:auto;">
+  {% if baris %}
+  <table class="data-table wide">
+    <thead>
+      <tr>
+        <th class="rowhead">{{ label_baris }}</th>
+        {% for kj in kolom_judul %}<th>{{ kj }}</th>{% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in baris %}
+      <tr>
+        <td class="rowhead">{{ row.nama }}</td>
+        {% for f in row.sel %}
+          <td>
+            {% if f is None %}
+              <span class="hint">·</span>
+            {% elif edit %}
+              <input type="text" name="f-{{ f.id }}"
+                     value="{% if f.nilai_num is not None %}{{ f.nilai_num|angka_id }}{% else %}{{ f.nilai_teks }}{% endif %}">
+            {% elif f.flag == 'nihil' %}<span class="hint">–</span>
+            {% elif f.flag == 'tidak_tersedia' %}<span class="hint">…</span>
+            {% elif f.nilai_num is not None %}{{ f.nilai_num|angka_id }}
+            {% else %}{{ f.nilai_teks }}{% endif %}
+          </td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+    {% if baris_total %}
+    <tfoot>
+      {% for row in baris_total %}
+      <tr class="row-total">
+        <td class="rowhead">{{ row.nama }} <span class="tag-total">TOTAL</span></td>
+        {% for f in row.sel %}
+          <td>
+            {% if f is None %}<span class="hint">·</span>
+            {% elif edit %}<input type="text" name="f-{{ f.id }}"
+                   value="{% if f.nilai_num is not None %}{{ f.nilai_num|angka_id }}{% else %}{{ f.nilai_teks }}{% endif %}">
+            {% elif f.flag == 'nihil' %}<span class="hint">–</span>
+            {% elif f.flag == 'tidak_tersedia' %}<span class="hint">…</span>
+            {% elif f.nilai_num is not None %}{{ f.nilai_num|angka_id }}
+            {% else %}{{ f.nilai_teks }}{% endif %}
+          </td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tfoot>
+    {% endif %}
+  </table>
+  {% else %}
+  <p class="empty">Belum ada data untuk tabel ini.</p>
+  {% endif %}
+</div>
+
+{% if edit %}
+<div class="toolbar" style="margin-top:16px;">
+  <button class="btn btn--accent" type="submit">Simpan Perubahan</button>
+  <a class="btn" href="{% url 'data:tabel_detail' tabel.pk %}">Batal</a>
+</div>
+{% endif %}
+</form>
+{% endblock %}

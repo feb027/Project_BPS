@@ -1,0 +1,173 @@
+/* ============================================================
+   Pangkalan Data Publikasi BPS Tasikmalaya
+   Arah desain: "instrumen data" — presisi, terstruktur, tenang.
+   Palet ink/teal + aksen amber. Angka tabular (font-variant-numeric).
+   Tanpa font eksternal (offline-friendly).
+   ============================================================ */
+:root {
+  --ink:        #0c2733;   /* teal-ink utama */
+  --ink-2:      #143b4d;
+  --surface:    #f5f3ec;   /* kertas hangat, bukan putih steril */
+  --panel:      #ffffff;
+  --line:       #d9d4c7;
+  --muted:      #5d6b70;
+  --accent:     #c8741f;   /* amber/ochre: aksi & sorotan */
+  --accent-2:   #1f7a6b;   /* teal sekunder */
+  --danger:     #a8321f;
+  --ok:         #1f7a4d;
+  --radius:     7px;
+  --mono: ui-monospace, "Cascadia Code", "Consolas", "SFMono-Regular", monospace;
+  --sans: system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  font-family: var(--sans);
+  color: var(--ink);
+  background: var(--surface);
+  line-height: 1.5;
+}
+
+/* angka selalu tabular — pilihan yang bermakna untuk app statistik */
+.num, td.num, .stat-value, .data-table td { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+
+.layout { display: grid; grid-template-columns: 248px 1fr; min-height: 100vh; }
+
+/* ---------- Sidebar ---------- */
+.sidebar {
+  background: var(--ink);
+  color: #e8eef0;
+  display: flex; flex-direction: column;
+  padding: 22px 0;
+  position: sticky; top: 0; height: 100vh;
+}
+.brand { display: flex; gap: 12px; align-items: center; padding: 4px 22px 22px; }
+.brand-mark {
+  font-family: var(--mono); font-weight: 700; letter-spacing: .06em;
+  background: var(--accent); color: #fff; padding: 6px 9px; border-radius: 5px; font-size: 15px;
+}
+.brand-text { font-size: 13px; line-height: 1.25; color: #cdd9dd; letter-spacing: .02em; }
+.nav { display: flex; flex-direction: column; margin-top: 8px; }
+.nav-link {
+  display: flex; align-items: baseline; gap: 12px;
+  padding: 11px 22px; color: #b9c7cc; text-decoration: none;
+  border-left: 3px solid transparent; font-size: 14.5px;
+}
+.nav-link:hover { color: #fff; background: rgba(255,255,255,.04); }
+.nav-link.is-active { color: #fff; border-left-color: var(--accent); background: rgba(255,255,255,.06); }
+.nav-num { font-family: var(--mono); font-size: 11px; color: var(--accent); letter-spacing: .05em; }
+.sidebar-foot { margin-top: auto; padding: 16px 22px 0; border-top: 1px solid rgba(255,255,255,.08); }
+.sidebar-foot a { color: #9fb0b5; text-decoration: none; font-size: 13px; }
+.sidebar-foot a:hover { color: #fff; }
+
+/* ---------- Content ---------- */
+.content { padding: 30px 38px 60px; max-width: 1180px; }
+.topbar { border-bottom: 1px solid var(--line); padding-bottom: 16px; margin-bottom: 26px; }
+.eyebrow {
+  font-family: var(--mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--accent); margin-bottom: 6px;
+}
+.page-title { font-size: 27px; margin: 0; font-weight: 650; letter-spacing: -.01em; }
+
+/* ---------- Kartu statistik ---------- */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
+.stat {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 18px 20px; position: relative;
+}
+.stat::before {
+  content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px;
+  background: var(--accent-2); border-radius: 3px;
+}
+.stat--warn::before { background: var(--accent); }
+.stat-label { font-size: 12.5px; color: var(--muted); letter-spacing: .02em; }
+.stat-value { font-size: 30px; font-weight: 680; margin-top: 6px; }
+
+/* ---------- Panel & tabel ---------- */
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; margin-top: 22px; }
+.panel h2 { font-size: 16px; margin: 0 0 14px; }
+.data-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.data-table th, .data-table td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+.data-table th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.data-table td.num { text-align: right; }
+
+/* ---------- Form & tombol ---------- */
+label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 5px; }
+input[type=text], input[type=number], select {
+  width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 5px;
+  font: inherit; background: #fff; color: var(--ink);
+}
+.btn {
+  display: inline-block; background: var(--ink); color: #fff; border: 0; border-radius: 5px;
+  padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer; text-decoration: none;
+}
+.btn:hover { background: var(--ink-2); }
+.btn--accent { background: var(--accent); }
+.btn--accent:hover { background: #b0651a; }
+
+/* ---------- Badge flag ---------- */
+.badge { font-family: var(--mono); font-size: 11px; padding: 2px 7px; border-radius: 4px; }
+.badge--ada { background: #e3efe8; color: var(--ok); }
+.badge--perlu_cek { background: #fbecd6; color: var(--accent); }
+.badge--nihil, .badge--tidak_tersedia { background: #eee; color: var(--muted); }
+
+/* ---------- Pesan & empty ---------- */
+.messages { list-style: none; padding: 0; margin: 0 0 18px; }
+.msg { padding: 10px 14px; border-radius: 5px; margin-bottom: 8px; }
+.msg--success { background: #e3efe8; color: var(--ok); }
+.msg--error { background: #f7e2dd; color: var(--danger); }
+.empty { color: var(--muted); padding: 30px 0; text-align: center; }
+.hint { color: var(--muted); font-size: 13px; }
+
+a { color: var(--accent-2); }
+
+:focus-visible { outline: 2.5px solid var(--accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+@media (max-width: 720px) {
+  .layout { grid-template-columns: 1fr; }
+  .sidebar { position: static; height: auto; flex-direction: row; flex-wrap: wrap; }
+  .content { padding: 20px; }
+}
+
+/* ---------- Breadcrumb ---------- */
+.crumbs { font-size: 12.5px; margin-bottom: 10px; color: var(--muted); }
+.crumbs a { color: var(--accent-2); text-decoration: none; }
+.crumbs a:hover { text-decoration: underline; }
+.crumb-sep { margin: 0 8px; color: var(--line); }
+.crumb-now { color: var(--ink); font-weight: 600; }
+
+/* ---------- Kartu pilih (tahun/bab) ---------- */
+.card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+.pick-card {
+  display: flex; flex-direction: column; gap: 4px; text-decoration: none;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 18px 20px; color: var(--ink); border-left: 3px solid var(--accent);
+}
+.pick-card:hover { border-color: var(--accent); box-shadow: 0 2px 10px rgba(12,39,51,.06); }
+.pick-year { font-size: 26px; font-weight: 700; color: var(--ink); }
+.pick-name { font-weight: 600; }
+.pick-meta { font-size: 12.5px; color: var(--muted); }
+
+/* ---------- Toolbar ---------- */
+.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+
+/* ---------- Tabel wide: isi di-center, label baris kiri ---------- */
+.data-table.wide th, .data-table.wide td { text-align: center; vertical-align: middle; }
+.data-table.wide th.rowhead, .data-table.wide td.rowhead { text-align: left; font-weight: 600; white-space: nowrap; }
+.data-table.wide th { background: #f0ede3; color: var(--ink); font-size: 11.5px; }
+.data-table.wide td input {
+  width: 100%; min-width: 80px; text-align: center; padding: 5px 6px;
+  border: 1px solid var(--line); border-radius: 4px; font-variant-numeric: tabular-nums;
+}
+.data-table.wide td input:focus { border-color: var(--accent); }
+
+/* ---------- Baris total ---------- */
+.data-table.wide tfoot .row-total td { border-top: 2px solid var(--ink); font-weight: 700; background: #f0ede3; }
+.tag-total { font-family: var(--mono); font-size: 9.5px; background: var(--ink); color: #fff; padding: 1px 5px; border-radius: 3px; margin-left: 6px; vertical-align: middle; }
+
+/* ---------- Ekstraksi ---------- */
+.form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 16px; }
+.form-row .full { grid-column: 1 / -1; }
+.prev-note { background: #fbecd6; border-left: 3px solid var(--accent); padding: 10px 14px; border-radius: 5px; font-size: 13px; margin-bottom: 16px; }

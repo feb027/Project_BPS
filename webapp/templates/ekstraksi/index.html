@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Ekstraksi PDF{% endblock %}
+{% block eyebrow %}Sumber Data{% endblock %}
+{% block heading %}Ekstraksi dari PDF{% endblock %}
+
+{% block content %}
+<div class="panel">
+  <p class="hint" style="margin-top:0;">Unggah PDF publikasi, pilih rentang halaman satu tabel (termasuk halaman lanjutan). Hasil bisa diperiksa &amp; diedit dulu sebelum disimpan. Saat ini dioptimalkan untuk tabel per-kecamatan.</p>
+  <form method="post" action="{% url 'ekstraksi:preview' %}" enctype="multipart/form-data">
+    {% csrf_token %}
+    <div class="form-row">
+      <div class="full">
+        <label>Publikasi (pilih yang ada)</label>
+        <select name="pub_id">
+          <option value="">— Buat publikasi baru —</option>
+          {% for p in pubs %}<option value="{{ p.pk }}">{{ p.judul }} ({{ p.tahun_terbit }})</option>{% endfor %}
+        </select>
+      </div>
+      <div><label>Judul publikasi baru</label><input type="text" name="judul_baru" placeholder="mis. Kab. Tasikmalaya Dalam Angka 2026"></div>
+      <div><label>Tahun terbit</label><input type="number" name="tahun_baru" placeholder="2026"></div>
+    </div>
+    <div class="form-row">
+      <div class="full"><label>File PDF</label><input type="file" name="pdf" accept="application/pdf" required></div>
+      <div><label>Halaman dari</label><input type="number" name="hal_awal" min="1" required placeholder="46"></div>
+      <div><label>Halaman sampai</label><input type="number" name="hal_akhir" min="1" required placeholder="47"></div>
+      <div>
+        <label>Jenis tabel</label>
+        <select name="mode">
+          <option value="kecamatan">Per Kecamatan</option>
+          <option value="kategori">Per Kategori (umur/partai/jabatan…)</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn btn--accent" type="submit">Ekstrak &amp; Pratinjau →</button>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Isi Data{% endblock %}
+{% block eyebrow %}Tabel {{ tabel.nomor_tabel }}{% endblock %}
+{% block heading %}Isi Data — {{ tabel.nama_tampil }}{% endblock %}
+
+{% block content %}
+{% if not koloms %}
+<p class="prev-note">Tabel ini belum punya kolom. <a href="{% url 'katalog:tabel_edit' tabel.pk %}">Edit tabel</a> untuk menambah kolom dulu.</p>
+{% else %}
+<p class="prev-note">{% if is_kategori %}Tambah baris rincian lalu isi nilainya.{% else %}39 kecamatan + Total sudah disiapkan. Tinggal ketik angka (kosongkan bila tidak ada).{% endif %} Angka pakai format Indonesia (mis. 1.234,56).</p>
+
+<form method="post">
+{% csrf_token %}
+<div class="panel" style="overflow-x:auto;">
+  <table class="data-table wide">
+    <thead>
+      <tr>
+        <th class="rowhead">{{ label_baris }}</th>
+        {% for k in koloms %}<th>{{ k.indikator.nama }}{% if k.tahun %} ({{ k.tahun }}){% endif %}{% if k.satuan %} — {{ k.satuan }}{% endif %}</th>{% endfor %}
+      </tr>
+    </thead>
+    <tbody id="baris-wrap">
+      {% for row in baris %}
+      <tr>
+        <td class="rowhead">
+          {% if is_kategori %}<input type="text" name="row-{{ forloop.counter0 }}-nama" value="{{ row.nama }}" placeholder="nama rincian">
+          {% else %}<input type="text" name="row-{{ forloop.counter0 }}-nama" value="{{ row.nama }}" readonly>{% endif %}
+        </td>
+        {% for v in row.sel %}
+        <td><input type="text" name="cell-{{ forloop.parentloop.counter0 }}-{{ forloop.counter0 }}" value="{{ v }}"></td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <input type="hidden" name="n_rows" id="n_rows" value="{{ baris|length }}">
+  {% if is_kategori %}<button class="btn" type="button" onclick="tambahBaris()" style="margin-top:12px;">+ Tambah baris</button>{% endif %}
+</div>
+
+<div class="toolbar" style="margin-top:16px;">
+  <button class="btn btn--accent" type="submit">Simpan Data</button>
+  <a class="btn" href="{% url 'data:tabel_detail' tabel.pk %}">Kembali</a>
+</div>
+</form>
+
+{% if is_kategori %}
+<script>
+var NKOL = {{ koloms|length }};
+function tambahBaris() {
+  var tb = document.getElementById('baris-wrap');
+  var i = parseInt(document.getElementById('n_rows').value, 10);
+  var tr = document.createElement('tr');
+  var html = '<td class="rowhead"><input type="text" name="row-'+i+'-nama" placeholder="nama rincian"></td>';
+  for (var j = 0; j < NKOL; j++) html += '<td><input type="text" name="cell-'+i+'-'+j+'"></td>';
+  tr.innerHTML = html;
+  tb.appendChild(tr);
+  document.getElementById('n_rows').value = i + 1;
+}
+</script>
+{% endif %}
+{% endif %}
+{% endblock %}

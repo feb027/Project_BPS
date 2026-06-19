@@ -1,0 +1,7 @@
+from django.apps import AppConfig
+
+
+class ReferensiConfig(AppConfig):
+    default_auto_field = "django.db.models.BigAutoField"
+    name = "apps.referensi"
+    verbose_name = "Data Referensi (Master)"

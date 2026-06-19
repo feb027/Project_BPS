@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}{% if edit %}Edit Tabel{% else %}Tabel Baru{% endif %}{% endblock %}
+{% block eyebrow %}{{ bab.nama }}{% endblock %}
+{% block heading %}{% if edit %}Edit Tabel{% else %}Tabel Baru{% endif %}{% endblock %}
+
+{% block content %}
+<form method="post">
+{% csrf_token %}
+<div class="panel" style="max-width:760px;">
+  <h2>Identitas Tabel</h2>
+  {% for field in form %}
+    <div style="margin-bottom:14px;">
+      <label>{{ field.label }}</label>
+      {{ field }}
+      {% if field.errors %}<div class="msg msg--error">{{ field.errors|striptags }}</div>{% endif %}
+    </div>
+  {% endfor %}
+</div>
+
+{% if not edit %}
+<datalist id="indikator-ada">
+  {% for nm in indikator_ada %}<option value="{{ nm }}"></option>{% endfor %}
+</datalist>
+
+<div class="panel">
+  <h2>Kolom Tabel <span class="hint">(header asli buku)</span></h2>
+  <div id="kolom-wrap">
+    <div class="form-row kolom-baris">
+      <div><label>Nama kolom</label><input type="text" name="kol-0-nama" list="indikator-ada" placeholder="mis. Luas Daerah"></div>
+      <div><label>Satuan</label><input type="text" name="kol-0-satuan" placeholder="km2"></div>
+      <div><label>Tahun</label><input type="number" name="kol-0-tahun" placeholder="2025"></div>
+      <div><label>Tipe</label><select name="kol-0-tipe"><option value="numerik">Numerik</option><option value="teks">Teks</option></select></div>
+    </div>
+    <div class="form-row kolom-baris">
+      <div><label>Nama kolom</label><input type="text" name="kol-1-nama" list="indikator-ada"></div>
+      <div><label>Satuan</label><input type="text" name="kol-1-satuan"></div>
+      <div><label>Tahun</label><input type="number" name="kol-1-tahun"></div>
+      <div><label>Tipe</label><select name="kol-1-tipe"><option value="numerik">Numerik</option><option value="teks">Teks</option></select></div>
+    </div>
+  </div>
+  <input type="hidden" name="n_kol" id="n_kol" value="2">
+  <button class="btn" type="button" onclick="tambahKolom()">+ Tambah kolom</button>
+</div>
+{% endif %}
+
+<div class="toolbar" style="margin-top:16px;">
+  <button class="btn btn--accent" type="submit">{% if edit %}Simpan{% else %}Lanjut: Isi Data →{% endif %}</button>
+  <a class="btn" href="{% url 'data:bab' bab.pk %}">Batal</a>
+</div>
+</form>
+
+{% if not edit %}
+<script>
+function tambahKolom() {
+  var wrap = document.getElementById('kolom-wrap');
+  var i = parseInt(document.getElementById('n_kol').value, 10);
+  var div = document.createElement('div');
+  div.className = 'form-row kolom-baris';
+  div.innerHTML = '<div><label>Nama kolom</label><input type="text" name="kol-'+i+'-nama" list="indikator-ada"></div>'
+    + '<div><label>Satuan</label><input type="text" name="kol-'+i+'-satuan"></div>'
+    + '<div><label>Tahun</label><input type="number" name="kol-'+i+'-tahun"></div>'
+    + '<div><label>Tipe</label><select name="kol-'+i+'-tipe"><option value="numerik">Numerik</option><option value="teks">Teks</option></select></div>';
+  wrap.appendChild(div);
+  document.getElementById('n_kol').value = i + 1;
+}
+</script>
+{% endif %}
+{% endblock %}

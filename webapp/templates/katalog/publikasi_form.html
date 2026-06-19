@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Publikasi Baru{% endblock %}
+{% block eyebrow %}Tambah Data{% endblock %}
+{% block heading %}Publikasi Baru{% endblock %}
+
+{% block content %}
+<div class="panel" style="max-width:620px;">
+  <form method="post">
+    {% csrf_token %}
+    {% for field in form %}
+      <div style="margin-bottom:14px;">
+        <label>{{ field.label }}</label>
+        {{ field }}
+        {% if field.errors %}<div class="msg msg--error">{{ field.errors|striptags }}</div>{% endif %}
+      </div>
+    {% endfor %}
+    <button class="btn btn--accent" type="submit">Simpan</button>
+    <a class="btn" href="{% url 'data:home' %}">Batal</a>
+  </form>
+</div>
+{% endblock %}

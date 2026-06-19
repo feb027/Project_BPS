@@ -1,0 +1,8 @@
+Django>=5.2,<5.3
+python-dotenv>=1.0
+django-import-export>=4.0
+pdfplumber>=0.11
+openpyxl>=3.1
+waitress>=3.0
+# Driver PostgreSQL (produksi). Aktifkan saat Postgres siap:
+# psycopg[binary]>=3.2
