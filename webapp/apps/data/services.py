@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
+from django.db.models import Max
 
 from apps.katalog.models import Bab, KolomTabel, Publikasi, Tabel
 from apps.referensi.models import Indikator, Rincian, Wilayah
@@ -59,6 +60,19 @@ def _jenis_wilayah(nama: str) -> str:
     return Wilayah.Jenis.KECAMATAN
 
 
+def normalisasi_indikator(nama: str) -> str:
+    """
+    Kunci-samakan nama indikator agar varian sepele tidak terpecah jadi banyak.
+    Konservatif: hanya menyamakan beda huruf besar/kecil, spasi, tanda hubung,
+    dan spasi di sekitar '/'. (mis. 'Laki-laki' == 'Laki-Laki').
+    """
+    s = (nama or "").lower().strip()
+    s = s.replace("\u2013", "-").replace("\u2014", "-")
+    s = re.sub(r"\s*/\s*", "/", s)
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+
 @transaction.atomic
 def ingest_long_rows(rows, publikasi: Publikasi, user=None) -> HasilIngest:
     """
@@ -73,6 +87,12 @@ def ingest_long_rows(rows, publikasi: Publikasi, user=None) -> HasilIngest:
     cache_rincian: dict[str, Rincian] = {}
     cache_tabel: dict[str, Tabel] = {}
     urutan_kolom: dict[int, int] = {}  # tabel_id -> counter
+
+    # indeks indikator yang sudah ada, dikunci dgn nama ter-normalisasi
+    # -> ingest menyatukan varian sepele ke indikator yang sudah ada
+    idx_indikator: dict[str, Indikator] = {}
+    for ind in Indikator.objects.all():
+        idx_indikator.setdefault(normalisasi_indikator(ind.nama), ind)
 
     for row in rows:
         nomor_tabel = (row.get("nomor_tabel") or "").strip()
@@ -92,6 +112,7 @@ def ingest_long_rows(rows, publikasi: Publikasi, user=None) -> HasilIngest:
                 bab=bab, nomor_tabel=nomor_tabel,
                 defaults={
                     "judul": (row.get("judul_tabel") or "").strip()[:400],
+                    "judul_en": (row.get("judul_en") or "").strip()[:400],
                     "sumber": (row.get("sumber") or "").strip()[:300],
                     "tipe_baris": tipe_baris,
                     "status_verifikasi": Tabel.Status.EKSTRAK,
@@ -102,19 +123,21 @@ def ingest_long_rows(rows, publikasi: Publikasi, user=None) -> HasilIngest:
                 hasil.tabel += 1
         tabel = cache_tabel[nomor_tabel]
 
-        # --- Referensi: Indikator ---
+        # --- Referensi: Indikator (dengan penyatuan varian via normalisasi) ---
         nama_ind = (row.get("indikator") or "").strip()
         satuan = (row.get("satuan") or "").strip()
         nilai_num = _to_decimal(row.get("nilai_num"))
         tipe_nilai = Indikator.TipeNilai.NUMERIK if nilai_num is not None else Indikator.TipeNilai.TEKS
         if nama_ind not in cache_indikator:
-            ind, dibuat = Indikator.objects.get_or_create(
-                nama=nama_ind,
-                defaults={"satuan": satuan, "tipe_nilai": tipe_nilai},
-            )
-            cache_indikator[nama_ind] = ind
-            if dibuat:
+            kunci = normalisasi_indikator(nama_ind)
+            ind = idx_indikator.get(kunci)
+            if ind is None:
+                ind = Indikator.objects.create(
+                    nama=nama_ind, satuan=satuan, tipe_nilai=tipe_nilai,
+                )
+                idx_indikator[kunci] = ind
                 hasil.indikator += 1
+            cache_indikator[nama_ind] = ind
         indikator = cache_indikator[nama_ind]
         # bila sebelumnya tertebak 'teks' tapi ada angka, naikkan ke numerik
         if nilai_num is not None and indikator.tipe_nilai == Indikator.TipeNilai.TEKS:
@@ -123,16 +146,20 @@ def ingest_long_rows(rows, publikasi: Publikasi, user=None) -> HasilIngest:
 
         # --- Katalog: KolomTabel (tautan tabel<->indikator) ---
         tahun = _to_int(row.get("tahun"))
+        if tabel.id not in urutan_kolom:
+            # mulai dari urutan tertinggi yang sudah ada di DB (ingest inkremental)
+            maks = tabel.kolom_set.aggregate(m=Max("urutan"))["m"] or 0
+            urutan_kolom[tabel.id] = maks
         kolom, kolom_baru = KolomTabel.objects.get_or_create(
             tabel=tabel, indikator=indikator, tahun=tahun,
             defaults={
-                "urutan": urutan_kolom.get(tabel.id, 0) + 1,
+                "urutan": urutan_kolom[tabel.id] + 1,
                 "satuan": satuan,
                 "tipe_nilai": tipe_nilai,
             },
         )
         if kolom_baru:
-            urutan_kolom[tabel.id] = urutan_kolom.get(tabel.id, 0) + 1
+            urutan_kolom[tabel.id] += 1
 
         # --- Referensi: Wilayah & Rincian ---
         wilayah = None

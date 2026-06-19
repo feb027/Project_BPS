@@ -12,9 +12,11 @@
   {% else %}
     <span style="display:flex; gap:8px;">
       <a class="btn btn--accent" href="{% url 'data:tabel_isi' tabel.pk %}">Isi / Tambah Data</a>
-      <a class="btn" href="?edit=1">Edit Nilai</a>
-      <a class="btn" href="{% url 'katalog:tabel_edit' tabel.pk %}">Edit Tabel</a>
-      <a class="btn" href="{% url 'katalog:tabel_delete' tabel.pk %}" style="background:var(--danger);">Hapus</a>
+      <a class="btn btn--ghost" href="?edit=1">Edit Nilai</a>
+      <a class="btn btn--ghost" href="{% url 'katalog:tabel_edit' tabel.pk %}">Edit Tabel</a>
+      <a class="btn btn--ghost" href="{% url 'data:export_tabel' tabel.pk %}">Ekspor CSV</a>
+      <a class="btn btn--ghost" href="{% url 'data:export_tabel' tabel.pk %}?format=xlsx">Excel</a>
+      <a class="btn btn--danger" href="{% url 'katalog:tabel_delete' tabel.pk %}">Hapus</a>
     </span>
   {% endif %}
 </div>

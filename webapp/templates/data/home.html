@@ -10,11 +10,17 @@
 </div>
 <div class="card-grid">
   {% for p in pubs %}
-  <a class="pick-card" href="{% url 'data:publikasi' p.pk %}">
-    <span class="pick-year num">{{ p.tahun_terbit }}</span>
-    <span class="pick-name">{{ p.judul }}</span>
-    <span class="pick-meta">{{ p.jml_bab }} bab · {{ p.get_jenis_display }}</span>
-  </a>
+  <div class="pick-card" style="position:relative;">
+    <a href="{% url 'data:publikasi' p.pk %}" style="display:flex;flex-direction:column;gap:4px;text-decoration:none;color:inherit;">
+      <span class="pick-year num">{{ p.tahun_terbit }}</span>
+      <span class="pick-name">{{ p.judul }}</span>
+      <span class="pick-meta">{{ p.jml_bab }} bab · {{ p.get_jenis_display }}</span>
+    </a>
+    <span class="card-actions">
+      <a class="btn btn--sm btn--ghost" href="{% url 'katalog:publikasi_edit' p.pk %}">Edit</a>
+      <a class="btn btn--sm btn--danger" href="{% url 'katalog:publikasi_delete' p.pk %}">Hapus</a>
+    </span>
+  </div>
   {% empty %}
   <p class="empty">Belum ada publikasi.</p>
   {% endfor %}

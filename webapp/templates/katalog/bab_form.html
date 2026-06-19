@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}Bab Baru{% endblock %}
+{% block title %}{% if edit %}Edit Bab{% else %}Bab Baru{% endif %}{% endblock %}
 {% block eyebrow %}{{ pub.judul }}{% endblock %}
-{% block heading %}Bab Baru{% endblock %}
+{% block heading %}{% if edit %}Edit Bab{% else %}Bab Baru{% endif %}{% endblock %}
 
 {% block content %}
 <div class="panel" style="max-width:620px;">
@@ -14,8 +14,10 @@
         {% if field.errors %}<div class="msg msg--error">{{ field.errors|striptags }}</div>{% endif %}
       </div>
     {% endfor %}
-    <button class="btn btn--accent" type="submit">Simpan</button>
-    <a class="btn" href="{% url 'data:publikasi' pub.pk %}">Batal</a>
+    <div class="toolbar">
+      <button class="btn btn--accent" type="submit">Simpan</button>
+      <a class="btn" href="{% url 'data:publikasi' pub.pk %}">Batal</a>
+    </div>
   </form>
 </div>
 {% endblock %}

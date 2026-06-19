@@ -41,6 +41,28 @@
   <input type="hidden" name="n_kol" id="n_kol" value="2">
   <button class="btn" type="button" onclick="tambahKolom()">+ Tambah kolom</button>
 </div>
+{% else %}
+<div class="panel">
+  <h2>Kolom Tabel</h2>
+  {% if koloms %}
+  <p class="hint">Ubah nama indikator, satuan, tahun, atau tipe kolom. Untuk mengubah angka isi tabel, gunakan "Edit Nilai" di halaman tabel.</p>
+  {% for k in koloms %}
+  <div class="form-row kolom-baris">
+    <div><label>Nama kolom #{{ k.urutan }}</label><input type="text" name="kolom-{{ k.id }}-nama" value="{{ k.indikator.nama }}"></div>
+    <div><label>Satuan</label><input type="text" name="kolom-{{ k.id }}-satuan" value="{{ k.satuan }}"></div>
+    <div><label>Tahun</label><input type="number" name="kolom-{{ k.id }}-tahun" value="{{ k.tahun|default_if_none:'' }}"></div>
+    <div><label>Tipe</label>
+      <select name="kolom-{{ k.id }}-tipe">
+        <option value="numerik" {% if k.tipe_nilai == 'numerik' %}selected{% endif %}>Numerik</option>
+        <option value="teks" {% if k.tipe_nilai == 'teks' %}selected{% endif %}>Teks</option>
+      </select>
+    </div>
+  </div>
+  {% endfor %}
+  {% else %}
+  <p class="empty">Belum ada kolom. Tambahkan data lewat "Isi / Tambah Data".</p>
+  {% endif %}
+</div>
 {% endif %}
 
 <div class="toolbar" style="margin-top:16px;">
