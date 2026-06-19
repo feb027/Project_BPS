@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Beranda{% endblock %}
+{% block eyebrow %}Ringkasan{% endblock %}
+{% block heading %}Status Pangkalan Data{% endblock %}
+
+{% block content %}
+<div class="stat-grid">
+  <div class="stat">
+    <div class="stat-label">Publikasi</div>
+    <div class="stat-value num">{{ jml_publikasi }}</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Tabel</div>
+    <div class="stat-value num">{{ jml_tabel }}</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Total Nilai (fakta)</div>
+    <div class="stat-value num">{{ jml_fakta }}</div>
+  </div>
+  <div class="stat stat--warn">
+    <div class="stat-label">Perlu dicek</div>
+    <div class="stat-value num">{{ jml_perlu_cek }}</div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Publikasi terbaru</h2>
+  {% if publikasi_terbaru %}
+  <table class="data-table">
+    <thead><tr><th>Judul</th><th>Tahun</th><th>Cakupan</th><th>Jenis</th></tr></thead>
+    <tbody>
+      {% for p in publikasi_terbaru %}
+      <tr>
+        <td>{{ p.judul }}</td>
+        <td class="num">{{ p.tahun_terbit }}</td>
+        <td>{{ p.wilayah_cakupan }}</td>
+        <td>{{ p.get_jenis_display }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">Belum ada publikasi. Tambahkan lewat <a href="/admin/katalog/publikasi/add/">Katalog</a> atau mulai dari <a href="{% url 'ekstraksi:index' %}">Ekstraksi PDF</a>.</p>
+  {% endif %}
+</div>
+{% endblock %}

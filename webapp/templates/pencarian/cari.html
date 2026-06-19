@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Pencarian{% endblock %}
+{% block eyebrow %}Temukan Data{% endblock %}
+{% block heading %}Pencarian Data{% endblock %}
+
+{% block content %}
+<div class="panel">
+  <form method="get" style="display:flex; gap:12px; max-width:560px;">
+    <input type="text" name="q" value="{{ q }}" placeholder="Ketik kata kunci (mis. nama kecamatan, ibukota)…" autofocus>
+    <button class="btn" type="submit">Cari</button>
+  </form>
+  <p class="hint" style="margin-top:10px;">Pencarian penuh (filter wilayah/indikator/tahun) diperkaya pada Fase 4.</p>
+</div>
+
+{% if q %}
+<div class="panel">
+  <h2>Hasil untuk &ldquo;{{ q }}&rdquo;</h2>
+  {% if hasil %}
+  <table class="data-table">
+    <thead><tr><th>Tabel</th><th>Wilayah/Rincian</th><th>Tahun</th><th class="num">Nilai</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for f in hasil %}
+      <tr>
+        <td>{{ f.tabel.nomor_tabel }}</td>
+        <td>{{ f.wilayah|default:f.rincian|default:"–" }}</td>
+        <td class="num">{{ f.tahun|default:"–" }}</td>
+        <td class="num">{{ f.nilai_num|default:f.nilai_teks }}</td>
+        <td><span class="badge badge--{{ f.flag }}">{{ f.get_flag_display }}</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">Tidak ada hasil.</p>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

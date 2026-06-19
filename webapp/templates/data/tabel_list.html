@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Data Tabel{% endblock %}
+{% block eyebrow %}Katalog Data{% endblock %}
+{% block heading %}Daftar Tabel{% endblock %}
+
+{% block content %}
+<div class="panel">
+  {% if tabel_list %}
+  <table class="data-table">
+    <thead>
+      <tr><th>No.</th><th>Nama Tabel</th><th>Bab</th><th>Jenis Baris</th><th class="num">Jml Data</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for t in tabel_list %}
+      <tr>
+        <td class="num">{{ t.nomor_tabel }}</td>
+        <td><strong>{{ t.nama_tampil }}</strong></td>
+        <td>{{ t.bab.nama }}</td>
+        <td>{{ t.get_tipe_baris_display }}</td>
+        <td class="num">{{ t.jml }}</td>
+        <td><a class="btn" href="{% url 'data:tabel_detail' t.pk %}">Buka</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">Belum ada tabel. Impor data atau mulai dari <a href="{% url 'ekstraksi:index' %}">Ekstraksi PDF</a>.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Data Tabel{% endblock %}
+{% block eyebrow %}Pilih Tahun Terbit{% endblock %}
+{% block heading %}Publikasi{% endblock %}
+
+{% block content %}
+<div class="toolbar">
+  <span class="hint">Pilih tahun terbit untuk menelusuri, atau buat publikasi baru.</span>
+  <a class="btn btn--accent" href="{% url 'katalog:publikasi_create' %}">+ Tambah Publikasi</a>
+</div>
+<div class="card-grid">
+  {% for p in pubs %}
+  <a class="pick-card" href="{% url 'data:publikasi' p.pk %}">
+    <span class="pick-year num">{{ p.tahun_terbit }}</span>
+    <span class="pick-name">{{ p.judul }}</span>
+    <span class="pick-meta">{{ p.jml_bab }} bab · {{ p.get_jenis_display }}</span>
+  </a>
+  {% empty %}
+  <p class="empty">Belum ada publikasi.</p>
+  {% endfor %}
+</div>
+{% endblock %}

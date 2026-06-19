@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}{{ pub.tahun_terbit }}{% endblock %}
+{% block eyebrow %}Pilih Bab{% endblock %}
+{% block heading %}{{ pub.judul }}{% endblock %}
+
+{% block content %}
+<div class="toolbar">
+  <span class="hint">Pilih bab, atau tambah bab baru.</span>
+  <a class="btn btn--accent" href="{% url 'katalog:bab_create' pub.pk %}">+ Tambah Bab</a>
+</div>
+<div class="card-grid">
+  {% for b in bab_list %}
+  <a class="pick-card" href="{% url 'data:bab' b.pk %}">
+    <span class="pick-year num">{{ b.nomor }}</span>
+    <span class="pick-name">{{ b.nama }}</span>
+    <span class="pick-meta">{{ b.jml_tabel }} tabel</span>
+  </a>
+  {% empty %}
+  <p class="empty">Belum ada bab.</p>
+  {% endfor %}
+</div>
+{% endblock %}

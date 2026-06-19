@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Hapus Tabel{% endblock %}
+{% block heading %}Hapus Tabel?{% endblock %}
+
+{% block content %}
+<div class="panel" style="max-width:560px;">
+  <p>Yakin menghapus tabel <strong>{{ tabel.nomor_tabel }} — {{ tabel.nama_tampil }}</strong> beserta semua datanya? Tindakan ini tidak bisa dibatalkan.</p>
+  <form method="post">
+    {% csrf_token %}
+    <button class="btn btn--accent" type="submit" style="background:var(--danger);">Ya, Hapus</button>
+    <a class="btn" href="{% url 'data:tabel_detail' tabel.pk %}">Batal</a>
+  </form>
+</div>
+{% endblock %}

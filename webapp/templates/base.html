@@ -1,0 +1,63 @@
+{% load static %}
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Pangkalan Data Publikasi{% endblock %} · BPS Tasikmalaya</title>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">BPS</span>
+        <span class="brand-text">Pangkalan Data<br>Publikasi</span>
+      </div>
+      <nav class="nav">
+        <a class="nav-link {% if request.resolver_match.namespace == 'core' %}is-active{% endif %}" href="{% url 'core:dashboard' %}">
+          <span class="nav-num">00</span> Beranda
+        </a>
+        <a class="nav-link {% if request.resolver_match.namespace == 'ekstraksi' %}is-active{% endif %}" href="{% url 'ekstraksi:index' %}">
+          <span class="nav-num">01</span> Ekstraksi PDF
+        </a>
+        <a class="nav-link {% if request.resolver_match.namespace == 'pencarian' %}is-active{% endif %}" href="{% url 'pencarian:cari' %}">
+          <span class="nav-num">02</span> Pencarian
+        </a>
+        <a class="nav-link {% if request.resolver_match.namespace == 'data' %}is-active{% endif %}" href="{% url 'data:home' %}">
+          <span class="nav-num">03</span> Data Tabel
+        </a>
+        <a class="nav-link" href="/admin/"><span class="nav-num">04</span> Katalog &amp; Master</a>
+      </nav>
+      <div class="sidebar-foot">
+        <a href="/admin/">Panel Admin</a>
+      </div>
+    </aside>
+
+    <main class="content">
+      <header class="topbar">
+        {% block breadcrumb %}
+          {% if breadcrumb %}
+          <nav class="crumbs" aria-label="Breadcrumb">
+            {% for c in breadcrumb %}
+              {% if c.url %}<a href="{{ c.url }}">{{ c.label }}</a><span class="crumb-sep">/</span>
+              {% else %}<span class="crumb-now">{{ c.label }}</span>{% endif %}
+            {% endfor %}
+          </nav>
+          {% endif %}
+        {% endblock %}
+        <div class="eyebrow">{% block eyebrow %}Pangkalan Data{% endblock %}</div>
+        <h1 class="page-title">{% block heading %}{% endblock %}</h1>
+      </header>
+      {% if messages %}
+        <ul class="messages">
+          {% for m in messages %}<li class="msg msg--{{ m.tags }}">{{ m }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+      <div class="page-body">
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+  </div>
+</body>
+</html>
