@@ -4,5 +4,13 @@ django-import-export>=4.0
 pdfplumber>=0.11
 openpyxl>=3.1
 waitress>=3.0
+# --- OCR untuk PDF hasil scan (buku lama). Opsional ---
+# PyMuPDF dipakai utk klasifikasi & render halaman; pytesseract+pillow utk OCR.
+# Selain ini, program "Tesseract OCR" harus terpasang di sistem
+# (Windows: https://github.com/UB-Mannheim/tesseract/wiki).
+PyMuPDF>=1.24
+pytesseract>=0.3.10
+pillow>=10.0
+# opencv-python>=4.9  # (opsional) pra-proses gambar agar OCR lebih akurat
 # Driver PostgreSQL (produksi). Aktifkan saat Postgres siap:
 # psycopg[binary]>=3.2

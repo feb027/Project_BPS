@@ -59,5 +59,33 @@
       </div>
     </main>
   </div>
+
+  <div id="loading-overlay" class="loading-overlay" hidden>
+    <div class="loading-box">
+      <div class="spinner" aria-hidden="true"></div>
+      <p class="loading-text" id="loading-text">Memproses…</p>
+      <p class="loading-sub">Mohon tunggu, jangan tutup halaman ini.</p>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    var ov = document.getElementById("loading-overlay");
+    function hideOverlay() { if (ov) ov.hidden = true; }
+    // selalu sembunyikan saat halaman tampil (termasuk dari back/forward cache)
+    window.addEventListener("pageshow", hideOverlay);
+    window.addEventListener("load", hideOverlay);
+
+    document.addEventListener("submit", function (e) {
+      var form = e.target;
+      if (!form.matches("[data-loading]")) return;
+      // jangan tampilkan overlay bila form tidak valid (HTML5 required dsb.)
+      if (typeof form.checkValidity === "function" && !form.checkValidity()) return;
+      var txt = document.getElementById("loading-text");
+      if (txt && form.dataset.loading) txt.textContent = form.dataset.loading;
+      if (ov) ov.hidden = false;
+    });
+  })();
+  </script>
 </body>
 </html>

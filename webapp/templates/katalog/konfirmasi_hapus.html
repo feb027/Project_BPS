@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ judul }}{% endblock %}
+{% block heading %}{{ judul }}?{% endblock %}
+
+{% block content %}
+<div class="panel" style="max-width:560px;border-left:4px solid var(--danger);">
+  <p>{{ pesan }}</p>
+  <p class="hint">Tindakan ini tidak bisa dibatalkan.</p>
+  <form method="post">
+    {% csrf_token %}
+    <div class="toolbar">
+      <button class="btn btn--accent" type="submit" style="background:var(--danger);">Ya, Hapus</button>
+      <a class="btn" href="{{ batal_url }}">Batal</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

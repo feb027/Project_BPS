@@ -6,7 +6,12 @@
 {% block content %}
 <div class="toolbar">
   <span class="hint">Daftar tabel dalam bab ini.</span>
-  <a class="btn btn--accent" href="{% url 'katalog:tabel_create' bab.pk %}">+ Tambah Tabel</a>
+  <span style="display:flex;gap:8px;">
+    <a class="btn btn--ghost" href="{% url 'katalog:bab_edit' bab.pk %}">Edit Bab</a>
+    <a class="btn btn--ghost" href="{% url 'data:export_bab' bab.pk %}">Ekspor CSV</a>
+    <a class="btn btn--ghost" href="{% url 'data:export_bab' bab.pk %}?format=xlsx">Excel</a>
+    <a class="btn btn--accent" href="{% url 'katalog:tabel_create' bab.pk %}">+ Tambah Tabel</a>
+  </span>
 </div>
 <div class="panel">
   <table class="data-table">
@@ -18,7 +23,11 @@
         <td><strong>{{ t.nama_tampil }}</strong></td>
         <td>{{ t.get_tipe_baris_display }}</td>
         <td class="num">{{ t.jml }}</td>
-        <td><a class="btn" href="{% url 'data:tabel_detail' t.pk %}">Buka</a></td>
+        <td style="display:flex;gap:6px;">
+          <a class="btn btn--sm" href="{% url 'data:tabel_detail' t.pk %}">Buka</a>
+          <a class="btn btn--sm btn--ghost" href="{% url 'katalog:tabel_edit' t.pk %}">Edit</a>
+          <a class="btn btn--sm btn--danger" href="{% url 'katalog:tabel_delete' t.pk %}">Hapus</a>
+        </td>
       </tr>
       {% empty %}
       <tr><td colspan="5" class="empty">Belum ada tabel.</td></tr>
