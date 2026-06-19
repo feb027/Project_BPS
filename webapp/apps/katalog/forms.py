@@ -18,5 +18,9 @@ class BabForm(forms.ModelForm):
 class TabelForm(forms.ModelForm):
     class Meta:
         model = Tabel
-        fields = ["nomor_tabel", "nama_ringkas", "judul", "tipe_baris", "sumber", "tahun_data"]
-        widgets = {"judul": forms.Textarea(attrs={"rows": 2})}
+        fields = ["nomor_tabel", "nama_ringkas", "judul", "judul_en", "tipe_baris",
+                  "sumber", "tahun_data"]
+        widgets = {
+            "judul": forms.Textarea(attrs={"rows": 2}),
+            "judul_en": forms.Textarea(attrs={"rows": 2}),
+        }
