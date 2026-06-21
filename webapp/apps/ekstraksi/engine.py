@@ -55,7 +55,14 @@ def clean_page(page):
     return page.filter(lambda o: not (o.get("object_type") == "char" and is_watermark(o)))
 
 
-def cluster_lines(chars, tol=4.0):
+def cluster_lines(chars, tol=None):
+    if not chars:
+        return []
+    if tol is None:
+        import statistics
+        sizes = [c.get("size", 10) for c in chars if "size" in c]
+        med = statistics.median(sizes) if sizes else 10.0
+        tol = med * 0.4
     chars = sorted(chars, key=lambda c: (c["top"], c["x0"]))
     lines = []
     for c in chars:
@@ -71,12 +78,19 @@ def cluster_lines(chars, tol=4.0):
     return lines
 
 
-def _edges_from_items(items, min_gap=7.0, body_left=None, body_right=None):
+def _edges_from_items(items, min_gap=None, body_left=None, body_right=None):
     """
     Deteksi batas kolom dari CELAH vertikal (gutter) antar teks.
     Dipakai utk tabel TANPA garis (borderless) & hasil OCR.
     items: list dict dengan 'x0','x1'. -> list edge (x) atau None.
     """
+    if not items:
+        return None
+    if min_gap is None:
+        import statistics
+        widths = [i.get("x1", 0) - i.get("x0", 0) for i in items]
+        med_w = statistics.median(widths) if widths else 5.0
+        min_gap = med_w * 1.5
     if not items:
         return None
     left = body_left if body_left is not None else min(i["x0"] for i in items)
@@ -126,7 +140,7 @@ def col_edges(page):
     tbl_top = _table_top(page)
     lo = (tbl_top - 5) if tbl_top else 130
     body = [c for c in page.chars if lo < c["top"] < 560]
-    return _edges_from_items(body, min_gap=7.0)
+    return _edges_from_items(body, min_gap=None)
 
 
 def row_to_cols(line, edges):
@@ -316,7 +330,7 @@ def detect_headers(page, edges):
     tbl_top = _table_top(page) or 110
     # baris '(1)(2)..' menandai akhir header
     colnum_top = None
-    for ln in cluster_lines(cpage.chars, 3.0):
+    for ln in cluster_lines(cpage.chars, tol=None):
         if ln["top"] < tbl_top - 2:
             continue
         t = "".join(c["text"] for c in ln["chars"]).strip()
@@ -325,35 +339,110 @@ def detect_headers(page, edges):
             colnum_top = ln["top"]
             break
     n = len(edges) - 1
-    nama_id = [""] * n
-    nama_full = [""] * n
-    if colnum_top is None:
-        colnum_top = tbl_top + 60
+    # Pisahkan kata ID dan EN, ambil hanya ID
+    id_words = []
     for w in words:
-        if not (tbl_top - 4 < w["top"] < colnum_top - 1):
-            continue
-        cx = (w["x0"] + w["x1"]) / 2
-        for i in range(n):
-            if edges[i] <= cx < edges[i + 1]:
-                nama_full[i] = (nama_full[i] + " " + w["text"]).strip()
-                if not _is_italic(w):
-                    nama_id[i] = (nama_id[i] + " " + w["text"]).strip()
-                break
+        if (tbl_top - 4 < w["top"] < colnum_top - 1) and not _is_italic(w):
+            id_words.append(w)
+            
+    # Kelompokkan kata-kata header menjadi baris
+    header_lines = cluster_lines(id_words, tol=None)
+    
+    # Ambil sel-sel tabel di area header jika ada (membantu deteksi span/gabungan kolom)
+    header_cells = []
+    try:
+        tabs = page.find_tables()
+        if tabs:
+            for c in tabs[0].cells:
+                if c and c[1] < colnum_top:
+                    header_cells.append(c)
+    except Exception:
+        pass
+
+    col_headers = [[] for _ in range(n)]
+    
+    for ln in header_lines:
+        # Gabungkan kata-kata yang berdekatan di baris ini
+        ln_words = ln["chars"]
+        
+        # Kata-kata sudah diurutkan dari x0 ke x1 di cluster_lines
+        merged_blocks = []
+        if ln_words:
+            curr_w = {
+                "text": ln_words[0]["text"], 
+                "x0": ln_words[0]["x0"], 
+                "x1": ln_words[0]["x1"],
+                "top": ln["top"],
+                "bottom": ln_words[0]["bottom"]
+            }
+            for w in ln_words[1:]:
+                # Jika jaraknya dekat, gabungkan
+                if w["x0"] - curr_w["x1"] < 15.0: # toleransi spasi
+                    curr_w["text"] += " " + w["text"]
+                    curr_w["x1"] = w["x1"]
+                    curr_w["bottom"] = max(curr_w["bottom"], w["bottom"])
+                else:
+                    merged_blocks.append(curr_w)
+                    curr_w = {
+                        "text": w["text"], "x0": w["x0"], "x1": w["x1"], 
+                        "top": ln["top"], "bottom": w["bottom"]
+                    }
+            merged_blocks.append(curr_w)
+            
+        # Alokasikan blok teks ke kolom-kolom yang bersilangan
+        for blk in merged_blocks:
+            span_x0, span_x1 = blk["x0"], blk["x1"]
+            
+            # Jika blk ini berada di dalam sel header yang membentang (colspan), gunakan rentang sel
+            for c in header_cells:
+                if c[0] - 5 <= blk["x0"] and blk["x1"] <= c[2] + 5 and c[1] - 5 <= blk["top"] and blk["bottom"] <= c[3] + 5:
+                    span_x0 = c[0]
+                    span_x1 = c[2]
+                    break
+
+            for i in range(n):
+                col_x0 = edges[i]
+                col_x1 = edges[i + 1]
+                
+                # Cek persilangan (intersection) antara [span_x0, span_x1] dan [col_x0, col_x1]
+                overlap_x0 = max(span_x0, col_x0)
+                overlap_x1 = min(span_x1, col_x1)
+                
+                # Jika bersilangan signifikan atau pusat blok ada di kolom ini
+                if overlap_x1 - overlap_x0 > 5 or (col_x0 <= (span_x0 + span_x1)/2 < col_x1):
+                    col_headers[i].append(blk["text"].strip())
 
     out = []
     for i in range(n):
-        full = _norm_label(nama_full[i])
-        idteks = _norm_label(nama_id[i]) or full
-        satuan = _parse_satuan(full)
-        # tahun: header berupa tahun (mungkin diikuti angka footnote)
+        lines = col_headers[i]
+        
+        # Bersihkan dari satuan dan gabungkan
+        nama_id = ""
+        satuan = ""
         tahun = ""
-        mt = re.match(r"^(19|20)\d{2}", re.sub(r"\D", "", idteks)[:4] or "")
-        if mt:
-            tahun = mt.group(0)
-        nama = _bersih_nama_kolom(idteks)
-        if tahun and not re.search(r"[A-Za-z]", nama):
-            nama = ""  # kolom murni tahun -> nama indikator diisi dari judul nanti
-        out.append({"nama": nama, "satuan": satuan, "tahun": tahun, "tipe": "num"})
+        
+        if lines:
+            raw_full = " ".join(lines)
+            satuan = _parse_satuan(raw_full)
+            
+            # Format Multi-level: [Baris 1] Baris 2 ... (jika ada lebih dari 1 baris logis)
+            bersih_lines = [_bersih_nama_kolom(l) for l in lines]
+            bersih_lines = [l for l in bersih_lines if l]
+            
+            if len(bersih_lines) > 1:
+                # Anggap elemen pertama adalah Super-Header/Group
+                nama_id = f"[{bersih_lines[0]}] {' '.join(bersih_lines[1:])}"
+            elif len(bersih_lines) == 1:
+                nama_id = bersih_lines[0]
+                
+            mt = re.match(r"^(19|20)\d{2}", re.sub(r"\D", "", nama_id)[:4] or "")
+            if mt:
+                tahun = mt.group(0)
+                
+            if tahun and not re.search(r"[A-Za-z]", nama_id):
+                nama_id = ""
+                
+        out.append({"nama": nama_id.strip(), "satuan": satuan, "tahun": tahun, "tipe": "num"})
     return out
 
 
@@ -368,7 +457,7 @@ def extract_page_rows(page):
         return [], None
     chars = page.chars
     anchors = []
-    for ln in cluster_lines(chars, tol=2.0):
+    for ln in cluster_lines(chars, tol=None):
         if len(ln["chars"]) < 3 or ln["top"] < 130:
             continue
         name = row_to_cols(ln, edges)[0]
@@ -399,7 +488,7 @@ def extract_page_rows_kategori(page):
     edges = col_edges(page)
     if not edges:
         return [], None
-    lines = cluster_lines(page.chars, 3.5)
+    lines = cluster_lines(page.chars, tol=None)
     rtop, rbot = 130, 9999
     for ln in lines:
         t = "".join(c["text"] for c in ln["chars"]).strip()
@@ -511,7 +600,7 @@ def _rakit_tabel(pages_info):
             h["nama"] = indikator_judul or f"Kolom {idx + 1}"
 
     halaman = [info[0].page_number for info in pages_info]
-    return {
+    tabel_dict = {
         "nomor": ident0.get("nomor") or "",
         "judul_id": judul,
         "judul_en": ident0.get("judul_en", ""),
@@ -528,6 +617,7 @@ def _rakit_tabel(pages_info):
         "halaman_awal": min(halaman),
         "halaman_akhir": max(halaman),
     }
+    return auto_correct_table(tabel_dict)
 
 
 def _indikator_dari_judul(judul):
@@ -596,6 +686,44 @@ def cek_total(tabel):
             "selisih": round(jml - tnum, 2),
         })
     return {"ada_total": True, "per_kolom": per_kolom, "semua_cocok": semua}
+
+
+def auto_correct_table(tabel):
+    """
+    Auto-correct tabel jika ada tepat 1 sel kosong/perlu_cek yang menyebabkan total tidak cocok.
+    Berlaku untuk memperbaiki kegagalan OCR yang hanya terjadi di 1 baris.
+    """
+    if not tabel.get("total"):
+        return tabel
+        
+    hasil_cek = cek_total(tabel)
+    if not hasil_cek["ada_total"] or hasil_cek["semua_cocok"]:
+        return tabel
+        
+    for info in hasil_cek["per_kolom"]:
+        if info["cocok"] is False and info["selisih"] is not None:
+            col_idx = info["kolom"]
+            selisih = info["selisih"]
+            
+            baris_target = []
+            for r in tabel["rows"]:
+                if col_idx < len(r["sel"]):
+                    sel = r["sel"][col_idx]
+                    if sel["flag"] in ("nihil", "tidak_tersedia", "perlu_cek"):
+                        baris_target.append(sel)
+            
+            # Jika tepat ada 1 sel target, otomatis isi dengan nilai selisih (dibalik)
+            if len(baris_target) == 1:
+                koreksi = round(-selisih, 4)
+                if koreksi != 0:
+                    str_koreksi = str(int(koreksi)) if koreksi.is_integer() else str(koreksi)
+                    str_koreksi = str_koreksi.replace('.', ',')
+                    
+                    baris_target[0]["teks"] = str_koreksi
+                    baris_target[0]["num"] = str_koreksi.replace(',', '.')
+                    baris_target[0]["flag"] = "auto_corrected"
+                    
+    return tabel
 
 
 # --------------------------------------------------------------------------- #
