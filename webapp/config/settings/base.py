@@ -120,3 +120,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 LOGIN_REDIRECT_URL = "core:dashboard"
 LOGIN_URL = "admin:login"
+
+# --- Gemini Vision AI (opsional, utk ekstraksi tabel PDF kompleks) ---
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")

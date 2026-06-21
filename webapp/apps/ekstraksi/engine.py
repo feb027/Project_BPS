@@ -38,15 +38,17 @@ _NOMOR_RE = re.compile(r"\d+(?:\.\d+){1,3}")
 #  Watermark & geometri dasar
 # --------------------------------------------------------------------------- #
 def is_watermark(obj):
-    c = obj.get("non_stroking_color")
-    if c is None:
-        return False
-    if isinstance(c, (list, tuple)):
-        return len(c) > 0 and all(abs(float(v)) < 0.04 for v in c)
-    try:
-        return abs(float(c)) < 0.04
-    except (TypeError, ValueError):
-        return False
+    """
+    Deteksi teks watermark berdasarkan kemiringannya (rotasi diagonal).
+    Teks biasa memiliki matriks (s, 0, 0, s, tx, ty) di mana elemen ke-1 dan ke-2 mendekati 0.
+    Watermark BPS biasanya diputar 45 derajat (sin 45 = 0.707).
+    """
+    matrix = obj.get("matrix")
+    if matrix and isinstance(matrix, (list, tuple)) and len(matrix) >= 4:
+        # Jika nilai sin(theta) signifikan, teks diputar (bukan horizontal)
+        if abs(matrix[1]) > 0.1 or abs(matrix[2]) > 0.1:
+            return True
+    return False
 
 
 def clean_page(page):
@@ -635,13 +637,26 @@ class _OcrPage:
 # --------------------------------------------------------------------------- #
 #  API utama
 # --------------------------------------------------------------------------- #
-def ekstrak_range(pdf_path, hal_awal, hal_akhir, pakai_ocr="auto"):
+def ekstrak_range(pdf_path, hal_awal, hal_akhir, pakai_ocr="auto",
+                   pakai_gemini=False):
     """
     Segmentasi rentang halaman menjadi DAFTAR tabel.
     pakai_ocr: 'auto' (OCR hanya utk halaman scan), 'paksa' (OCR semua),
                'tidak' (jangan OCR).
+    pakai_gemini: True → gunakan Gemini Vision AI (lebih akurat utk tabel
+                  kompleks, butuh API key + internet).
     -> list[dict] (lihat _rakit_tabel; tiap tabel punya kunci 'ocr' bool).
     """
+    # ── Gemini Vision path ──
+    if pakai_gemini:
+        from . import gemini_vision as _gv
+        if not _gv.gemini_tersedia():
+            raise RuntimeError(
+                f"Gemini Vision tidak tersedia: {_gv._alasan_tidak_tersedia()}"
+            )
+        return _gv.ekstrak_tabel_gemini(pdf_path, hal_awal, hal_akhir)
+
+    # ── pdfplumber path (engine lama) ──
     from . import ocr as _ocr
 
     tabel_list = []
@@ -692,6 +707,7 @@ def ekstrak_range(pdf_path, hal_awal, hal_akhir, pakai_ocr="auto"):
 
     for t in tabel_list:
         t["info_ocr"] = info_ocr
+        t["gemini"] = False
     return tabel_list
 
 

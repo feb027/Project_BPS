@@ -38,8 +38,25 @@
     </div>
     <div class="form-row">
       <div class="full">
-        <label>Mode pembacaan</label>
-        <select name="ocr">
+        <label>Metode ekstraksi</label>
+        <select name="metode" id="metode-selector">
+          <option value="pdfplumber" selected>Engine lokal (pdfplumber) — cepat, tanpa internet</option>
+          <option value="gemini" {% if not gemini_tersedia %}disabled{% endif %}>
+            🤖 AI Vision (Gemini Flash) — lebih akurat untuk tabel kompleks
+            {% if not gemini_tersedia %}[belum aktif]{% endif %}
+          </option>
+        </select>
+        {% if not gemini_tersedia %}
+        <p class="hint" style="margin:6px 0 0;color:var(--muted);">⚠ Gemini belum aktif: {{ gemini_pesan }}.</p>
+        {% else %}
+        <p class="hint" style="margin:6px 0 0;">✓ Gemini API siap. Mode AI lebih lambat (1–2 detik/halaman) tapi jauh lebih akurat untuk tabel dengan header kompleks/multi-level.</p>
+        {% endif %}
+      </div>
+    </div>
+    <div class="form-row" id="ocr-row">
+      <div class="full">
+        <label>Mode pembacaan (OCR)</label>
+        <select name="ocr" id="ocr-selector">
           <option value="auto" selected>Otomatis — deteksi teks digital, OCR bila halaman hasil scan</option>
           <option value="tidak">Hanya teks digital (paling cepat)</option>
           <option value="paksa">Paksa OCR semua halaman (untuk buku lama hasil scan)</option>
@@ -69,6 +86,19 @@
   }
   sel.addEventListener("change", sync);
   sync();
+
+  // Toggle OCR dropdown: disabled ketika Gemini dipilih
+  var metode = document.getElementById("metode-selector");
+  var ocrRow = document.getElementById("ocr-row");
+  var ocrSel = document.getElementById("ocr-selector");
+  function syncMetode() {
+    var isGemini = metode.value === "gemini";
+    ocrRow.style.opacity = isGemini ? "0.4" : "1";
+    ocrSel.disabled = isGemini;
+    if (isGemini) ocrSel.value = "tidak";
+  }
+  metode.addEventListener("change", syncMetode);
+  syncMetode();
 })();
 </script>
 {% endblock %}
