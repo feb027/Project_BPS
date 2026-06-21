@@ -12,5 +12,7 @@ PyMuPDF>=1.24
 pytesseract>=0.3.10
 pillow>=10.0
 # opencv-python>=4.9  # (opsional) pra-proses gambar agar OCR lebih akurat
+# --- Gemini Vision AI (opsional) utk ekstraksi tabel PDF kompleks ---
+google-genai>=1.0
 # Driver PostgreSQL (produksi). Aktifkan saat Postgres siap:
 # psycopg[binary]>=3.2

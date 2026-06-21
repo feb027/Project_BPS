@@ -8,11 +8,14 @@ from django.shortcuts import redirect, render
 from apps.data.services import ingest_long_rows
 from apps.katalog.models import Publikasi, Tabel
 from .engine import clean_num, ekstrak_range, cek_total
+from . import gemini_vision as _gv
 
 
 def index(request):
     return render(request, "ekstraksi/index.html", {
         "pubs": Publikasi.objects.order_by("-tahun_terbit"),
+        "gemini_tersedia": _gv.gemini_tersedia(),
+        "gemini_pesan": _gv._alasan_tidak_tersedia() if not _gv.gemini_tersedia() else "",
     })
 
 
@@ -29,6 +32,9 @@ def preview(request):
         return redirect("ekstraksi:index")
     if hal_akhir < hal_awal:
         hal_awal, hal_akhir = hal_akhir, hal_awal
+
+    metode = request.POST.get("metode", "pdfplumber")
+    pakai_gemini = metode == "gemini"
 
     pakai_ocr = request.POST.get("ocr", "auto")
     if pakai_ocr not in ("auto", "paksa", "tidak"):
@@ -47,7 +53,12 @@ def preview(request):
         for chunk in f.chunks():
             out.write(chunk)
     try:
-        daftar = ekstrak_range(tmp_path, hal_awal, hal_akhir, pakai_ocr=pakai_ocr)
+        daftar = ekstrak_range(tmp_path, hal_awal, hal_akhir,
+                               pakai_ocr=pakai_ocr,
+                               pakai_gemini=pakai_gemini)
+    except RuntimeError as e:
+        messages.error(request, f"Gagal ekstrak: {e}")
+        return redirect("ekstraksi:index")
     finally:
         try:
             os.remove(tmp_path)
@@ -84,7 +95,10 @@ def preview(request):
         messages.error(request, pesan)
         return redirect("ekstraksi:index")
 
-    if info_ocr.get("dipakai"):
+    if pakai_gemini:
+        messages.info(request, "Tabel diekstrak menggunakan Gemini Vision AI. "
+                               "Periksa header dan angka — AI bisa salah interpretasi.")
+    elif info_ocr.get("dipakai"):
         messages.info(request, "Sebagian halaman dibaca via OCR (PDF hasil scan). "
                                "Hasil OCR rawan salah baca — mohon periksa angka dengan teliti.")
     elif info_ocr.get("pesan") and not info_ocr.get("tersedia") and pakai_ocr != "tidak":

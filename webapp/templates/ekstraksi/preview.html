@@ -24,8 +24,11 @@
     </label>
     <span class="hint" id="pilih-info"></span>
   </div>
+  <button type="button" class="btn btn--ghost" id="btn-tambah-tabel">+ Tambah Tabel Baru</button>
   <button class="btn btn--accent" type="submit">Simpan Tabel Tercentang →</button>
 </div>
+
+<div id="tabel-container">
 
 {% for t in tabel_list %}
 {% with ti=forloop.counter0 %}
@@ -36,11 +39,15 @@
       Tabel {{ t.nomor }}
     </label>
     {% if t.ocr %}<span class="badge badge--big badge--ocr">OCR</span>{% endif %}
+    {% if t.gemini %}<span class="badge badge--big" style="background:linear-gradient(135deg,#4285f4,#a142f4);color:#fff;">🤖 AI</span>{% endif %}
     <span class="hint" style="margin:0;">Hal {{ t.halaman_awal }}{% if t.halaman_akhir != t.halaman_awal %}–{{ t.halaman_akhir }}{% endif %} · {{ t.mode|capfirst }} · {{ t.rows|length }} baris × {{ t.n_kolom }} kolom</span>
     {% if t.sudah_ada %}<span class="badge badge--big badge--scan" style="background:var(--danger);color:#fff;">⚠ sudah ada — akan ditimpa</span>{% endif %}
     <button type="button" class="card-toggle" data-toggle>Sembunyikan</button>
   </div>
   <p class="hint" style="margin:0 0 12px;">{{ t.judul_id }}</p>
+  <div style="display:flex; gap:6px; margin-bottom: 12px; flex-wrap:wrap;">
+    <button type="button" class="btn btn--ghost btn--small" style="color:var(--danger); margin-left:auto;" data-action="del-table" data-ti="{{ ti }}">Hapus Tabel</button>
+  </div>
 
   {% if t.cek_total.ada_total and not t.cek_total.semua_cocok %}
   <div class="cek-total-warn">
@@ -79,7 +86,11 @@
           <tr>
             <th class="rowhead">{% if t.mode == 'kategori' %}Rincian{% else %}Kecamatan{% endif %}</th>
             {% for j, hdr in t.kolom_data %}
-            <th>
+            <th class="col-header">
+              <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                 <button type="button" class="btn btn--ghost" style="padding:2px 4px; font-size:10px; line-height:1;" data-action="ins-col" title="Sisipkan Kolom di Kiri">[+]</button>
+                 <button type="button" class="btn btn--ghost" style="color:var(--danger); padding:2px 4px; font-size:10px; line-height:1;" data-action="rm-col" title="Hapus Kolom">[x]</button>
+              </div>
               <input type="text" name="t{{ ti }}-kol-{{ j }}-nama" value="{{ hdr.nama }}" placeholder="Nama kolom" required style="min-width:120px;">
               <input type="text" name="t{{ ti }}-kol-{{ j }}-satuan" value="{{ hdr.satuan }}" placeholder="satuan" style="min-width:70px;margin-top:4px;">
               <input type="number" name="t{{ ti }}-kol-{{ j }}-tahun" value="{{ hdr.tahun }}" placeholder="tahun" style="min-width:70px;margin-top:4px;">
@@ -89,8 +100,12 @@
         </thead>
         <tbody>
           {% for row in t.rows %}
-          <tr>
+          <tr class="data-row">
             <td class="rowhead">
+              <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                 <button type="button" class="btn btn--ghost" style="padding:2px 4px; font-size:10px; line-height:1;" data-action="ins-row" title="Sisipkan Baris di Atas">[+]</button>
+                 <button type="button" class="btn btn--ghost" style="color:var(--danger); padding:2px 4px; font-size:10px; line-height:1;" data-action="rm-row" title="Hapus Baris">[x]</button>
+              </div>
               <input type="text" name="t{{ ti }}-row-{{ forloop.counter0 }}-nama" value="{{ row.wilayah }}">
             </td>
             {% for c in row.sel %}
@@ -112,10 +127,87 @@
         {% endif %}
       </table>
     </div>
+
+    <div style="display:flex; gap:6px; margin-top: 12px; flex-wrap:wrap; padding-top: 8px; border-top: 1px dashed var(--line);">
+      <button type="button" class="btn btn--ghost btn--small" data-action="add-row" data-ti="{{ ti }}">+ Tambah Baris (Bawah)</button>
+      <button type="button" class="btn btn--ghost btn--small" data-action="del-row" data-ti="{{ ti }}">- Hapus Baris Terakhir</button>
+      <button type="button" class="btn btn--ghost btn--small" data-action="add-col-right" data-ti="{{ ti }}">+ Tambah Kolom (Kanan)</button>
+      <button type="button" class="btn btn--ghost btn--small" style="margin-left:auto;" data-action="toggle-tot" data-ti="{{ ti }}">± Baris Total</button>
+    </div>
   </div>
 </div>
 {% endwith %}
 {% endfor %}
+</div>
+
+<template id="tabel-template">
+<div class="panel tabel-card" data-card>
+  <div class="tabel-card-head">
+    <label style="display:flex;align-items:center;gap:8px;margin:0;font-weight:600;">
+      <input type="checkbox" name="pilih" value="__TI__" class="pilih-tabel" checked style="width:auto;">
+      Tabel Baru
+    </label>
+    <button type="button" class="card-toggle" data-toggle>Sembunyikan</button>
+  </div>
+  <p class="hint" style="margin:0 0 12px;">Tabel ditambahkan manual</p>
+  <div style="display:flex; gap:6px; margin-bottom: 12px; flex-wrap:wrap;">
+    <button type="button" class="btn btn--ghost btn--small" style="color:var(--danger); margin-left:auto;" data-action="del-table" data-ti="__TI__">Hapus Tabel</button>
+  </div>
+  
+  <div class="tabel-card-body">
+    <input type="hidden" name="t__TI__-n_rows" value="1">
+    <input type="hidden" name="t__TI__-n_kol" value="1">
+    <input type="hidden" name="t__TI__-mode" value="kategori">
+    <input type="hidden" name="t__TI__-ada_total" value="0">
+
+    <div class="form-row">
+      <div><label>Nomor tabel</label><input type="text" name="t__TI__-nomor_tabel" value="" required></div>
+      <div><label>Bab</label><input type="text" name="t__TI__-bab_nama" value="" required></div>
+      <div class="full"><label>Judul tabel (ID)</label><input type="text" name="t__TI__-judul" value="" required></div>
+      <div class="full"><label>Judul tabel (EN)</label><input type="text" name="t__TI__-judul_en" value=""></div>
+      <div class="full"><label>Sumber</label><input type="text" name="t__TI__-sumber" value="" placeholder="mis. BPS Kab. Tasikmalaya"></div>
+    </div>
+
+    <div style="overflow-x:auto;">
+      <table class="data-table wide">
+        <thead>
+          <tr>
+            <th class="rowhead">Rincian</th>
+            <th class="col-header">
+              <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                 <button type="button" class="btn btn--ghost" style="padding:2px 4px; font-size:10px; line-height:1;" data-action="ins-col" title="Sisipkan Kolom di Kiri">[+]</button>
+                 <button type="button" class="btn btn--ghost" style="color:var(--danger); padding:2px 4px; font-size:10px; line-height:1;" data-action="rm-col" title="Hapus Kolom">[x]</button>
+              </div>
+              <input type="text" name="t__TI__-kol-0-nama" value="" placeholder="Nama kolom" required style="min-width:120px;">
+              <input type="text" name="t__TI__-kol-0-satuan" value="" placeholder="satuan" style="min-width:70px;margin-top:4px;">
+              <input type="number" name="t__TI__-kol-0-tahun" value="" placeholder="tahun" style="min-width:70px;margin-top:4px;">
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="data-row">
+            <td class="rowhead">
+              <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                 <button type="button" class="btn btn--ghost" style="padding:2px 4px; font-size:10px; line-height:1;" data-action="ins-row" title="Sisipkan Baris di Atas">[+]</button>
+                 <button type="button" class="btn btn--ghost" style="color:var(--danger); padding:2px 4px; font-size:10px; line-height:1;" data-action="rm-row" title="Hapus Baris">[x]</button>
+              </div>
+              <input type="text" name="t__TI__-row-0-nama" value="">
+            </td>
+            <td><input type="text" name="t__TI__-cell-0-0" value=""></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="display:flex; gap:6px; margin-top: 12px; flex-wrap:wrap; padding-top: 8px; border-top: 1px dashed var(--line);">
+      <button type="button" class="btn btn--ghost btn--small" data-action="add-row" data-ti="__TI__">+ Tambah Baris (Bawah)</button>
+      <button type="button" class="btn btn--ghost btn--small" data-action="del-row" data-ti="__TI__">- Hapus Baris Terakhir</button>
+      <button type="button" class="btn btn--ghost btn--small" data-action="add-col-right" data-ti="__TI__">+ Tambah Kolom (Kanan)</button>
+      <button type="button" class="btn btn--ghost btn--small" style="margin-left:auto;" data-action="toggle-tot" data-ti="__TI__">± Baris Total</button>
+    </div>
+  </div>
+</div>
+</template>
 
 <div class="toolbar" style="margin-top:16px;">
   <a class="btn btn--ghost" href="{% url 'ekstraksi:index' %}">← Batal</a>
@@ -140,12 +232,249 @@
   boxes.forEach(function (b) { b.addEventListener("change", hitung); });
   hitung();
 
-  document.querySelectorAll("[data-toggle]").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      var card = btn.closest("[data-card]");
-      card.classList.toggle("collapsed");
-      btn.textContent = card.classList.contains("collapsed") ? "Tampilkan" : "Sembunyikan";
+  var inputNTabel = document.querySelector('input[name="n_tabel"]');
+  var nTabel = parseInt(inputNTabel.value) || 0;
+
+  document.getElementById("btn-tambah-tabel").addEventListener("click", function() {
+    var tmpl = document.getElementById("tabel-template").innerHTML;
+    var html = tmpl.replace(/__TI__/g, nTabel);
+    var div = document.createElement('div');
+    div.innerHTML = html;
+    document.getElementById("tabel-container").appendChild(div.firstElementChild);
+    
+    // Add event listener to new checkbox
+    var newBox = document.querySelector('input.pilih-tabel[value="' + nTabel + '"]');
+    if (newBox) {
+      boxes.push(newBox);
+      newBox.addEventListener("change", hitung);
+    }
+    
+    nTabel++;
+    inputNTabel.value = nTabel;
+    hitung();
+  });
+
+  function reindexTable(card, ti) {
+    var tableEl = card.querySelector('.data-table');
+    var theadTr = tableEl.querySelector('thead tr');
+    var tbodyTrs = tableEl.querySelectorAll('tbody tr');
+    var tfootTr = tableEl.querySelector('tfoot tr');
+    var inputCols = card.querySelector('input[name="t' + ti + '-n_kol"]');
+    var inputRows = card.querySelector('input[name="t' + ti + '-n_rows"]');
+    
+    var ths = Array.prototype.slice.call(theadTr.querySelectorAll('th')).slice(1);
+    var n_kol = ths.length;
+    var n_rows = tbodyTrs.length;
+    
+    inputCols.value = n_kol;
+    inputRows.value = n_rows;
+    
+    ths.forEach(function(th, j) {
+       th.querySelectorAll('input').forEach(function(inp) {
+          if(inp.name.indexOf('-kol-') > -1) {
+             inp.name = inp.name.replace(/-kol-\d+-/, '-kol-' + j + '-');
+          }
+       });
     });
+    
+    tbodyTrs.forEach(function(tr, i) {
+       var tds = Array.prototype.slice.call(tr.querySelectorAll('td'));
+       var rowNameInp = tds[0].querySelector('input');
+       if(rowNameInp) {
+          rowNameInp.name = rowNameInp.name.replace(/-row-\d+-nama/, '-row-' + i + '-nama');
+       }
+       tds.slice(1).forEach(function(td, j) {
+          var cellInp = td.querySelector('input');
+          if(cellInp) {
+             cellInp.name = 't' + ti + '-cell-' + i + '-' + j;
+          }
+       });
+    });
+    
+    if(tfootTr) {
+       var tfootTds = Array.prototype.slice.call(tfootTr.querySelectorAll('td')).slice(1);
+       tfootTds.forEach(function(td, j) {
+          var cellInp = td.querySelector('input');
+          if(cellInp) {
+             cellInp.name = 't' + ti + '-total-' + j;
+          }
+       });
+    }
+  }
+
+  document.addEventListener("click", function(e) {
+    if (e.target.matches("[data-toggle]")) {
+      var cardToggle = e.target.closest("[data-card]");
+      if (cardToggle) {
+        cardToggle.classList.toggle("collapsed");
+        e.target.textContent = cardToggle.classList.contains("collapsed") ? "Tampilkan" : "Sembunyikan";
+      }
+      return;
+    }
+
+    var actionBtn = e.target.closest("[data-action]");
+    if (actionBtn) {
+      var action = actionBtn.getAttribute("data-action");
+      var card = actionBtn.closest(".tabel-card");
+      if (!card) return;
+      
+      var inputCols = card.querySelector('input[name*="-n_kol"]');
+      var tiMatch = inputCols.name.match(/t(\d+)-n_kol/);
+      var ti = tiMatch ? tiMatch[1] : "";
+      
+      var inputTot = card.querySelector('input[name="t' + ti + '-ada_total"]');
+      var tableEl = card.querySelector('.data-table');
+      var theadTr = tableEl.querySelector('thead tr');
+      var tbody = tableEl.querySelector('tbody');
+
+      if (action === "del-table") {
+        if(confirm("Hapus tabel ini dari pratinjau?")) {
+          var box = card.querySelector('.pilih-tabel');
+          var idx = boxes.indexOf(box);
+          if (idx > -1) boxes.splice(idx, 1);
+          card.remove();
+          hitung();
+        }
+      } 
+      else if (action === "ins-col") {
+        var currentTh = actionBtn.closest('th');
+        var th = document.createElement("th");
+        th.className = "col-header";
+        th.innerHTML = '<div style="display:flex; justify-content:space-between; margin-bottom:4px;">' +
+                       '<button type="button" class="btn btn--ghost" style="padding:2px 4px; font-size:10px; line-height:1;" data-action="ins-col" title="Sisipkan Kolom di Kiri">[+]</button> ' +
+                       '<button type="button" class="btn btn--ghost" style="color:var(--danger); padding:2px 4px; font-size:10px; line-height:1;" data-action="rm-col" title="Hapus Kolom">[x]</button>' +
+                       '</div>' +
+                       '<input type="text" name="t' + ti + '-kol-99-nama" value="" placeholder="Nama kolom" required style="min-width:120px;">\n' +
+                       '<input type="text" name="t' + ti + '-kol-99-satuan" value="" placeholder="satuan" style="min-width:70px;margin-top:4px;">\n' +
+                       '<input type="number" name="t' + ti + '-kol-99-tahun" value="" placeholder="tahun" style="min-width:70px;margin-top:4px;">';
+        theadTr.insertBefore(th, currentTh);
+        
+        var cellIndex = Array.prototype.slice.call(theadTr.children).indexOf(th);
+        
+        tbody.querySelectorAll("tr").forEach(function(tr) {
+          var td = document.createElement("td");
+          td.innerHTML = '<input type="text" name="t' + ti + '-cell-99-99" value="">';
+          tr.insertBefore(td, tr.children[cellIndex]);
+        });
+
+        var tfootTr = tableEl.querySelector('tfoot tr');
+        if (tfootTr) {
+          var td = document.createElement("td");
+          td.innerHTML = '<input type="text" name="t' + ti + '-total-99" value="">';
+          tfootTr.insertBefore(td, tfootTr.children[cellIndex]);
+        }
+        reindexTable(card, ti);
+      }
+      else if (action === "rm-col") {
+        var j_count = parseInt(inputCols.value);
+        if (j_count > 1) {
+           var currentTh = actionBtn.closest('th');
+           var cellIndex = Array.prototype.slice.call(theadTr.children).indexOf(currentTh);
+           currentTh.remove();
+           tbody.querySelectorAll("tr").forEach(function(tr) {
+              tr.children[cellIndex].remove();
+           });
+           var tfootTr = tableEl.querySelector('tfoot tr');
+           if (tfootTr) tfootTr.children[cellIndex].remove();
+           reindexTable(card, ti);
+        }
+      }
+      else if (action === "ins-row") {
+        var currentTr = actionBtn.closest('tr');
+        var j_count = parseInt(inputCols.value);
+        var tr = document.createElement("tr");
+        tr.className = "data-row";
+        var html = '<td class="rowhead">' +
+                   '<div style="display:flex; justify-content:space-between; margin-bottom:4px;">' +
+                   '<button type="button" class="btn btn--ghost" style="padding:2px 4px; font-size:10px; line-height:1;" data-action="ins-row" title="Sisipkan Baris di Atas">[+]</button> ' +
+                   '<button type="button" class="btn btn--ghost" style="color:var(--danger); padding:2px 4px; font-size:10px; line-height:1;" data-action="rm-row" title="Hapus Baris">[x]</button>' +
+                   '</div>' +
+                   '<input type="text" name="t' + ti + '-row-99-nama" value=""></td>';
+        for(var col=0; col<j_count; col++){
+           html += '<td><input type="text" name="t' + ti + '-cell-99-99" value=""></td>';
+        }
+        tr.innerHTML = html;
+        tbody.insertBefore(tr, currentTr);
+        reindexTable(card, ti);
+      }
+      else if (action === "rm-row") {
+        var currentTr = actionBtn.closest('tr');
+        var i_count = tbody.querySelectorAll('tr').length;
+        if (i_count > 1) {
+           currentTr.remove();
+           reindexTable(card, ti);
+        }
+      }
+      else if (action === "add-row") { // from bottom toolbar
+        var j_count = parseInt(inputCols.value);
+        var tr = document.createElement("tr");
+        tr.className = "data-row";
+        var html = '<td class="rowhead">' +
+                   '<div style="display:flex; justify-content:space-between; margin-bottom:4px;">' +
+                   '<button type="button" class="btn btn--ghost" style="padding:2px 4px; font-size:10px; line-height:1;" data-action="ins-row" title="Sisipkan Baris di Atas">[+]</button> ' +
+                   '<button type="button" class="btn btn--ghost" style="color:var(--danger); padding:2px 4px; font-size:10px; line-height:1;" data-action="rm-row" title="Hapus Baris">[x]</button>' +
+                   '</div>' +
+                   '<input type="text" name="t' + ti + '-row-99-nama" value=""></td>';
+        for(var col=0; col<j_count; col++){
+           html += '<td><input type="text" name="t' + ti + '-cell-99-99" value=""></td>';
+        }
+        tr.innerHTML = html;
+        tbody.appendChild(tr);
+        reindexTable(card, ti);
+      }
+      else if (action === "del-row") { // from bottom toolbar
+        var i_count = tbody.querySelectorAll('tr').length;
+        if (i_count > 1) {
+          tbody.lastElementChild.remove();
+          reindexTable(card, ti);
+        }
+      }
+      else if (action === "add-col-right") {
+        var th = document.createElement("th");
+        th.className = "col-header";
+        th.innerHTML = '<div style="display:flex; justify-content:space-between; margin-bottom:4px;">' +
+                       '<button type="button" class="btn btn--ghost" style="padding:2px 4px; font-size:10px; line-height:1;" data-action="ins-col" title="Sisipkan Kolom di Kiri">[+]</button> ' +
+                       '<button type="button" class="btn btn--ghost" style="color:var(--danger); padding:2px 4px; font-size:10px; line-height:1;" data-action="rm-col" title="Hapus Kolom">[x]</button>' +
+                       '</div>' +
+                       '<input type="text" name="t' + ti + '-kol-99-nama" value="" placeholder="Nama kolom" required style="min-width:120px;">\n' +
+                       '<input type="text" name="t' + ti + '-kol-99-satuan" value="" placeholder="satuan" style="min-width:70px;margin-top:4px;">\n' +
+                       '<input type="number" name="t' + ti + '-kol-99-tahun" value="" placeholder="tahun" style="min-width:70px;margin-top:4px;">';
+        theadTr.appendChild(th);
+        
+        tbody.querySelectorAll("tr").forEach(function(tr) {
+          var td = document.createElement("td");
+          td.innerHTML = '<input type="text" name="t' + ti + '-cell-99-99" value="">';
+          tr.appendChild(td);
+        });
+
+        var tfootTr = tableEl.querySelector('tfoot tr');
+        if (tfootTr) {
+          var td = document.createElement("td");
+          td.innerHTML = '<input type="text" name="t' + ti + '-total-99" value="">';
+          tfootTr.appendChild(td);
+        }
+        reindexTable(card, ti);
+      }
+      else if (action === "toggle-tot") {
+        var hasTot = inputTot.value === "1";
+        if (hasTot) {
+          var foot = tableEl.querySelector('tfoot');
+          if (foot) foot.remove();
+          inputTot.value = "0";
+        } else {
+          var j_count = parseInt(inputCols.value);
+          var tfoot = document.createElement("tfoot");
+          var html = '<tr class="row-total"><td class="rowhead">Kabupaten Tasikmalaya <span class="tag-total">TOTAL</span></td>';
+          for(var col=0; col<j_count; col++){
+             html += '<td><input type="text" name="t' + ti + '-total-' + col + '" value=""></td>';
+          }
+          html += '</tr>';
+          tfoot.innerHTML = html;
+          tableEl.appendChild(tfoot);
+          inputTot.value = "1";
+        }
+      }
+    }
   });
 })();
 </script>
