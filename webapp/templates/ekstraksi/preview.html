@@ -110,7 +110,7 @@
             </td>
             {% for c in row.sel %}
             <td><input type="text" name="t{{ ti }}-cell-{{ forloop.parentloop.counter0 }}-{{ forloop.counter0 }}"
-                       value="{{ c.teks }}" {% if c.flag == 'perlu_cek' %}style="border-color:var(--danger);background:#f7e2dd;"{% endif %}></td>
+                       value="{{ c.teks }}" {% if c.flag == 'perlu_cek' %}style="border-color:var(--danger);background:#f7e2dd;"{% elif c.flag == 'auto_corrected' %}style="border-color:var(--primary);background:#e0f2fe;" title="Dikoreksi otomatis oleh engine"{% endif %}></td>
             {% endfor %}
           </tr>
           {% endfor %}
