@@ -14,5 +14,5 @@ pillow>=10.0
 # opencv-python>=4.9  # (opsional) pra-proses gambar agar OCR lebih akurat
 # --- Gemini Vision AI (opsional) utk ekstraksi tabel PDF kompleks ---
 google-genai>=1.0
-# Driver PostgreSQL (produksi). Aktifkan saat Postgres siap:
-# psycopg[binary]>=3.2
+# Driver PostgreSQL
+psycopg[binary]>=3.2

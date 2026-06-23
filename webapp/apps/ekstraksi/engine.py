@@ -339,6 +339,16 @@ def detect_headers(page, edges):
             colnum_top = ln["top"]
             break
     n = len(edges) - 1
+    # Fallback jika baris (1)(2)(3) tidak ketemu di halaman ini
+    if colnum_top is None:
+        # Coba cari baris dengan pola angka kolom yang lebih longgar
+        for ln in cluster_lines(cpage.chars, tol=None):
+            t = "".join(c["text"] for c in ln["chars"]).strip()
+            if re.search(r"\(\d+\)", t) and ln["top"] > tbl_top:
+                colnum_top = ln["top"]
+                break
+        if colnum_top is None:
+            colnum_top = tbl_top + 80   # fallback: ambil 80pt di bawah top tabel
     # Pisahkan kata ID dan EN, ambil hanya ID
     id_words = []
     for w in words:

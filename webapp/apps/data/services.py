@@ -177,7 +177,8 @@ def ingest_long_rows(rows, publikasi: Publikasi, user=None) -> HasilIngest:
         rincian = None
         nama_rin = (row.get("rincian") or "").strip()
         if nama_rin:
-            kelompok = (row.get("rincian_dim") or "").strip()
+            nama_rin = nama_rin[:500]   # penjaga truncation
+            kelompok = (row.get("rincian_dim") or "").strip()[:80]
             key = f"{nama_rin}|{kelompok}"
             if key not in cache_rincian:
                 r, dibuat = Rincian.objects.get_or_create(nama=nama_rin, kelompok=kelompok)

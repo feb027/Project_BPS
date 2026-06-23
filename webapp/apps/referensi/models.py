@@ -39,7 +39,7 @@ class Indikator(TimeStampedModel):
         NUMERIK = "numerik", "Numerik"
         TEKS = "teks", "Teks"
 
-    nama = models.CharField(max_length=200, unique=True)
+    nama = models.CharField(max_length=500, unique=True)
     satuan = models.CharField(max_length=40, blank=True, help_text="mis. km2, jiwa, %, rupiah")
     tipe_nilai = models.CharField(max_length=10, choices=TipeNilai.choices, default=TipeNilai.NUMERIK)
 
@@ -56,7 +56,7 @@ class Indikator(TimeStampedModel):
 class Rincian(TimeStampedModel):
     """Dimensi baris non-wilayah (partai, jabatan, lapangan usaha, komoditas, dsb)."""
 
-    nama = models.CharField(max_length=255)
+    nama = models.TextField()
     kelompok = models.CharField(
         max_length=80, blank=True,
         help_text="mis. Partai Politik, Jabatan, Lapangan Usaha, Kelompok Komoditas",
