@@ -13,4 +13,5 @@ urlpatterns = [
     path("tabel/<int:pk>/", views.tabel_detail, name="tabel_detail"),
     path("tabel/<int:pk>/export/", views.export_tabel, name="export_tabel"),
     path("tabel/<int:pk>/isi/", views.tabel_isi, name="tabel_isi"),
+    path("fakta/<int:pk>/aman/", views.mark_fakta_safe, name="mark_fakta_safe"),
 ]
