@@ -10,8 +10,8 @@ def dashboard(request):
     
     # 1. Anomali & Peringatan
     anomali_list = Fakta.objects.filter(
-        flag__in=[Fakta.Flag.PERLU_CEK, Fakta.Flag.NIHIL, Fakta.Flag.TIDAK_TERSEDIA]
-    ).select_related('tabel__bab__publikasi', 'wilayah', 'rincian', 'kolom__indikator').order_by('-dibuat_pada')[:8]
+        flag=Fakta.Flag.PERLU_CEK
+    ).select_related('tabel__bab__publikasi', 'wilayah', 'rincian', 'kolom__indikator').order_by('-dibuat_pada')[:10]
 
     # 2. Live Feed
     live_feed = Tabel.objects.exclude(status_verifikasi=Tabel.Status.DRAFT).select_related('bab__publikasi').order_by('-diubah_pada')[:5]
