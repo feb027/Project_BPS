@@ -241,3 +241,13 @@ def tabel_isi(request, pk):
         "breadcrumb": crumb,
     }
     return render(request, "data/tabel_isi.html", ctx)
+
+
+def mark_fakta_safe(request, pk):
+    """Tandai data anomali menjadi aman (ADA) dari halaman beranda."""
+    if request.method == "POST":
+        fakta = get_object_or_404(Fakta, pk=pk)
+        fakta.flag = Fakta.Flag.ADA
+        fakta.save(update_fields=['flag'])
+        messages.success(request, f"Data tabel {fakta.tabel.nomor_tabel} berhasil ditandai aman.")
+    return redirect("/")

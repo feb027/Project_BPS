@@ -25,10 +25,8 @@
 
   /* Anomaly List */
   .anomaly-list { list-style: none; padding: 0; margin: 0; display:flex; flex-direction:column; gap:8px; }
-  .anomaly-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #f59e0b; border-radius: 6px; text-decoration: none; color: inherit; transition: background 0.2s, transform 0.2s; }
-  .anomaly-item:hover { background: #f1f5f9; transform: translateX(4px); }
+  .anomaly-item { display: flex; justify-content: space-between; padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #f59e0b; border-radius: 6px; }
   .anomaly-item.err { border-left-color: #ef4444; background: #fef2f2; }
-  .anomaly-item.err:hover { background: #fee2e2; }
   .anomaly-item .context { font-size: 0.85rem; color: #64748b; margin-top: 4px; }
   .anomaly-item .val { font-weight: bold; font-family: monospace; background: #fff; color: #991b1b; padding: 4px 8px; border-radius: 4px; border: 1px solid #fecdd3; text-align: center; font-size: 0.8rem; }
 
@@ -79,18 +77,27 @@
     {% if anomali_list %}
     <div class="anomaly-list">
       {% for a in anomali_list %}
-      <a href="{% url 'data:tabel_detail' a.tabel.id %}" class="anomaly-item {% if a.flag == 'perlu_cek' %}err{% endif %}">
+      <div class="anomaly-item {% if a.flag == 'perlu_cek' %}err{% endif %}">
         <div style="flex: 1;">
           <div style="font-weight:600; color:#1e293b;">Tabel: {{ a.tabel.judul|truncatechars:50 }}</div>
           <div class="context">
             <b>Buku:</b> {{ a.tabel.bab.publikasi.judul|truncatechars:30 }} ({{ a.tabel.bab.publikasi.tahun_terbit }})<br>
-            <b>Posisi:</b> Baris {{ a.wilayah.nama|default:a.rincian.nama|default:"-" }}, Kolom {{ a.kolom.indikator.nama|default:"-" }}, Tahun {{ a.tahun|default:"-" }}
+            <b>Posisi:</b> Baris {% if a.wilayah %}{{ a.wilayah.nama }}{% elif a.rincian %}{{ a.rincian.nama }}{% else %}-{% endif %}, Kolom {% if a.kolom and a.kolom.indikator %}{{ a.kolom.indikator.nama }}{% else %}-{% endif %}, Tahun {{ a.tahun|default:"-" }}
           </div>
         </div>
-        <div class="val">
-          {% if a.flag == 'nihil' %}Terbaca<br>Nihil (-){% elif a.flag == 'tidak_tersedia' %}Terbaca<br>Tidak Tersedia (...){% else %}Perlu<br>Dicek ⚠️{% endif %}
+        <div style="display:flex; flex-direction:column; gap:8px; align-items: flex-end;">
+          <div class="val">
+            {% if a.flag == 'nihil' %}Terbaca Nihil (-){% elif a.flag == 'tidak_tersedia' %}Tidak Tersedia (...){% else %}Perlu Dicek ⚠️{% endif %}
+          </div>
+          <div style="display:flex; gap:6px;">
+            <a href="{% url 'data:tabel_detail' a.tabel.id %}" style="display:flex; align-items:center; gap:4px; background:#e2e8f0; color:#0f172a; padding:4px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; text-decoration:none;"><i data-lucide="external-link" style="width:12px;height:12px;"></i> Cek Tabel</a>
+            <form method="POST" action="{% url 'data:mark_fakta_safe' a.id %}" style="margin:0;">
+              {% csrf_token %}
+              <button type="submit" style="display:flex; align-items:center; gap:4px; background:#10b981; color:#fff; border:none; padding:4px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;"><i data-lucide="check-circle" style="width:12px;height:12px;"></i> Aman</button>
+            </form>
+          </div>
         </div>
-      </a>
+      </div>
       {% endfor %}
     </div>
     {% else %}
@@ -147,8 +154,7 @@
             x: { grid: { display: false } }
           }
         }
-    }
-  });
+    });
   }
   
   // Render Lucide Icons
