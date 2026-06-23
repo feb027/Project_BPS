@@ -251,3 +251,13 @@ def mark_fakta_safe(request, pk):
         fakta.save(update_fields=['flag'])
         messages.success(request, f"Data tabel {fakta.tabel.nomor_tabel} berhasil ditandai aman.")
     return redirect("/")
+
+
+def verifikasi_tabel(request, pk):
+    """Mengunci tabel dengan mengubah statusnya menjadi VERIFIKASI."""
+    if request.method == "POST":
+        tabel = get_object_or_404(Tabel, pk=pk)
+        tabel.status_verifikasi = Tabel.Status.VERIFIKASI
+        tabel.save(update_fields=['status_verifikasi'])
+        messages.success(request, "Tabel berhasil dikunci dan ditandai terverifikasi.")
+    return redirect("data:tabel_detail", pk=pk)
