@@ -41,6 +41,10 @@
       .two-col-grid { grid-template-columns: 1fr; }
       .stat-grid-modern { grid-template-columns: 1fr 1fr; }
   }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  .animate-spin { animation: spin 1s linear infinite; }
 </style>
 
 <div class="stat-grid-modern">
@@ -91,9 +95,9 @@
           </div>
           <div style="display:flex; gap:6px;">
             <a href="{% url 'data:tabel_detail' a.tabel.id %}" style="display:flex; align-items:center; gap:4px; background:#e2e8f0; color:#0f172a; padding:4px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; text-decoration:none;"><i data-lucide="external-link" style="width:12px;height:12px;"></i> Cek Tabel</a>
-            <form method="POST" action="{% url 'data:mark_fakta_safe' a.id %}" style="margin:0;">
+            <form method="POST" action="{% url 'data:mark_fakta_safe' a.id %}" style="margin:0;" onsubmit="handleAman(event, this)">
               {% csrf_token %}
-              <button type="submit" style="display:flex; align-items:center; gap:4px; background:#10b981; color:#fff; border:none; padding:4px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;"><i data-lucide="check-circle" style="width:12px;height:12px;"></i> Aman</button>
+              <button type="submit" style="display:flex; align-items:center; gap:4px; background:#10b981; color:#fff; border:none; padding:4px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer; transition: opacity 0.2s;"><i data-lucide="check-circle" style="width:12px;height:12px;"></i> Aman</button>
             </form>
           </div>
         </div>
@@ -157,6 +161,53 @@
     });
   }
   
+  
+  // AJAX Handle Aman
+  async function handleAman(e, form) {
+    e.preventDefault();
+    const btn = form.querySelector('button');
+    const originalHtml = btn.innerHTML;
+    
+    // UI Feedback (Loading)
+    btn.style.opacity = '0.7';
+    btn.innerHTML = '<i data-lucide="loader-2" class="animate-spin" style="width:12px;height:12px;"></i>';
+    lucide.createIcons();
+    btn.disabled = true;
+
+    try {
+      await fetch(form.action, {
+        method: 'POST',
+        body: new FormData(form),
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      });
+      
+      const item = form.closest('.anomaly-item');
+      item.style.transition = 'all 0.3s ease';
+      item.style.opacity = '0';
+      item.style.transform = 'translateX(30px)';
+      
+      setTimeout(() => {
+        const list = item.parentElement;
+        item.remove();
+        if (list.children.length === 0) {
+          const emptyHtml = `<div style="text-align:center; padding: 20px; color: #10b981; font-weight:600;">
+            <i data-lucide="check-circle" style="width:48px; height:48px; margin-bottom:8px;"></i><br>Pangkalan data bersih dari anomali.
+          </div>`;
+          list.parentElement.innerHTML += emptyHtml;
+          list.remove();
+          lucide.createIcons();
+        }
+      }, 300);
+
+    } catch (err) {
+      console.error(err);
+      btn.innerHTML = originalHtml;
+      btn.style.opacity = '1';
+      btn.disabled = false;
+      alert("Gagal menandai data aman.");
+    }
+  }
+
   // Render Lucide Icons
   lucide.createIcons();
 </script>
