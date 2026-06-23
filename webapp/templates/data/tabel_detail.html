@@ -5,84 +5,210 @@
 {% block heading %}{{ tabel.nama_tampil }}{% endblock %}
 
 {% block content %}
-<div class="toolbar">
-  <p class="hint" style="margin:0;">{{ tabel.judul }}{% if tabel.sumber %} · <em>Sumber: {{ tabel.sumber }}</em>{% endif %}</p>
+<script src="https://unpkg.com/lucide@latest"></script>
+<!-- Handsontable -->
+<script src="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.css" rel="stylesheet">
+
+<style>
+  .badge-status { font-weight: bold; padding: 4px 10px; border-radius: 6px; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 4px; }
+  .status-draft { background: #e2e8f0; color: #475569; }
+  .status-ekstrak { background: #fef08a; color: #854d0e; }
+  .status-verifikasi { background: #10b981; color: #fff; }
+  .anomaly-cell { background-color: #fef08a !important; color: #991b1b; font-weight: bold; }
+  .anomaly-cell.err { background-color: #fecdd3 !important; }
+</style>
+
+<div class="toolbar" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; margin-bottom:16px;">
+  <div>
+    <p class="hint" style="margin:0 0 8px 0;">{{ tabel.judul }}{% if tabel.sumber %} · <em>Sumber: {{ tabel.sumber }}</em>{% endif %}</p>
+    <div style="display:flex; gap:10px; align-items:center;">
+      <span class="badge-status {% if tabel.status_verifikasi == 'VERIFIKASI' %}status-verifikasi{% elif tabel.status_verifikasi == 'EKSTRAK' %}status-ekstrak{% else %}status-draft{% endif %}">
+        {% if tabel.status_verifikasi == 'VERIFIKASI' %}<i data-lucide="check-circle" style="width:14px;height:14px;"></i> Terverifikasi
+        {% elif tabel.status_verifikasi == 'EKSTRAK' %}<i data-lucide="file-text" style="width:14px;height:14px;"></i> Terekstrak
+        {% else %}<i data-lucide="edit-3" style="width:14px;height:14px;"></i> Draft{% endif %}
+      </span>
+      {% if tabel.status_verifikasi != 'VERIFIKASI' and not edit %}
+      <form method="POST" action="{% url 'data:verifikasi_tabel' tabel.pk %}" style="margin:0;">
+        {% csrf_token %}
+        <button type="submit" class="btn btn--sm" style="background:#10b981; color:white; border:none; border-radius:6px; font-weight:bold; cursor:pointer;"><i data-lucide="lock" style="width:14px;height:14px;"></i> Kunci & Verifikasi</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  
   {% if edit %}
-    <span class="badge badge--perlu_cek">Mode Edit</span>
+    <span class="badge badge--perlu_cek" style="display:flex; align-items:center; gap:4px;"><i data-lucide="edit-2" style="width:14px;height:14px;"></i> Mode Edit Spreadsheet</span>
   {% else %}
-    <span style="display:flex; gap:8px;">
-      <a class="btn btn--accent" href="{% url 'data:tabel_isi' tabel.pk %}">Isi / Tambah Data</a>
-      <a class="btn btn--ghost" href="?edit=1">Edit Nilai</a>
-      <a class="btn btn--ghost" href="{% url 'katalog:tabel_edit' tabel.pk %}">Edit Tabel</a>
-      <a class="btn btn--ghost" href="{% url 'data:export_tabel' tabel.pk %}">Ekspor CSV</a>
-      <a class="btn btn--ghost" href="{% url 'data:export_tabel' tabel.pk %}?format=xlsx">Excel</a>
-      <a class="btn btn--danger" href="{% url 'katalog:tabel_delete' tabel.pk %}">Hapus</a>
+    <span style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+      <a class="btn btn--accent" href="{% url 'data:tabel_isi' tabel.pk %}" style="display:flex; align-items:center; gap:4px;"><i data-lucide="plus" style="width:16px;height:16px;"></i> Isi / Tambah</a>
+      {% if tabel.status_verifikasi != 'VERIFIKASI' %}
+      <a class="btn btn--ghost" href="?edit=1" style="display:flex; align-items:center; gap:4px;"><i data-lucide="edit" style="width:16px;height:16px;"></i> Edit Nilai</a>
+      {% endif %}
+      <a class="btn btn--ghost" href="{% url 'katalog:tabel_edit' tabel.pk %}" style="display:flex; align-items:center; gap:4px;"><i data-lucide="settings" style="width:16px;height:16px;"></i> Pengaturan</a>
+      <a class="btn btn--ghost" href="{% url 'data:export_tabel' tabel.pk %}" style="display:flex; align-items:center; gap:4px;"><i data-lucide="file-text" style="width:16px;height:16px;"></i> CSV</a>
+      <a class="btn btn--ghost" href="{% url 'data:export_tabel' tabel.pk %}?format=xlsx" style="display:flex; align-items:center; gap:4px;"><i data-lucide="table" style="width:16px;height:16px;"></i> Excel</a>
+      <a class="btn btn--danger" href="{% url 'katalog:tabel_delete' tabel.pk %}" style="display:flex; align-items:center; gap:4px;"><i data-lucide="trash-2" style="width:16px;height:16px;"></i> Hapus</a>
     </span>
   {% endif %}
 </div>
 
-<form method="post">
+<form method="post" id="data-form">
 {% csrf_token %}
-<div class="panel" style="overflow-x:auto;">
+<div class="panel" style="overflow-x:auto; padding: 0;">
   {% if baris %}
-  <table class="data-table wide">
-    <thead>
-      <tr>
-        <th class="rowhead">{{ label_baris }}</th>
-        {% for kj in kolom_judul %}<th>{{ kj }}</th>{% endfor %}
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in baris %}
-      <tr>
-        <td class="rowhead">{{ row.nama }}</td>
-        {% for f in row.sel %}
-          <td>
-            {% if f is None %}
-              <span class="hint">·</span>
-            {% elif edit %}
-              <input type="text" name="f-{{ f.id }}"
-                     value="{% if f.nilai_num is not None %}{{ f.nilai_num|angka_id }}{% else %}{{ f.nilai_teks }}{% endif %}">
-            {% elif f.flag == 'nihil' %}<span class="hint">–</span>
-            {% elif f.flag == 'tidak_tersedia' %}<span class="hint">…</span>
-            {% elif f.nilai_num is not None %}{{ f.nilai_num|angka_id }}
-            {% else %}{{ f.nilai_teks }}{% endif %}
-          </td>
-        {% endfor %}
-      </tr>
-      {% endfor %}
-    </tbody>
-    {% if baris_total %}
-    <tfoot>
-      {% for row in baris_total %}
-      <tr class="row-total">
-        <td class="rowhead">{{ row.nama }} <span class="tag-total">TOTAL</span></td>
-        {% for f in row.sel %}
-          <td>
-            {% if f is None %}<span class="hint">·</span>
-            {% elif edit %}<input type="text" name="f-{{ f.id }}"
-                   value="{% if f.nilai_num is not None %}{{ f.nilai_num|angka_id }}{% else %}{{ f.nilai_teks }}{% endif %}">
-            {% elif f.flag == 'nihil' %}<span class="hint">–</span>
-            {% elif f.flag == 'tidak_tersedia' %}<span class="hint">…</span>
-            {% elif f.nilai_num is not None %}{{ f.nilai_num|angka_id }}
-            {% else %}{{ f.nilai_teks }}{% endif %}
-          </td>
-        {% endfor %}
-      </tr>
-      {% endfor %}
-    </tfoot>
-    {% endif %}
-  </table>
+  
+  {% if edit %}
+    <!-- Spreadsheet Container -->
+    <div id="hot-container" style="width: 100%; height: 500px; overflow: hidden; border-radius: 6px;"></div>
+    <div id="hidden-inputs"></div>
   {% else %}
-  <p class="empty">Belum ada data untuk tabel ini.</p>
+    <!-- Standard View Table -->
+    <table class="data-table wide" style="margin:0;">
+      <thead>
+        <tr>
+          <th class="rowhead">{{ label_baris }}</th>
+          {% for kj in kolom_judul %}<th>{{ kj }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in baris %}
+        <tr>
+          <td class="rowhead">{{ row.nama }}</td>
+          {% for f in row.sel %}
+            <td class="{% if f.flag == 'perlu_cek' %}anomaly-cell err{% elif f.flag == 'nihil' or f.flag == 'tidak_tersedia' %}anomaly-cell{% endif %}">
+              {% if f is None %}<span class="hint">·</span>
+              {% elif f.flag == 'nihil' %}<span class="hint" title="Nihil">–</span>
+              {% elif f.flag == 'tidak_tersedia' %}<span class="hint" title="Tidak Tersedia">…</span>
+              {% elif f.nilai_num is not None %}{{ f.nilai_num|angka_id }}
+              {% else %}{{ f.nilai_teks }}{% endif %}
+            </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+      {% if baris_total %}
+      <tfoot>
+        {% for row in baris_total %}
+        <tr class="row-total">
+          <td class="rowhead">{{ row.nama }} <span class="tag-total">TOTAL</span></td>
+          {% for f in row.sel %}
+            <td class="{% if f.flag == 'perlu_cek' %}anomaly-cell err{% elif f.flag == 'nihil' or f.flag == 'tidak_tersedia' %}anomaly-cell{% endif %}">
+              {% if f is None %}<span class="hint">·</span>
+              {% elif f.flag == 'nihil' %}<span class="hint">–</span>
+              {% elif f.flag == 'tidak_tersedia' %}<span class="hint">…</span>
+              {% elif f.nilai_num is not None %}{{ f.nilai_num|angka_id }}
+              {% else %}{{ f.nilai_teks }}{% endif %}
+            </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tfoot>
+      {% endif %}
+    </table>
+  {% endif %}
+  
+  {% else %}
+  <div style="padding:20px;"><p class="empty">Belum ada data untuk tabel ini.</p></div>
   {% endif %}
 </div>
 
 {% if edit %}
 <div class="toolbar" style="margin-top:16px;">
-  <button class="btn btn--accent" type="submit">Simpan Perubahan</button>
+  <button class="btn btn--accent" type="submit" id="btn-simpan" style="display:flex; align-items:center; gap:6px;"><i data-lucide="save" style="width:16px;height:16px;"></i> Simpan Perubahan</button>
   <a class="btn" href="{% url 'data:tabel_detail' tabel.pk %}">Batal</a>
 </div>
 {% endif %}
 </form>
+
+{% if edit %}
+<script>
+  document.addEventListener("DOMContentLoaded", function() {
+    const data = [];
+    const idMap = []; 
+    const headers = ["{{ label_baris }}"];
+    
+    {% for kj in kolom_judul %}
+      headers.push("{{ kj|escapejs }}");
+    {% endfor %}
+    
+    {% for row in baris %}
+      var rowData = ["{{ row.nama|escapejs }}"];
+      var rowIds = [null];
+      {% for f in row.sel %}
+        {% if f is None %}
+          rowData.push("");
+          rowIds.push(null);
+        {% else %}
+          rowData.push("{% if f.nilai_num is not None %}{{ f.nilai_num|escapejs }}{% else %}{{ f.nilai_teks|escapejs }}{% endif %}");
+          rowIds.push("{{ f.id }}");
+        {% endif %}
+      {% endfor %}
+      data.push(rowData);
+      idMap.push(rowIds);
+    {% endfor %}
+    
+    {% for row in baris_total %}
+      var rowData = ["{{ row.nama|escapejs }} (TOTAL)"];
+      var rowIds = [null];
+      {% for f in row.sel %}
+        {% if f is None %}
+          rowData.push("");
+          rowIds.push(null);
+        {% else %}
+          rowData.push("{% if f.nilai_num is not None %}{{ f.nilai_num|escapejs }}{% else %}{{ f.nilai_teks|escapejs }}{% endif %}");
+          rowIds.push("{{ f.id }}");
+        {% endif %}
+      {% endfor %}
+      data.push(rowData);
+      idMap.push(rowIds);
+    {% endfor %}
+
+    const container = document.getElementById('hot-container');
+    const hot = new Handsontable(container, {
+      data: data,
+      rowHeaders: true,
+      colHeaders: headers,
+      fixedColumnsStart: 1, 
+      contextMenu: true,
+      manualColumnResize: true,
+      manualRowResize: true,
+      licenseKey: 'non-commercial-and-evaluation',
+      cells: function(row, col) {
+        var cellProperties = {};
+        if (col === 0) {
+          cellProperties.readOnly = true; 
+          cellProperties.className = 'htDimmed';
+        }
+        return cellProperties;
+      }
+    });
+
+    const form = document.getElementById('data-form');
+    form.addEventListener('submit', function(e) {
+      const gridData = hot.getData();
+      const hiddenContainer = document.getElementById('hidden-inputs');
+      hiddenContainer.innerHTML = ''; 
+      
+      for (let r = 0; r < gridData.length; r++) {
+        for (let c = 1; c < gridData[r].length; c++) {
+          const fid = idMap[r][c];
+          if (fid) {
+            const val = gridData[r][c] || "";
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'f-' + fid;
+            input.value = val;
+            hiddenContainer.appendChild(input);
+          }
+        }
+      }
+    });
+  });
+</script>
+{% endif %}
+
+<script>
+  lucide.createIcons();
+</script>
 {% endblock %}

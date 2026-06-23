@@ -4,59 +4,182 @@
 {% block heading %}Isi Data — {{ tabel.nama_tampil }}{% endblock %}
 
 {% block content %}
-{% if not koloms %}
-<p class="prev-note">Tabel ini belum punya kolom. <a href="{% url 'katalog:tabel_edit' tabel.pk %}">Edit tabel</a> untuk menambah kolom dulu.</p>
-{% else %}
-<p class="prev-note">{% if is_kategori %}Tambah baris rincian lalu isi nilainya.{% else %}39 kecamatan + Total sudah disiapkan. Tinggal ketik angka (kosongkan bila tidak ada).{% endif %} Angka pakai format Indonesia (mis. 1.234,56).</p>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script src="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.css" rel="stylesheet">
 
-<form method="post">
-{% csrf_token %}
-<div class="panel" style="overflow-x:auto;">
-  <table class="data-table wide">
-    <thead>
-      <tr>
-        <th class="rowhead">{{ label_baris }}</th>
-        {% for k in koloms %}<th>{{ k.indikator.nama }}{% if k.tahun %} ({{ k.tahun }}){% endif %}{% if k.satuan %} — {{ k.satuan }}{% endif %}</th>{% endfor %}
-      </tr>
-    </thead>
-    <tbody id="baris-wrap">
-      {% for row in baris %}
-      <tr>
-        <td class="rowhead">
-          {% if is_kategori %}<input type="text" name="row-{{ forloop.counter0 }}-nama" value="{{ row.nama }}" placeholder="nama rincian">
-          {% else %}<input type="text" name="row-{{ forloop.counter0 }}-nama" value="{{ row.nama }}" readonly>{% endif %}
-        </td>
-        {% for v in row.sel %}
-        <td><input type="text" name="cell-{{ forloop.parentloop.counter0 }}-{{ forloop.counter0 }}" value="{{ v }}"></td>
-        {% endfor %}
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  <input type="hidden" name="n_rows" id="n_rows" value="{{ baris|length }}">
-  {% if is_kategori %}<button class="btn" type="button" onclick="tambahBaris()" style="margin-top:12px;">+ Tambah baris</button>{% endif %}
+<style>
+  .htDimmed { background-color: #f8fafc; font-weight: 600; color: #334155; }
+  .htInvalidSum { background-color: #fecdd3 !important; color: #991b1b !important; font-weight: bold; }
+  .htValidSum { background-color: #dcfce3 !important; color: #166534 !important; font-weight: bold; }
+</style>
+
+{% if not koloms %}
+<div class="panel" style="text-align:center; padding:40px 20px;">
+  <i data-lucide="layout-template" style="width:48px;height:48px; color:#94a3b8; margin-bottom:16px;"></i>
+  <p class="prev-note" style="border:none; background:transparent;">Tabel ini belum punya kolom.<br><a class="btn btn--accent" href="{% url 'katalog:tabel_edit' tabel.pk %}" style="margin-top:12px; display:inline-block;">Pengaturan Tabel</a> untuk menambah kolom.</p>
+</div>
+{% else %}
+
+<div class="toolbar" style="margin-bottom:16px;">
+  <p class="hint" style="margin:0;">
+    <i data-lucide="info" style="width:14px;height:14px; display:inline-block; vertical-align:middle;"></i>
+    {% if is_kategori %}Gunakan tombol <strong>+ Tambah Baris</strong> lalu isi nilainya.{% else %}39 kecamatan + Total sudah disiapkan. Anda dapat melakukan <strong>Copy-Paste</strong> dari Excel.{% endif %} Angka pakai format standar (mis. 1234.56 atau 1234,56).
+  </p>
 </div>
 
+<form method="post" id="data-form">
+{% csrf_token %}
+<div class="panel" style="padding: 0; border: 1px solid #e2e8f0; border-radius: 6px;">
+  <div id="hot-container" style="width: 100%; height: 500px; overflow: hidden; border-radius: 6px;"></div>
+  
+  <div style="padding:16px; background:#f8fafc; border-top:1px solid #e2e8f0;">
+    {% if is_kategori %}
+      <button class="btn" type="button" onclick="tambahBaris()" style="display:inline-flex; align-items:center; gap:6px;"><i data-lucide="plus-circle" style="width:16px;height:16px;"></i> Tambah Baris</button>
+    {% endif %}
+  </div>
+</div>
+
+<input type="hidden" name="n_rows" id="n_rows" value="{{ baris|length }}">
+<div id="hidden-inputs"></div>
+
 <div class="toolbar" style="margin-top:16px;">
-  <button class="btn btn--accent" type="submit">Simpan Data</button>
-  <a class="btn" href="{% url 'data:tabel_detail' tabel.pk %}">Kembali</a>
+  <button class="btn btn--accent" type="submit" id="btn-simpan" style="display:inline-flex; align-items:center; gap:6px;"><i data-lucide="save" style="width:16px;height:16px;"></i> Simpan Data</button>
+  <a class="btn btn--ghost" href="{% url 'data:tabel_detail' tabel.pk %}" style="display:inline-flex; align-items:center; gap:6px;"><i data-lucide="arrow-left" style="width:16px;height:16px;"></i> Kembali</a>
 </div>
 </form>
 
-{% if is_kategori %}
 <script>
-var NKOL = {{ koloms|length }};
-function tambahBaris() {
-  var tb = document.getElementById('baris-wrap');
-  var i = parseInt(document.getElementById('n_rows').value, 10);
-  var tr = document.createElement('tr');
-  var html = '<td class="rowhead"><input type="text" name="row-'+i+'-nama" placeholder="nama rincian"></td>';
-  for (var j = 0; j < NKOL; j++) html += '<td><input type="text" name="cell-'+i+'-'+j+'"></td>';
-  tr.innerHTML = html;
-  tb.appendChild(tr);
-  document.getElementById('n_rows').value = i + 1;
-}
+  var hot;
+  
+  document.addEventListener("DOMContentLoaded", function() {
+    const data = [];
+    const headers = ["{{ label_baris }}"];
+    
+    {% for k in koloms %}
+      headers.push("{{ k.indikator.nama|escapejs }}{% if k.tahun %} ({{ k.tahun }}){% endif %}{% if k.satuan %} — {{ k.satuan|escapejs }}{% endif %}");
+    {% endfor %}
+    
+    {% for row in baris %}
+      var rowData = ["{{ row.nama|escapejs }}"];
+      {% for v in row.sel %}
+        rowData.push("{{ v|escapejs }}");
+      {% endfor %}
+      data.push(rowData);
+    {% endfor %}
+
+    const container = document.getElementById('hot-container');
+    
+    hot = new Handsontable(container, {
+      data: data,
+      rowHeaders: true,
+      colHeaders: headers,
+      fixedColumnsStart: 1, // Kunci nama kecamatan
+      contextMenu: true,
+      manualColumnResize: true,
+      manualRowResize: true,
+      licenseKey: 'non-commercial-and-evaluation',
+      afterChange: function(changes, source) {
+        if (source === 'loadData') return;
+        {% if not is_kategori %}
+        // AUTO-SUM Logic untuk tabel wilayah
+        // Kita berasumsi baris terakhir adalah "TOTAL" atau "Kabupaten Tasikmalaya"
+        if (data.length > 0) {
+          const totalRowIdx = data.length - 1;
+          const totalRowName = data[totalRowIdx][0].toLowerCase();
+          
+          if (totalRowName.includes('total') || totalRowName.includes('tasikmalaya')) {
+            // Evaluasi ulang semua kolom
+            for (let c = 1; c < headers.length; c++) {
+              let sum = 0;
+              let hasValues = false;
+              for (let r = 0; r < totalRowIdx; r++) {
+                let val = String(data[r][c] || "").replace(/\./g, '').replace(/,/g, '.');
+                let num = parseFloat(val);
+                if (!isNaN(num)) {
+                  sum += num;
+                  hasValues = true;
+                }
+              }
+              
+              if (hasValues) {
+                let userTotalRaw = String(data[totalRowIdx][c] || "").replace(/\./g, '').replace(/,/g, '.');
+                let userTotal = parseFloat(userTotalRaw);
+                
+                if (!isNaN(userTotal)) {
+                  // Berikan metadata class jika sum beda dengan userTotal
+                  const isMatch = Math.abs(sum - userTotal) < 0.01;
+                  hot.setCellMeta(totalRowIdx, c, 'className', isMatch ? 'htValidSum' : 'htInvalidSum');
+                } else {
+                  hot.setCellMeta(totalRowIdx, c, 'className', '');
+                }
+              } else {
+                hot.setCellMeta(totalRowIdx, c, 'className', '');
+              }
+            }
+            hot.render(); // Redraw untuk mengaplikasikan warna kelas
+          }
+        }
+        {% endif %}
+      },
+      cells: function(row, col) {
+        var cellProperties = {};
+        {% if not is_kategori %}
+        // Untuk kecamatan, kolom pertama read-only
+        if (col === 0) {
+          cellProperties.readOnly = true; 
+          cellProperties.className = 'htDimmed';
+        }
+        {% endif %}
+        return cellProperties;
+      }
+    });
+
+    const form = document.getElementById('data-form');
+    form.addEventListener('submit', function(e) {
+      const gridData = hot.getData();
+      const hiddenContainer = document.getElementById('hidden-inputs');
+      hiddenContainer.innerHTML = ''; 
+      
+      // Hitung baris riil (yang nama barisnya tidak kosong)
+      let n_rows = 0;
+      for (let r = 0; r < gridData.length; r++) {
+        const rowName = gridData[r][0] || "";
+        if (rowName.trim() !== "") {
+          // Input untuk nama baris
+          const nameInput = document.createElement('input');
+          nameInput.type = 'hidden';
+          nameInput.name = `row-${n_rows}-nama`;
+          nameInput.value = rowName;
+          hiddenContainer.appendChild(nameInput);
+          
+          // Input untuk kolom
+          for (let c = 1; c < gridData[r].length; c++) {
+            const val = gridData[r][c] || "";
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = `cell-${n_rows}-${c-1}`;
+            input.value = val;
+            hiddenContainer.appendChild(input);
+          }
+          n_rows++;
+        }
+      }
+      document.getElementById('n_rows').value = n_rows;
+    });
+  });
+  
+  {% if is_kategori %}
+  function tambahBaris() {
+    if (hot) {
+      hot.alter('insert_row_below', hot.countRows());
+    }
+  }
+  {% endif %}
 </script>
-{% endif %}
+
+<script>
+  lucide.createIcons();
+</script>
 {% endif %}
 {% endblock %}
