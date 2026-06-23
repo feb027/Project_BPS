@@ -118,6 +118,9 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Form ekstraksi PDF bisa punya banyak field (39 kec × banyak kolom × halaman)
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000
+
 LOGIN_REDIRECT_URL = "core:dashboard"
 LOGIN_URL = "admin:login"
 

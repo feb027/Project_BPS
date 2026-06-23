@@ -28,7 +28,7 @@ class Fakta(TimeStampedModel):
     )
     tahun = models.PositiveIntegerField(null=True, blank=True)
     nilai_num = models.DecimalField(max_digits=24, decimal_places=4, null=True, blank=True)
-    nilai_teks = models.CharField(max_length=255, blank=True, help_text="Tulisan asli dari sumber (audit)")
+    nilai_teks = models.CharField(max_length=500, blank=True, help_text="Tulisan asli dari sumber (audit)")
     flag = models.CharField(max_length=15, choices=Flag.choices, default=Flag.ADA)
 
     dibuat_oleh = models.ForeignKey(
