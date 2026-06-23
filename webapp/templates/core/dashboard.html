@@ -1,46 +1,199 @@
 {% extends "base.html" %}
 {% block title %}Beranda{% endblock %}
 {% block eyebrow %}Ringkasan{% endblock %}
-{% block heading %}Status Pangkalan Data{% endblock %}
+{% block heading %}Command Center BPS{% endblock %}
 
 {% block content %}
-<div class="stat-grid">
-  <div class="stat">
-    <div class="stat-label">Publikasi</div>
-    <div class="stat-value num">{{ jml_publikasi }}</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+  /* Dashboard Grid */
+  .dash-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 24px; margin-top: 24px; }
+  .dash-col { display: flex; flex-direction: column; gap: 24px; }
+  
+  /* Modern Panel */
+  .modern-panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+  .modern-panel h2 { font-size: 1.1rem; font-weight: 700; color: #0f172a; margin-top: 0; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; border-bottom: 2px solid #f1f5f9; padding-bottom: 12px; }
+  
+  /* Stats Grid */
+  .stat-grid-modern { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+  .stat-card { background: #fff; border: 1px solid #e2e8f0; padding: 20px; border-radius: 12px; display: flex; flex-direction: column; }
+  .stat-card .label { font-size: 0.875rem; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+  .stat-card .value { font-size: 2rem; font-weight: 800; color: #0f172a; margin-top: 8px; line-height: 1; font-family: monospace; }
+  .stat-card.warning { background: #fff1f2; border-color: #fecdd3; }
+  .stat-card.warning .label, .stat-card.warning .value { color: #be123c; }
+
+  /* Anomaly List */
+  .anomaly-list { list-style: none; padding: 0; margin: 0; }
+  .anomaly-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; background: #f8fafc; border-left: 4px solid #f59e0b; margin-bottom: 8px; border-radius: 0 6px 6px 0; }
+  .anomaly-item.err { border-left-color: #ef4444; background: #fef2f2; }
+  .anomaly-item .context { font-size: 0.85rem; color: #64748b; }
+  .anomaly-item .val { font-weight: bold; font-family: monospace; background: #fee2e2; color: #991b1b; padding: 2px 6px; border-radius: 4px; }
+
+  /* Progress Bar */
+  .pub-item { margin-bottom: 16px; }
+  .pub-meta { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.9rem; font-weight: 600; color: #334155; }
+  .progress-bg { background: #e2e8f0; height: 8px; border-radius: 4px; overflow: hidden; width: 100%; }
+  .progress-fill { background: var(--accent, #2563eb); height: 100%; transition: width 1s ease; }
+  .pub-stats { font-size: 0.8rem; color: #64748b; margin-top: 4px; text-align: right; }
+
+  /* Live Feed */
+  .feed-list { position: relative; padding-left: 20px; border-left: 2px solid #e2e8f0; margin-left: 10px; }
+  .feed-item { position: relative; margin-bottom: 20px; }
+  .feed-item::before { content: ''; position: absolute; left: -26px; top: 4px; width: 10px; height: 10px; border-radius: 50%; background: #10b981; border: 2px solid #fff; box-shadow: 0 0 0 1px #e2e8f0; }
+  .feed-time { font-size: 0.75rem; color: #94a3b8; margin-bottom: 2px; }
+  .feed-content { font-size: 0.9rem; color: #334155; }
+
+  /* Quick Jump CTA */
+  .cta-panel { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: #fff; border: none; text-align: center; padding: 32px 24px; }
+  .cta-panel h2 { color: #fff; border: none; justify-content: center; font-size: 1.5rem; margin-bottom: 8px; }
+  .cta-panel p { color: #94a3b8; margin-bottom: 24px; font-size: 0.95rem; line-height: 1.5; }
+  .btn-jump { background: #38bdf8; color: #0f172a; padding: 12px 24px; border-radius: 8px; font-weight: bold; text-decoration: none; display: inline-block; transition: transform 0.2s; border: none; }
+  .btn-jump:hover { transform: translateY(-2px); background: #7dd3fc; }
+  
+  @media (max-width: 768px) {
+      .dash-grid { grid-template-columns: 1fr; }
+      .stat-grid-modern { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+
+<div class="stat-grid-modern">
+  <div class="stat-card">
+    <div class="label">Total Publikasi</div>
+    <div class="value">{{ jml_publikasi }}</div>
   </div>
-  <div class="stat">
-    <div class="stat-label">Tabel</div>
-    <div class="stat-value num">{{ jml_tabel }}</div>
+  <div class="stat-card">
+    <div class="label">Total Tabel</div>
+    <div class="value">{{ jml_tabel }}</div>
   </div>
-  <div class="stat">
-    <div class="stat-label">Total Nilai (fakta)</div>
-    <div class="stat-value num">{{ jml_fakta }}</div>
+  <div class="stat-card">
+    <div class="label">Total Fakta (Data)</div>
+    <div class="value">{{ jml_fakta }}</div>
   </div>
-  <div class="stat stat--warn">
-    <div class="stat-label">Perlu dicek</div>
-    <div class="stat-value num">{{ jml_perlu_cek }}</div>
+  <div class="stat-card warning">
+    <div class="label">Anomali & Cek</div>
+    <div class="value">{{ jml_perlu_cek }}</div>
   </div>
 </div>
 
-<div class="panel">
-  <h2>Publikasi terbaru</h2>
-  {% if publikasi_terbaru %}
-  <table class="data-table">
-    <thead><tr><th>Judul</th><th>Tahun</th><th>Cakupan</th><th>Jenis</th></tr></thead>
-    <tbody>
+<div class="dash-grid">
+  <!-- Kolom Kiri Utama -->
+  <div class="dash-col">
+    
+    <!-- Visualisasi Grafik -->
+    <div class="modern-panel" style="padding-bottom: 30px;">
+      <h2>📊 Distribusi Fakta per Kategori (Bab)</h2>
+      <div style="height: 300px; width: 100%;">
+        <canvas id="distribusiChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Anomali Panel -->
+    <div class="modern-panel">
+      <h2 style="color: #b91c1c; border-bottom-color: #fee2e2;">🚨 Deteksi Anomali & Peringatan</h2>
+      {% if anomali_list %}
+      <ul class="anomaly-list">
+        {% for a in anomali_list %}
+        <li class="anomaly-item {% if a.flag == 'perlu_cek' %}err{% endif %}">
+          <div>
+            <div style="font-weight:600; color:#1e293b;">{{ a.tabel.judul|truncatechars:60 }}</div>
+            <div class="context">{{ a.wilayah.nama|default:"-" }} • {{ a.tahun|default:"" }} • {{ a.kolom.indikator.nama|default:"-" }}</div>
+          </div>
+          <div class="val">{{ a.get_flag_display }}</div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div style="text-align:center; padding: 20px; color: #10b981; font-weight:600;">✅ Pangkalan data bersih dari anomali.</div>
+      {% endif %}
+    </div>
+
+    <!-- Progress Publikasi -->
+    <div class="modern-panel">
+      <h2>📖 Progress Ekstraksi Publikasi</h2>
       {% for p in publikasi_terbaru %}
-      <tr>
-        <td>{{ p.judul }}</td>
-        <td class="num">{{ p.tahun_terbit }}</td>
-        <td>{{ p.wilayah_cakupan }}</td>
-        <td>{{ p.get_jenis_display }}</td>
-      </tr>
+      <div class="pub-item">
+        <div class="pub-meta">
+          <span>{{ p.judul }} ({{ p.tahun_terbit }})</span>
+          <span>{{ p.progress_pct }}%</span>
+        </div>
+        <div class="progress-bg">
+          <div class="progress-fill" style="width: {{ p.progress_pct }}%;"></div>
+        </div>
+        <div class="pub-stats">{{ p.tabel_selesai }} dari {{ p.total_tabel }} tabel terekstrak & valid</div>
+      </div>
+      {% empty %}
+      <p class="empty">Belum ada publikasi.</p>
       {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p class="empty">Belum ada publikasi. Tambahkan lewat <a href="/admin/katalog/publikasi/add/">Katalog</a> atau mulai dari <a href="{% url 'ekstraksi:index' %}">Ekstraksi PDF</a>.</p>
-  {% endif %}
+    </div>
+
+  </div>
+
+  <!-- Kolom Kanan Samping -->
+  <div class="dash-col">
+    
+    <!-- Quick Jump CTA -->
+    <div class="modern-panel cta-panel">
+      <h2>🚀 Lanjutkan Kerja</h2>
+      {% if quick_jump_bab %}
+      <p><b>{{ latest_pub.judul }}</b><br>Bab "<b>{{ quick_jump_bab.nama }}</b>" sama sekali belum memiliki data terekstrak di database.</p>
+      <a href="{% url 'ekstraksi:index' %}" class="btn-jump">Mulai Ekstrak Bab Ini →</a>
+      {% else %}
+      <p>Publikasi aktif belum ada atau semua bab telah disentuh. Silakan pilih sumber PDF baru.</p>
+      <a href="{% url 'ekstraksi:index' %}" class="btn-jump">Ekstrak PDF Baru →</a>
+      {% endif %}
+    </div>
+
+    <!-- Live Feed Ekstraksi -->
+    <div class="modern-panel">
+      <h2>⚡ Live Feed Aktivitas</h2>
+      {% if live_feed %}
+      <div class="feed-list">
+        {% for t in live_feed %}
+        <div class="feed-item">
+          <div class="feed-time">{{ t.diubah_pada|timesince }} yang lalu</div>
+          <div class="feed-content">
+            <b>Tabel {{ t.nomor_tabel }}</b> ({{ t.bab.publikasi.tahun_terbit }}) berhasil berstatus {{ t.get_status_verifikasi_display }}.
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="empty" style="text-align:left; margin:0;">Belum ada aktivitas hari ini.</p>
+      {% endif %}
+    </div>
+
+  </div>
 </div>
+
+<script>
+  // Chart.js init
+  const ctxData = JSON.parse('{{ chart_data|escapejs }}');
+  if(document.getElementById('distribusiChart') && ctxData.labels.length > 0) {
+      const ctx = document.getElementById('distribusiChart').getContext('2d');
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: ctxData.labels,
+          datasets: [{
+            label: 'Jumlah Baris Data',
+            data: ctxData.data,
+            backgroundColor: '#3b82f6',
+            borderRadius: 6,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            y: { beginAtZero: true, grid: { borderDash: [4, 4] } },
+            x: { grid: { display: false } }
+          }
+        }
+      });
+  }
+</script>
 {% endblock %}

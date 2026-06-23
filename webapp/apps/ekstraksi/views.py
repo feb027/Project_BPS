@@ -11,19 +11,56 @@ from .engine import clean_num, ekstrak_range, cek_total
 from . import gemini_vision as _gv
 
 
+import json
 def index(request):
+    pubs = Publikasi.objects.order_by("-tahun_terbit")
+    pubs_data = []
+    for p in pubs:
+        pubs_data.append({
+            "id": str(p.pk),
+            "judul": p.judul,
+            "has_pdf": bool(p.file_pdf),
+            "pdf_url": p.file_pdf.url if p.file_pdf else ""
+        })
     return render(request, "ekstraksi/index.html", {
-        "pubs": Publikasi.objects.order_by("-tahun_terbit"),
+        "pubs": pubs,
+        "pubs_json": json.dumps(pubs_data),
         "gemini_tersedia": _gv.gemini_tersedia(),
         "gemini_pesan": _gv._alasan_tidak_tersedia() if not _gv.gemini_tersedia() else "",
     })
 
 
 def preview(request):
-    if request.method != "POST" or "pdf" not in request.FILES:
+    if request.method != "POST":
         return redirect("ekstraksi:index")
 
-    f = request.FILES["pdf"]
+    pub_id = request.POST.get("pub_id", "")
+    judul_baru = request.POST.get("judul_baru", "").strip()
+    
+    pub_existing = None
+    if pub_id:
+        pub_existing = Publikasi.objects.filter(pk=pub_id).first()
+    elif judul_baru:
+        pub_existing, _ = Publikasi.objects.get_or_create(
+            judul=judul_baru,
+            defaults={"tahun_terbit": int(request.POST.get("tahun_baru") or 0)},
+        )
+        pub_id = str(pub_existing.pk)
+
+    if not pub_existing:
+        messages.error(request, "Pilih publikasi atau isi judul baru.")
+        return redirect("ekstraksi:index")
+
+    if "pdf" in request.FILES:
+        pub_existing.file_pdf = request.FILES["pdf"]
+        pub_existing.save()
+
+    if not pub_existing.file_pdf:
+        messages.error(request, "Harap unggah PDF untuk publikasi ini.")
+        return redirect("ekstraksi:index")
+
+    pdf_path = pub_existing.file_pdf.path
+
     try:
         hal_awal = int(request.POST.get("hal_awal"))
         hal_akhir = int(request.POST.get("hal_akhir"))
@@ -45,33 +82,15 @@ def preview(request):
         messages.error(request, "Rentang terlalu besar (maks 80 halaman sekali ekstrak).")
         return redirect("ekstraksi:index")
 
-    # simpan sementara lalu ekstrak
-    tmp_dir = os.path.join(settings.MEDIA_ROOT, "tmp_ekstraksi")
-    os.makedirs(tmp_dir, exist_ok=True)
-    tmp_path = os.path.join(tmp_dir, f"{uuid.uuid4().hex}.pdf")
-    with open(tmp_path, "wb") as out:
-        for chunk in f.chunks():
-            out.write(chunk)
     try:
-        daftar = ekstrak_range(tmp_path, hal_awal, hal_akhir,
+        daftar = ekstrak_range(pdf_path, hal_awal, hal_akhir,
                                pakai_ocr=pakai_ocr,
                                pakai_gemini=pakai_gemini)
     except RuntimeError as e:
         messages.error(request, f"Gagal ekstrak: {e}")
         return redirect("ekstraksi:index")
-    finally:
-        try:
-            os.remove(tmp_path)
-        except OSError:
-            pass
 
     info_ocr = daftar[0]["info_ocr"] if daftar else {"dipakai": False, "tersedia": False, "pesan": ""}
-
-    # buang tabel kosong, siapkan struktur siap-render
-    pub_id = request.POST.get("pub_id", "")
-    pub_existing = None
-    if pub_id:
-        pub_existing = Publikasi.objects.filter(pk=pub_id).first()
 
     tabel_view = []
     for t in daftar:
