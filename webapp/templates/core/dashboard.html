@@ -77,11 +77,16 @@
 <div class="two-col-grid">
   <!-- Anomali Panel -->
   <div class="modern-panel">
-    <h2 style="color: #b91c1c; border-bottom-color: #fee2e2;"><i data-lucide="alert-octagon"></i> Deteksi Anomali & Peringatan</h2>
+    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 2px solid #fee2e2; padding-bottom: 12px; margin-bottom: 16px;">
+      <h2 style="color: #b91c1c; border:none; padding:0; margin:0;"><i data-lucide="alert-octagon"></i> Data Anomali</h2>
+      {% if anomali_list %}
+      <button class="btn btn--sm" onclick="amanSemua()" style="background:#10b981; color:white; border:none; display:flex; align-items:center; gap:4px; font-weight:bold; cursor:pointer;"><i data-lucide="check-square" style="width:14px;height:14px;"></i> Aman Semua</button>
+      {% endif %}
+    </div>
     {% if anomali_list %}
     <div class="anomaly-list">
       {% for a in anomali_list %}
-      <div class="anomaly-item {% if a.flag == 'perlu_cek' %}err{% endif %}">
+      <div class="anomaly-item err">
         <div style="flex: 1;">
           <div style="font-weight:600; color:#1e293b;">Tabel: {{ a.tabel.judul|truncatechars:50 }}</div>
           <div class="context">
@@ -90,9 +95,7 @@
           </div>
         </div>
         <div style="display:flex; flex-direction:column; gap:8px; align-items: flex-end;">
-          <div class="val">
-            {% if a.flag == 'nihil' %}Terbaca Nihil (-){% elif a.flag == 'tidak_tersedia' %}Tidak Tersedia (...){% else %}Perlu Dicek ⚠️{% endif %}
-          </div>
+          <div class="val">Perlu Dicek ⚠️</div>
           <div style="display:flex; gap:6px;">
             <a href="{% url 'data:tabel_detail' a.tabel.id %}" style="display:flex; align-items:center; gap:4px; background:#e2e8f0; color:#0f172a; padding:4px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; text-decoration:none;"><i data-lucide="external-link" style="width:12px;height:12px;"></i> Cek Tabel</a>
             <form method="POST" action="{% url 'data:mark_fakta_safe' a.id %}" style="margin:0;" onsubmit="handleAman(event, this)">
@@ -187,16 +190,8 @@
       item.style.transform = 'translateX(30px)';
       
       setTimeout(() => {
-        const list = item.parentElement;
         item.remove();
-        if (list.children.length === 0) {
-          const emptyHtml = `<div style="text-align:center; padding: 20px; color: #10b981; font-weight:600;">
-            <i data-lucide="check-circle" style="width:48px; height:48px; margin-bottom:8px;"></i><br>Pangkalan data bersih dari anomali.
-          </div>`;
-          list.parentElement.innerHTML += emptyHtml;
-          list.remove();
-          lucide.createIcons();
-        }
+        checkListEmpty();
       }, 300);
 
     } catch (err) {
@@ -205,6 +200,51 @@
       btn.style.opacity = '1';
       btn.disabled = false;
       alert("Gagal menandai data aman.");
+    }
+  }
+
+  // Cek list kosong & Munculkan tombol Refresh
+  function checkListEmpty() {
+    const list = document.querySelector('.anomaly-list');
+    if (list && list.children.length === 0) {
+      const emptyHtml = `<div style="text-align:center; padding: 20px; color: #10b981; font-weight:600;">
+        <i data-lucide="check-circle" style="width:48px; height:48px; margin-bottom:8px;"></i><br>Daftar di layar sudah bersih.<br>
+        <button class="btn btn--sm" onclick="location.reload()" style="margin-top:16px; background:#f1f5f9; color:#0f172a; border:1px solid #cbd5e1; display:inline-flex; align-items:center; gap:4px; font-weight:bold; cursor:pointer;"><i data-lucide="refresh-cw" style="width:14px;height:14px;"></i> Cek Sisa Anomali Lainnya</button>
+      </div>`;
+      list.parentElement.innerHTML += emptyHtml;
+      list.remove();
+      lucide.createIcons();
+    }
+  }
+
+  // Bulk Aman Semua
+  async function amanSemua() {
+    const forms = document.querySelectorAll('.anomaly-item form');
+    if(forms.length === 0) return;
+    if(!confirm('Tandai ' + forms.length + ' data di bawah ini sebagai Aman sekaligus?')) return;
+    
+    const promises = Array.from(forms).map(form => {
+      const btn = form.querySelector('button');
+      btn.innerHTML = '<i data-lucide="loader-2" class="animate-spin" style="width:12px;height:12px;"></i>';
+      lucide.createIcons();
+      return fetch(form.action, {
+        method: 'POST',
+        body: new FormData(form),
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      }).then(() => {
+        const item = form.closest('.anomaly-item');
+        item.style.transition = 'all 0.3s ease';
+        item.style.opacity = '0';
+        item.style.transform = 'translateX(30px)';
+        setTimeout(() => item.remove(), 300);
+      });
+    });
+
+    try {
+      await Promise.all(promises);
+      setTimeout(checkListEmpty, 350);
+    } catch(err) {
+      alert("Ada kegagalan saat memproses beberapa data.");
     }
   }
 
