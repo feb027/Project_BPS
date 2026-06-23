@@ -10,6 +10,15 @@
   {% if info_ocr.dipakai %}<br><span class="badge badge--big badge--scan">OCR</span> Sebagian halaman dibaca via OCR. Periksa angka lebih teliti.{% endif %}
 </div>
 
+<div id="draft-banner" class="draft-banner" hidden>
+  <span>📝 <strong>Draft tersimpan ditemukan</strong> (<span id="draft-time"></span>). Data preview sebelumnya masih ada.</span>
+  <div style="display:flex;gap:6px;">
+    <button type="button" class="btn btn--accent btn--sm" id="btn-muat-draft">Muat Draft</button>
+    <button type="button" class="btn btn--ghost btn--sm" id="btn-abaikan-draft">Abaikan</button>
+    <button type="button" class="btn btn--ghost btn--sm" style="color:var(--danger);" id="btn-hapus-draft">Hapus Draft</button>
+  </div>
+</div>
+
 <form method="post" action="{% url 'ekstraksi:simpan' %}" data-loading="Menyimpan tabel ke database…">
 {% csrf_token %}
 <input type="hidden" name="pub_id" value="{{ pub_id }}">
@@ -23,6 +32,10 @@
       <input type="checkbox" id="pilih-semua" checked style="width:auto;"> Pilih semua
     </label>
     <span class="hint" id="pilih-info"></span>
+    <span class="toolbar-sep"></span>
+    <button type="button" class="btn btn--ghost btn--sm" id="btn-undo" disabled title="Undo (Ctrl+Z)">↩ Undo</button>
+    <button type="button" class="btn btn--ghost btn--sm" id="btn-redo" disabled title="Redo (Ctrl+Y)">↪ Redo</button>
+    <span id="autosave-indicator" class="autosave-badge" hidden>💾 Tersimpan</span>
   </div>
   <button type="button" class="btn btn--ghost" id="btn-tambah-tabel">+ Tambah Tabel Baru</button>
   <button class="btn btn--accent" type="submit">Simpan Tabel Tercentang →</button>
@@ -217,9 +230,17 @@
 
 <script>
 (function () {
+  /* ================================================================
+     SHARED VARIABLES (declared first so all sections can use them)
+     ================================================================ */
   var semua = document.getElementById("pilih-semua");
   var info = document.getElementById("pilih-info");
   var boxes = Array.prototype.slice.call(document.querySelectorAll(".pilih-tabel"));
+  var inputNTabel = document.querySelector('input[name="n_tabel"]');
+  var nTabel = parseInt(inputNTabel.value) || 0;
+  var container = document.getElementById("tabel-container");
+  var formEl = document.querySelector('form[data-loading]');
+
   function hitung() {
     var n = boxes.filter(function (b) { return b.checked; }).length;
     if (info) info.textContent = n + " dari " + boxes.length + " tabel dipilih";
@@ -232,17 +253,238 @@
   boxes.forEach(function (b) { b.addEventListener("change", hitung); });
   hitung();
 
-  var inputNTabel = document.querySelector('input[name="n_tabel"]');
-  var nTabel = parseInt(inputNTabel.value) || 0;
+  /* ================================================================
+     0.  UNDO / REDO MANAGER
+     ================================================================ */
+  var MAX_UNDO = 50;
+  var undoStack = [];
+  var redoStack = [];
+  var btnUndo = document.getElementById("btn-undo");
+  var btnRedo = document.getElementById("btn-redo");
+
+  function syncUndoUI() {
+    btnUndo.disabled = undoStack.length === 0;
+    btnRedo.disabled = redoStack.length === 0;
+    btnUndo.title = "Undo (Ctrl+Z)" + (undoStack.length ? " — " + undoStack.length + " aksi" : "");
+    btnRedo.title = "Redo (Ctrl+Y)" + (redoStack.length ? " — " + redoStack.length + " aksi" : "");
+  }
+
+  function pushUndo(label) {
+    // Snapshot: full container HTML + n_tabel + boxes state
+    undoStack.push({
+      label: label,
+      html: container.innerHTML,
+      nTabel: nTabel,
+      nTabelInput: inputNTabel.value
+    });
+    if (undoStack.length > MAX_UNDO) undoStack.shift();
+    redoStack = [];
+    syncUndoUI();
+  }
+
+  function restoreSnapshot(snap) {
+    container.innerHTML = snap.html;
+    nTabel = snap.nTabel;
+    inputNTabel.value = snap.nTabelInput;
+    // Re-bind checkboxes
+    boxes = Array.prototype.slice.call(document.querySelectorAll(".pilih-tabel"));
+    boxes.forEach(function (b) { b.addEventListener("change", hitung); });
+    hitung();
+    scheduleAutoSave();
+  }
+
+  function doUndo() {
+    if (undoStack.length === 0) return;
+    // Save current state to redo
+    redoStack.push({
+      label: "redo",
+      html: container.innerHTML,
+      nTabel: nTabel,
+      nTabelInput: inputNTabel.value
+    });
+    restoreSnapshot(undoStack.pop());
+    syncUndoUI();
+  }
+
+  function doRedo() {
+    if (redoStack.length === 0) return;
+    undoStack.push({
+      label: "undo",
+      html: container.innerHTML,
+      nTabel: nTabel,
+      nTabelInput: inputNTabel.value
+    });
+    restoreSnapshot(redoStack.pop());
+    syncUndoUI();
+  }
+
+  btnUndo.addEventListener("click", doUndo);
+  btnRedo.addEventListener("click", doRedo);
+  syncUndoUI();
+
+  /* ================================================================
+     1.  AUTO-SAVE TO LOCALSTORAGE
+     ================================================================ */
+  var DRAFT_KEY = "preview_draft_{{ pub_id|default:'new' }}_{{ hal_awal }}_{{ hal_akhir }}";
+  var saveTimer = null;
+  var indicator = document.getElementById("autosave-indicator");
+  var isDirty = false;
+
+  function serializeForm() {
+    var data = {};
+    // All inputs (including hidden) inside the form
+    var inputs = formEl.querySelectorAll("input, select, textarea");
+    inputs.forEach(function(inp) {
+      if (!inp.name) return;
+      if (inp.type === "checkbox") {
+        if (!data[inp.name]) data[inp.name] = [];
+        if (inp.checked) data[inp.name].push(inp.value);
+      } else {
+        data[inp.name] = inp.value;
+      }
+    });
+    // Also save container HTML for structural changes (added/removed rows/cols/tables)
+    data["__container_html__"] = container.innerHTML;
+    data["__n_tabel__"] = nTabel;
+    data["__saved_at__"] = new Date().toISOString();
+    return data;
+  }
+
+  function doAutoSave() {
+    try {
+      var data = serializeForm();
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(data));
+      // Show indicator briefly
+      indicator.hidden = false;
+      setTimeout(function() { indicator.hidden = true; }, 1500);
+      isDirty = false;
+    } catch (e) {
+      // localStorage full or unavailable — fail silently
+    }
+  }
+
+  function scheduleAutoSave() {
+    isDirty = true;
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(doAutoSave, 2000);
+  }
+
+  // Track input changes for auto-save
+  formEl.addEventListener("input", function(e) {
+    if (e.target.matches("input, textarea, select")) {
+      // Mark edited cells
+      if (e.target.closest("td") && !e.target.closest(".rowhead") && !e.target.dataset.original) {
+        e.target.dataset.original = "";
+      }
+      if (e.target.dataset.original !== undefined && e.target.value !== e.target.dataset.original) {
+        e.target.classList.add("cell-edited");
+      } else {
+        e.target.classList.remove("cell-edited");
+      }
+      scheduleAutoSave();
+    }
+  });
+  formEl.addEventListener("change", scheduleAutoSave);
+
+  // Capture original values for edit highlighting
+  formEl.querySelectorAll("td:not(.rowhead) input").forEach(function(inp) {
+    inp.dataset.original = inp.value;
+  });
+
+  // Restore draft on page load
+  function checkDraft() {
+    try {
+      var raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      var data = JSON.parse(raw);
+      if (!data["__saved_at__"]) return;
+      var banner = document.getElementById("draft-banner");
+      var timeEl = document.getElementById("draft-time");
+      var d = new Date(data["__saved_at__"]);
+      timeEl.textContent = d.toLocaleString("id-ID", {hour:"2-digit", minute:"2-digit", day:"numeric", month:"short"});
+      banner.hidden = false;
+
+      document.getElementById("btn-muat-draft").addEventListener("click", function() {
+        // Restore container HTML (structural state)
+        if (data["__container_html__"]) {
+          container.innerHTML = data["__container_html__"];
+          nTabel = data["__n_tabel__"] || nTabel;
+          inputNTabel.value = nTabel;
+        }
+        // Restore all input values
+        Object.keys(data).forEach(function(key) {
+          if (key.startsWith("__")) return;
+          var inputs = formEl.querySelectorAll('[name="' + CSS.escape(key) + '"]');
+          inputs.forEach(function(inp) {
+            if (inp.type === "checkbox") {
+              inp.checked = Array.isArray(data[key]) && data[key].indexOf(inp.value) > -1;
+            } else {
+              inp.value = data[key];
+            }
+          });
+        });
+        // Re-bind checkboxes
+        boxes = Array.prototype.slice.call(document.querySelectorAll(".pilih-tabel"));
+        boxes.forEach(function (b) { b.addEventListener("change", hitung); });
+        hitung();
+        banner.hidden = true;
+      });
+
+      document.getElementById("btn-abaikan-draft").addEventListener("click", function() {
+        banner.hidden = true;
+      });
+
+      document.getElementById("btn-hapus-draft").addEventListener("click", function() {
+        localStorage.removeItem(DRAFT_KEY);
+        banner.hidden = true;
+      });
+    } catch (e) { /* ignore */ }
+  }
+  checkDraft();
+
+  // Clear draft on successful submit
+  formEl.addEventListener("submit", function() {
+    try { localStorage.removeItem(DRAFT_KEY); } catch(e) {}
+  });
+
+  // Warn before leaving if dirty
+  window.addEventListener("beforeunload", function(e) {
+    if (isDirty) {
+      doAutoSave(); // force save before leaving
+    }
+    // Always save on leaving so user can restore later
+    doAutoSave();
+  });
+
+  /* ================================================================
+     2.  KEYBOARD SHORTCUTS
+     ================================================================ */
+  document.addEventListener("keydown", function(e) {
+    var ctrl = e.ctrlKey || e.metaKey;
+    if (ctrl && e.key === "z" && !e.shiftKey) {
+      e.preventDefault();
+      doUndo();
+    } else if (ctrl && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+      e.preventDefault();
+      doRedo();
+    } else if (ctrl && e.key === "s") {
+      e.preventDefault();
+      doAutoSave();
+    }
+  });
+
+  /* ================================================================
+     3.  TAMBAH TABEL, REINDEX, ACTIONS
+     ================================================================ */
 
   document.getElementById("btn-tambah-tabel").addEventListener("click", function() {
+    pushUndo("Tambah tabel baru");
     var tmpl = document.getElementById("tabel-template").innerHTML;
     var html = tmpl.replace(/__TI__/g, nTabel);
     var div = document.createElement('div');
     div.innerHTML = html;
-    document.getElementById("tabel-container").appendChild(div.firstElementChild);
+    container.appendChild(div.firstElementChild);
     
-    // Add event listener to new checkbox
     var newBox = document.querySelector('input.pilih-tabel[value="' + nTabel + '"]');
     if (newBox) {
       boxes.push(newBox);
@@ -252,6 +494,7 @@
     nTabel++;
     inputNTabel.value = nTabel;
     hitung();
+    scheduleAutoSave();
   });
 
   function reindexTable(card, ti) {
@@ -302,6 +545,28 @@
     }
   }
 
+  /* ================================================================
+     4.  ACTION HANDLERS (with undo snapshots)
+     ================================================================ */
+  // Track focus for per-cell undo
+  var lastFocusValue = null;
+  formEl.addEventListener("focusin", function(e) {
+    if (e.target.matches("input, textarea")) {
+      lastFocusValue = e.target.value;
+    }
+  });
+  formEl.addEventListener("focusout", function(e) {
+    if (e.target.matches("input, textarea") && lastFocusValue !== null && e.target.value !== lastFocusValue) {
+      // Record a lightweight undo for single-cell edits
+      var inp = e.target;
+      var oldVal = lastFocusValue;
+      // For cell edits, we push a full snapshot (simpler than tracking individual cells)
+      // But to avoid spamming undo stack, skip for continuous typing
+      pushUndo("Edit sel");
+    }
+    lastFocusValue = null;
+  });
+
   document.addEventListener("click", function(e) {
     if (e.target.matches("[data-toggle]")) {
       var cardToggle = e.target.closest("[data-card]");
@@ -328,15 +593,18 @@
       var tbody = tableEl.querySelector('tbody');
 
       if (action === "del-table") {
-        if(confirm("Hapus tabel ini dari pratinjau?")) {
+        if(confirm("Hapus tabel ini dari pratinjau? (bisa Undo dengan Ctrl+Z)")) {
+          pushUndo("Hapus tabel");
           var box = card.querySelector('.pilih-tabel');
           var idx = boxes.indexOf(box);
           if (idx > -1) boxes.splice(idx, 1);
           card.remove();
           hitung();
+          scheduleAutoSave();
         }
       } 
       else if (action === "ins-col") {
+        pushUndo("Sisipkan kolom");
         var currentTh = actionBtn.closest('th');
         var th = document.createElement("th");
         th.className = "col-header";
@@ -364,10 +632,12 @@
           tfootTr.insertBefore(td, tfootTr.children[cellIndex]);
         }
         reindexTable(card, ti);
+        scheduleAutoSave();
       }
       else if (action === "rm-col") {
         var j_count = parseInt(inputCols.value);
         if (j_count > 1) {
+           pushUndo("Hapus kolom");
            var currentTh = actionBtn.closest('th');
            var cellIndex = Array.prototype.slice.call(theadTr.children).indexOf(currentTh);
            currentTh.remove();
@@ -377,9 +647,11 @@
            var tfootTr = tableEl.querySelector('tfoot tr');
            if (tfootTr) tfootTr.children[cellIndex].remove();
            reindexTable(card, ti);
+           scheduleAutoSave();
         }
       }
       else if (action === "ins-row") {
+        pushUndo("Sisipkan baris");
         var currentTr = actionBtn.closest('tr');
         var j_count = parseInt(inputCols.value);
         var tr = document.createElement("tr");
@@ -396,16 +668,22 @@
         tr.innerHTML = html;
         tbody.insertBefore(tr, currentTr);
         reindexTable(card, ti);
+        recalculateTotals(tableEl);
+        scheduleAutoSave();
       }
       else if (action === "rm-row") {
         var currentTr = actionBtn.closest('tr');
         var i_count = tbody.querySelectorAll('tr').length;
         if (i_count > 1) {
+           pushUndo("Hapus baris");
            currentTr.remove();
            reindexTable(card, ti);
+           recalculateTotals(tableEl);
+           scheduleAutoSave();
         }
       }
-      else if (action === "add-row") { // from bottom toolbar
+      else if (action === "add-row") {
+        pushUndo("Tambah baris bawah");
         var j_count = parseInt(inputCols.value);
         var tr = document.createElement("tr");
         tr.className = "data-row";
@@ -421,15 +699,21 @@
         tr.innerHTML = html;
         tbody.appendChild(tr);
         reindexTable(card, ti);
+        recalculateTotals(tableEl);
+        scheduleAutoSave();
       }
-      else if (action === "del-row") { // from bottom toolbar
+      else if (action === "del-row") {
         var i_count = tbody.querySelectorAll('tr').length;
         if (i_count > 1) {
+          pushUndo("Hapus baris terakhir");
           tbody.lastElementChild.remove();
           reindexTable(card, ti);
+          recalculateTotals(tableEl);
+          scheduleAutoSave();
         }
       }
       else if (action === "add-col-right") {
+        pushUndo("Tambah kolom kanan");
         var th = document.createElement("th");
         th.className = "col-header";
         th.innerHTML = '<div style="display:flex; justify-content:space-between; margin-bottom:4px;">' +
@@ -454,8 +738,11 @@
           tfootTr.appendChild(td);
         }
         reindexTable(card, ti);
+        recalculateTotals(tableEl);
+        scheduleAutoSave();
       }
       else if (action === "toggle-tot") {
+        pushUndo("Toggle baris total");
         var hasTot = inputTot.value === "1";
         if (hasTot) {
           var foot = tableEl.querySelector('tfoot');
@@ -466,16 +753,108 @@
           var tfoot = document.createElement("tfoot");
           var html = '<tr class="row-total"><td class="rowhead">Kabupaten Tasikmalaya <span class="tag-total">TOTAL</span></td>';
           for(var col=0; col<j_count; col++){
-             html += '<td><input type="text" name="t' + ti + '-total-' + col + '" value=""></td>';
+             html += '<td><input type="text" name="t' + ti + '-total-' + col + '" value="" readonly style="background:#eefdf5; color:#008a44; font-weight:600;"></td>';
           }
           html += '</tr>';
           tfoot.innerHTML = html;
           tableEl.appendChild(tfoot);
           inputTot.value = "1";
+          recalculateTotals(tableEl);
         }
+        scheduleAutoSave();
       }
     }
   });
+
+  /* ================================================================
+     5. EXCEL-LIKE NAVIGATION & AUTO TOTAL CALCULATION
+     ================================================================ */
+  function parseNum(str) {
+      if (!str || str.trim() === '-' || str.trim() === '') return 0;
+      var s = str.replace(/\./g, '').replace(/,/g, '.');
+      var n = parseFloat(s);
+      return isNaN(n) ? 0 : n;
+  }
+
+  function formatNum(num) {
+      if (num === 0) return '-';
+      var s = num.toString().replace('.', ',');
+      var parts = s.split(',');
+      parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+      return parts.join(',');
+  }
+
+  function recalculateTotals(tableEl) {
+      var tfoot = tableEl.querySelector('tfoot');
+      if (!tfoot) return;
+      var tbodyTrs = tableEl.querySelectorAll('tbody tr.data-row');
+      var tfootInputs = tfoot.querySelectorAll('td input');
+      tfootInputs.forEach(function(inp, colIdx) {
+          var sum = 0;
+          tbodyTrs.forEach(function(tr) {
+              var td = tr.querySelectorAll('td')[colIdx + 1];
+              if (td) {
+                  var cellInp = td.querySelector('input');
+                  if (cellInp) sum += parseNum(cellInp.value);
+              }
+          });
+          inp.value = formatNum(sum);
+      });
+  }
+
+  // Recalculate on input change
+  formEl.addEventListener("input", function(e) {
+      if (e.target.matches(".data-table tbody input")) {
+          recalculateTotals(e.target.closest('.data-table'));
+      }
+  });
+
+  // Calculate existing totals on load
+  document.querySelectorAll('.data-table').forEach(recalculateTotals);
+
+  // Keyboard navigation
+  formEl.addEventListener("keydown", function(e) {
+      if (e.target.matches(".data-table input")) {
+          var currentTd = e.target.closest('td, th');
+          if (!currentTd) return;
+          var currentTr = currentTd.closest('tr');
+          var table = currentTr.closest('table');
+          var cellIndex = Array.prototype.indexOf.call(currentTr.children, currentTd);
+          var trs = Array.prototype.slice.call(table.querySelectorAll('tr'));
+          var rowIndex = trs.indexOf(currentTr);
+          var targetInput = null;
+
+          if (e.key === "ArrowUp") {
+              if (rowIndex > 0) {
+                  var targetTr = trs[rowIndex - 1];
+                  if (targetTr.children[cellIndex]) targetInput = targetTr.children[cellIndex].querySelector('input');
+              }
+              e.preventDefault();
+          } else if (e.key === "ArrowDown" || e.key === "Enter") {
+              if (rowIndex < trs.length - 1) {
+                  var targetTr = trs[rowIndex + 1];
+                  if (targetTr.children[cellIndex]) targetInput = targetTr.children[cellIndex].querySelector('input');
+              }
+              e.preventDefault();
+          } else if (e.key === "ArrowLeft") {
+              if (e.target.selectionStart === 0 && e.target.selectionEnd === 0) {
+                  if (cellIndex > 0) targetInput = currentTr.children[cellIndex - 1].querySelector('input');
+                  if (targetInput) e.preventDefault();
+              }
+          } else if (e.key === "ArrowRight") {
+              if (e.target.selectionStart === e.target.value.length && e.target.selectionEnd === e.target.value.length) {
+                  if (cellIndex < currentTr.children.length - 1) targetInput = currentTr.children[cellIndex + 1].querySelector('input');
+                  if (targetInput) e.preventDefault();
+              }
+          }
+
+          if (targetInput) {
+              targetInput.focus();
+              setTimeout(function() { targetInput.select(); }, 0);
+          }
+      }
+  });
+
 })();
 </script>
 {% endblock %}

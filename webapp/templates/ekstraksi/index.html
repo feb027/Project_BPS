@@ -31,10 +31,26 @@
     <div class="form-row">
       <div class="full">
         <label>File PDF</label>
-        <input type="file" name="pdf" accept="application/pdf" required>
+        <input type="file" name="pdf" id="pdf-input" accept="application/pdf" required>
+        <p class="hint" id="pdf-hint" style="display:none; color:var(--accent); font-weight:bold;">✅ Publikasi ini sudah memiliki file PDF tersimpan di server. Anda tidak perlu mengunggah ulang kecuali ingin menggantinya.</p>
       </div>
-      <div><label>Halaman dari</label><input type="number" name="hal_awal" min="1" required placeholder="46"></div>
-      <div><label>Halaman sampai</label><input type="number" name="hal_akhir" min="1" required placeholder="63"></div>
+    </div>
+    
+    <div class="panel" id="pdf-viewer-panel" style="display:none; background:#fafafa; border:1px solid #ddd; padding:12px; margin-bottom:12px; border-radius:6px;">
+      <div style="font-weight:600; margin-bottom:6px;">Pilih Halaman secara Visual</div>
+      <p class="hint" style="margin:0 0 10px;">Klik untuk memilih <b>Halaman Awal</b>. Tekan <kbd>Shift</kbd> + Klik untuk <b>Halaman Akhir</b>.</p>
+      <div class="pdf-gallery" id="pdf-gallery" style="display:flex; overflow-x:auto; gap:12px; padding-bottom:10px; min-height:160px; position:relative;"></div>
+    </div>
+
+    <!-- Floating Hover Preview -->
+    <div id="pdf-hover-preview" style="display:none; position:absolute; z-index:9999; border:2px solid var(--accent); background:#fff; padding:8px; border-radius:8px; box-shadow:0 15px 40px rgba(0,0,0,0.3); pointer-events:none; transform: translateX(-50%);">
+        <div id="pdf-hover-canvas-container" style="max-height:600px; display:flex; justify-content:center;"></div>
+        <div id="pdf-hover-label" style="text-align:center; font-weight:bold; margin-top:8px; font-size:16px; color:#333;"></div>
+    </div>
+
+    <div class="form-row">
+      <div><label>Halaman dari</label><input type="number" name="hal_awal" id="hal_awal" min="1" required placeholder="46"></div>
+      <div><label>Halaman sampai</label><input type="number" name="hal_akhir" id="hal_akhir" min="1" required placeholder="63"></div>
     </div>
     <div class="form-row">
       <div class="full">
@@ -72,17 +88,181 @@
   </div>
 </form>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+<style>
+  .pdf-thumb { cursor:pointer; text-align:center; font-size:11px; color:#555; border:3px solid transparent; border-radius:4px; padding:2px; flex-shrink:0; position:relative; background:#fff; }
+  .pdf-thumb canvas { display:block; width:100px; height:auto; min-height:140px; box-shadow:0 1px 3px rgba(0,0,0,0.2); margin-bottom:4px; background:#fff; }
+  .pdf-thumb.selected-start { border-color:var(--accent); background:#eff6ff; }
+  .pdf-thumb.selected-end { border-color:#e11d48; background:#fff1f2; }
+  .pdf-thumb.in-range { background:#fef3c7; border-color:#fbbf24; }
+  .pdf-thumb.selected-start::after { content:'AWAL'; position:absolute; top:-10px; left:50%; transform:translateX(-50%); background:var(--accent); color:#fff; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:10px; }
+  .pdf-thumb.selected-end::after { content:'AKHIR'; position:absolute; top:-10px; left:50%; transform:translateX(-50%); background:#e11d48; color:#fff; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:10px; }
+</style>
 <script>
 (function () {
+  var pubsData = {{ pubs_json|safe }};
+  
   var sel = document.getElementById("pub-selector");
   var box = document.getElementById("pub-baru-fields");
   var judul = document.getElementById("judul-baru");
   var tahun = document.getElementById("tahun-baru");
+  
+  var pdfInput = document.getElementById("pdf-input");
+  var pdfHint = document.getElementById("pdf-hint");
+
+  // PDF.js Setup
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+  var pdfDoc = null;
+  var gallery = document.getElementById('pdf-gallery');
+  var viewerPanel = document.getElementById('pdf-viewer-panel');
+  var halAwalInp = document.getElementById('hal_awal');
+  var halAkhirInp = document.getElementById('hal_akhir');
+
+  function updateGallerySelection(e) {
+      var start = parseInt(halAwalInp.value) || 0;
+      var end = parseInt(halAkhirInp.value) || 0;
+      var targetThumb = null;
+      var triggeredBy = e ? e.target : null;
+
+      Array.from(gallery.children).forEach(function(child) {
+          var p = parseInt(child.dataset.page);
+          child.className = 'pdf-thumb';
+          if (p === start) {
+              child.classList.add('selected-start');
+              if (triggeredBy === halAwalInp) targetThumb = child;
+          }
+          else if (p === end) {
+              child.classList.add('selected-end');
+              if (triggeredBy === halAkhirInp) targetThumb = child;
+          }
+          else if (p > start && p < end) child.classList.add('in-range');
+      });
+
+      if (targetThumb && triggeredBy) {
+          var scrollLeft = targetThumb.offsetLeft - gallery.offsetWidth / 2 + targetThumb.offsetWidth / 2;
+          gallery.scrollTo({ left: scrollLeft, behavior: 'smooth' });
+      }
+  }
+
+  halAwalInp.addEventListener('input', updateGallerySelection);
+  halAkhirInp.addEventListener('input', updateGallerySelection);
+
+  function loadPDF(urlOrData) {
+      gallery.innerHTML = '<div style="padding:20px;color:#666;">Memuat pratinjau PDF visual... ⏳</div>';
+      viewerPanel.style.display = 'block';
+      
+      pdfjsLib.getDocument(urlOrData).promise.then(function(pdf) {
+          pdfDoc = pdf;
+          gallery.innerHTML = '';
+          var totalPages = pdf.numPages;
+          
+          for(var i=1; i<=totalPages; i++) {
+              var div = document.createElement('div');
+              div.className = 'pdf-thumb';
+              div.dataset.page = i;
+              div.style.width = '100px';
+              div.style.minHeight = '140px';
+              div.innerHTML = '<div>Hal ' + i + '</div>';
+              
+              div.addEventListener('click', function(e) {
+                  var p = parseInt(this.dataset.page);
+                  if (e.shiftKey) halAkhirInp.value = p;
+                  else {
+                      halAwalInp.value = p;
+                      if (!halAkhirInp.value || parseInt(halAkhirInp.value) < p) halAkhirInp.value = p;
+                  }
+                  updateGallerySelection();
+              });
+              gallery.appendChild(div);
+          }
+          
+          var observer = new IntersectionObserver(function(entries) {
+              entries.forEach(function(entry) {
+                  if (entry.isIntersecting && !entry.target.rendered) {
+                      entry.target.rendered = true;
+                      var p = parseInt(entry.target.dataset.page);
+                      pdfDoc.getPage(p).then(function(page) {
+                          var viewport = page.getViewport({ scale: 0.6 }); // High res for hover preview
+                          var canvas = document.createElement('canvas');
+                          canvas.height = viewport.height;
+                          canvas.width = viewport.width;
+                          page.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise.then(function() {
+                              entry.target.insertBefore(canvas, entry.target.firstChild);
+                              
+                              // Add hover preview events
+                              entry.target.addEventListener('mouseenter', function() {
+                                  var hoverDiv = document.getElementById('pdf-hover-preview');
+                                  var container = document.getElementById('pdf-hover-canvas-container');
+                                  var rect = this.getBoundingClientRect();
+                                  
+                                  container.innerHTML = '';
+                                  var clone = canvas.cloneNode(true);
+                                  clone.getContext('2d').drawImage(canvas, 0, 0);
+                                  clone.style.width = 'auto';
+                                  clone.style.height = 'auto';
+                                  clone.style.maxWidth = '500px';
+                                  clone.style.maxHeight = '700px';
+                                  container.appendChild(clone);
+                                  
+                                  document.getElementById('pdf-hover-label').textContent = 'Halaman ' + p;
+                                  hoverDiv.style.display = 'block';
+                                  
+                                  // Position logic
+                                  var left = rect.left + window.scrollX + rect.width / 2;
+                                  var top = rect.top + window.scrollY - hoverDiv.offsetHeight - 15;
+                                  if (top < window.scrollY + 10) {
+                                      top = rect.bottom + window.scrollY + 15; // show below if clipped top
+                                  }
+                                  
+                                  hoverDiv.style.left = left + 'px';
+                                  hoverDiv.style.top = top + 'px';
+                              });
+                              
+                              entry.target.addEventListener('mouseleave', function() {
+                                  document.getElementById('pdf-hover-preview').style.display = 'none';
+                              });
+                          });
+                      });
+                  }
+              });
+          }, { root: gallery, rootMargin: '800px' });
+          
+          Array.from(gallery.children).forEach(function(child) { observer.observe(child); });
+          updateGallerySelection();
+      }).catch(function(err) {
+          gallery.innerHTML = '<div style="padding:20px;color:red;">Gagal memuat pratinjau PDF: ' + err.message + '</div>';
+      });
+  }
+
+  pdfInput.addEventListener('change', function() {
+      if (this.files.length > 0) {
+          var fileReader = new FileReader();
+          fileReader.onload = function() { loadPDF(new Uint8Array(this.result)); };
+          fileReader.readAsArrayBuffer(this.files[0]);
+      }
+  });
+
   function sync() {
-    var baru = sel.value === "";
+    var selId = sel.value;
+    var baru = selId === "";
     box.hidden = !baru;
     if (judul) judul.required = baru;
     if (tahun) tahun.required = baru;
+
+    // Smart Cache logic
+    var pub = pubsData.find(function(p) { return p.id === selId; });
+    if (pub && pub.has_pdf) {
+        pdfInput.required = false;
+        pdfHint.style.display = "block";
+        if (pub.pdf_url) loadPDF(pub.pdf_url);
+    } else {
+        pdfInput.required = true;
+        pdfHint.style.display = "none";
+        if (!pdfInput.files.length) {
+            viewerPanel.style.display = 'none';
+            gallery.innerHTML = '';
+        }
+    }
   }
   sel.addEventListener("change", sync);
   sync();
