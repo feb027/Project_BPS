@@ -1,0 +1,581 @@
+{% extends "base.html" %}
+{% block title %}Data Cleaning Tool{% endblock %}
+{% block eyebrow %}Referensi{% endblock %}
+{% block heading %}Pembersihan Data Induk{% endblock %}
+
+{% block content %}
+<style>
+  /* Pro-Max UI Improvements */
+  .cleaning-wrapper { display: flex; flex-direction: column; gap: 24px; margin-top: 10px; }
+  .modern-panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+  
+  /* Tabs */
+  .tabs-container { padding: 0 24px; border-bottom: 1px solid var(--line); display: flex; gap: 24px; }
+  .tab-item { padding: 16px 0; text-decoration: none; color: var(--muted); font-weight: 500; border-bottom: 2px solid transparent; display: flex; align-items: center; gap: 8px; transition: all 0.2s; }
+  .tab-item:hover { color: var(--ink); }
+  .tab-item.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  
+  /* Layout */
+  .cleaning-grid { display: grid; grid-template-columns: 2.5fr 1fr; }
+  @media(max-width: 1024px) { .cleaning-grid { grid-template-columns: 1fr; } }
+  
+  /* Search Bar */
+  .search-bar { padding: 20px 24px; border-bottom: 1px solid var(--line); display: flex; gap: 12px; background: #F8FAFC; border-radius: var(--radius) var(--radius) 0 0; }
+  .search-input { padding: 12px 16px; border: 1px solid var(--line); border-radius: 8px; flex: 1; font-size: 15px; outline: none; transition: border-color 0.2s; box-shadow: inset 0 1px 2px rgba(0,0,0,0.02); }
+  .search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
+  
+  /* Table & Accordion */
+  .data-list { width: 100%; border-collapse: collapse; }
+  .data-row { border-bottom: 1px solid var(--line); transition: background-color 0.2s; }
+  .data-row:hover { background-color: #F1F5F9; }
+  .data-row.selected { background-color: #EFF6FF; border-left: 3px solid var(--accent); }
+  
+  .cell { padding: 16px 12px; text-align: left; vertical-align: middle; }
+  .cell-checkbox { width: 48px; text-align: center; padding-left: 20px; }
+  .cell-action { width: 60px; text-align: center; padding-right: 20px; }
+  
+  /* Custom Checkbox */
+  .custom-checkbox { width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent); }
+  
+  /* Accordion Preview Row */
+  .preview-row { display: none; background-color: #F8FAFC; border-bottom: 1px solid var(--line); }
+  .preview-row.open { display: table-row; animation: slideDown 0.3s ease-out; }
+  .preview-content { padding: 20px 48px 20px 64px; }
+  
+  .preview-table { width: 100%; font-size: 13px; background: white; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .preview-table th { background: #F1F5F9; padding: 10px 12px; font-weight: 600; color: var(--ink-2); text-align: left; border-bottom: 1px solid var(--line); }
+  .preview-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); color: var(--ink); }
+  .preview-table tr:last-child td { border-bottom: none; }
+  
+  /* Right Panel: Step by step guide */
+  .guide-panel { padding: 24px; border-left: 1px solid var(--line); background: #ffffff; height: 100%; }
+  .step-box { margin-bottom: 24px; position: relative; padding-left: 36px; }
+  .step-number { position: absolute; left: 0; top: 0; width: 24px; height: 24px; border-radius: 12px; background: var(--accent); color: white; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; }
+  .step-title { font-weight: 600; color: var(--ink); margin-bottom: 6px; font-size: 15px; }
+  .step-desc { color: var(--muted); font-size: 13px; line-height: 1.5; }
+  
+  /* Selected Items Target Box */
+  .target-box { background: #F8FAFC; border: 1px dashed var(--line); border-radius: 8px; padding: 16px; margin-top: 12px; }
+  .target-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: white; border: 1px solid var(--line); border-radius: 6px; margin-bottom: 8px; font-size: 13px; }
+  .target-item.is-target { border-color: var(--accent); background: #EFF6FF; box-shadow: 0 0 0 1px var(--accent); }
+  
+  .btn-preview { background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; cursor: pointer; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; font-size: 12px; transition: all 0.2s; }
+  .btn-preview:hover { background: #F1F5F9; color: var(--ink); }
+  .btn-preview.active { background: var(--accent); color: white; border-color: var(--accent); }
+  
+  @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+
+<div class="cleaning-wrapper">
+  
+  <div class="modern-panel">
+    <!-- Tabs Navigation -->
+    <div class="tabs-container">
+      <a href="?tab=indikator" class="tab-item {% if tab == 'indikator' %}active{% endif %}">
+        <i data-lucide="tag" style="width:18px;height:18px;"></i> Indikator
+      </a>
+      <a href="?tab=wilayah" class="tab-item {% if tab == 'wilayah' %}active{% endif %}">
+        <i data-lucide="map-pin" style="width:18px;height:18px;"></i> Wilayah
+      </a>
+      <a href="?tab=rincian" class="tab-item {% if tab == 'rincian' %}active{% endif %}">
+        <i data-lucide="layers" style="width:18px;height:18px;"></i> Rincian
+      </a>
+      <a href="?tab=riwayat" class="tab-item {% if tab == 'riwayat' %}active{% endif %}" style="margin-left:auto; color:var(--danger);">
+        <i data-lucide="history" style="width:18px;height:18px;"></i> Riwayat (Undo)
+      </a>
+    </div>
+
+    {% if tab == 'riwayat' %}
+    <div style="padding: 24px;">
+      <h2 style="margin-top:0;">Riwayat Penggabungan (Merge Log)</h2>
+      <p style="color:var(--muted); margin-bottom:24px;">Daftar aktivitas penggabungan data. Anda dapat membatalkan (undo) aksi yang salah di sini.</p>
+      <div id="history-container">
+        <div style="display:flex; justify-content:center; padding:40px;"><i data-lucide="loader-2" class="animate-spin"></i></div>
+      </div>
+    </div>
+    {% else %}
+    <div class="cleaning-grid">
+      <!-- Left Column: Data Table -->
+      <div style="border-right: 1px solid var(--line);">
+        <form method="GET" class="search-bar" style="display:flex; gap:8px;">
+          <input type="hidden" name="tab" value="{{ tab }}">
+          <input type="text" name="q" class="search-input" placeholder="Cari {{ tab }} yang berantakan (contoh: 'penduduk', 'tasikmalaya')..." value="{{ search }}">
+          <button type="submit" class="btn btn--primary" style="padding: 12px 16px; border-radius: 8px;"><i data-lucide="search"></i> Cari</button>
+          <button type="button" class="btn" style="padding: 12px 16px; border-radius: 8px; background: white; border: 1px solid var(--line); color: var(--ink); font-weight: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.02); transition: all 0.2s;" onclick="autoClean()" title="Bersihkan kurung siku [...] otomatis" onmouseover="this.style.borderColor='var(--accent)'; this.style.color='var(--accent)';" onmouseout="this.style.borderColor='var(--line)'; this.style.color='var(--ink)';">
+            <i data-lucide="wand-2" style="color:var(--accent);"></i> Auto-Clean
+          </button>
+          <button type="button" class="btn" style="padding: 12px 16px; border-radius: 8px; background: linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%); border: 1px solid #C7D2FE; color: #4338CA; font-weight: 600; box-shadow: 0 2px 4px rgba(67, 56, 202, 0.1); transition: all 0.2s;" onclick="showSuggestions()" onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 4px 6px rgba(67, 56, 202, 0.15)';" onmouseout="this.style.transform='none'; this.style.boxShadow='0 2px 4px rgba(67, 56, 202, 0.1)';">
+            <i data-lucide="sparkles"></i> Rekomendasi AI
+          </button>
+        </form>
+
+        <div style="max-height: 700px; overflow-y: auto;">
+          <table class="data-list">
+            <thead>
+              <tr style="background: #F8FAFC; border-bottom: 2px solid var(--line);">
+                <th class="cell-checkbox"><input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll()"></th>
+                <th class="cell" style="color:var(--muted); font-size:12px; text-transform:uppercase;">ID</th>
+                <th class="cell" style="color:var(--muted); font-size:12px; text-transform:uppercase;">Nama {{ tab|title }}</th>
+                <th class="cell" style="color:var(--muted); font-size:12px; text-transform:uppercase;">Digunakan</th>
+                <th class="cell-action"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in items %}
+              <tr class="data-row" id="row-{{ item.id }}">
+                <td class="cell-checkbox">
+                  <input type="checkbox" class="custom-checkbox merge-checkbox" value="{{ item.id }}" data-name="{{ item.nama }}" onchange="toggleRowSelection({{ item.id }})">
+                </td>
+                <td class="cell" style="font-family: var(--mono); color: var(--muted); font-size: 13px;">#{{ item.id }}</td>
+                <td class="cell" style="font-weight: 600; color: var(--ink);">
+                  {{ item.nama }}
+                  <div style="font-size: 12px; color: var(--muted); font-weight: 400; margin-top: 4px;">
+                    {% if item.satuan %}Satuan: <span style="background:#E2E8F0; padding:2px 6px; border-radius:4px;">{{ item.satuan }}</span>{% endif %}
+                    {% if item.kelompok %}Klp: <span style="background:#E2E8F0; padding:2px 6px; border-radius:4px;">{{ item.kelompok }}</span>{% endif %}
+                    {% if item.jenis %}Jenis: <span style="background:#E2E8F0; padding:2px 6px; border-radius:4px;">{{ item.get_jenis_display }}</span>{% endif %}
+                  </div>
+                </td>
+                <td class="cell">
+                  <span class="badge" style="background:#F1F5F9; color:#475569; border:1px solid #CBD5E1;">
+                    {% if tab == 'indikator' %}{{ item.kolom_count }} kolom{% else %}{{ item.fakta_count }} fakta{% endif %}
+                  </span>
+                </td>
+                <td class="cell-action">
+                  <button type="button" class="btn-preview" id="btn-preview-{{ item.id }}" onclick="togglePreview({{ item.id }})" title="Intip Data">
+                    <i data-lucide="eye" style="width:14px;height:14px;"></i> Intip
+                  </button>
+                </td>
+              </tr>
+              <!-- Accordion Content -->
+              <tr class="preview-row" id="preview-{{ item.id }}">
+                <td colspan="5" class="preview-content">
+                  <div style="font-weight:600; margin-bottom:8px; color:var(--ink); display:flex; align-items:center; gap:6px;">
+                    <i data-lucide="database" style="width:14px;height:14px;color:var(--accent);"></i> Sampel Data (1 per Tabel Sumber)
+                  </div>
+                  <div id="preview-data-{{ item.id }}" style="min-height: 50px; display:flex; align-items:center; justify-content:center; color:var(--muted);">
+                    <i data-lucide="loader-2" class="animate-spin" style="width:18px;height:18px;"></i>
+                  </div>
+                </td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="5" style="text-align:center; padding:40px; color:var(--muted);">
+                <i data-lucide="inbox" style="width:48px;height:48px;opacity:0.3;margin-bottom:12px;"></i><br>
+                Tidak ada data yang cocok.
+              </td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      
+      <!-- Right Column: Interactive Guide & Merge Panel -->
+      <div class="guide-panel">
+        <h2 style="font-size:18px; margin-top:0; border-bottom:1px solid var(--line); padding-bottom:16px; margin-bottom:24px;">Panduan Merge</h2>
+        
+        <div class="step-box">
+          <div class="step-number">1</div>
+          <div class="step-title">Pilih Data Kotor</div>
+          <div class="step-desc">Centang kotak di sebelah kiri untuk item-item yang memiliki makna sama namun salah penulisan (typo).</div>
+        </div>
+        
+        <div class="step-box">
+          <div class="step-number">2</div>
+          <div class="step-title">Tentukan Target Induk</div>
+          <div class="step-desc">Pilih satu item yang namanya paling benar untuk dijadikan target akhir. Semua data akan dipindahkan ke target ini.</div>
+          
+          <div class="target-box" id="merge-basket">
+            <div style="text-align:center; color:var(--muted); font-style:italic; padding:10px 0;">Belum ada item dipilih.</div>
+          </div>
+          
+          <div id="target-selection-area" style="margin-top:16px; display:none;">
+            <label style="display:block; font-size:13px; font-weight:600; margin-bottom:8px; color:var(--ink);">Pilih Target Induk:</label>
+            <select id="target-select" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:6px; margin-bottom:16px; font-size:14px; outline:none;" onchange="updateTargetHighlight()">
+              <!-- Options populated via JS -->
+            </select>
+            
+            <div style="background:#FFFBEB; border:1px solid #FEF3C7; padding:12px; border-radius:6px; margin-bottom:16px; font-size:12px; color:#92400E; display:flex; gap:8px; align-items:flex-start;">
+              <i data-lucide="info" style="width:16px;height:16px;flex-shrink:0;"></i>
+              <div>Aman! Sistem akan otomatis membuat file <b>Backup Log</b> sebelum menggabungkan. Anda bisa membatalkannya (undo) via admin server jika salah.</div>
+            </div>
+            
+            <button id="btn-merge" onclick="submitMerge()" class="btn btn--primary" style="width:100%; padding:12px; font-size:15px; display:flex; justify-content:center; gap:8px;">
+              <i data-lucide="git-merge"></i> Gabungkan Data!
+            </button>
+          </div>
+        </div>
+        
+      </div>
+    </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+  // UI Interactions
+  let selectedItems = [];
+  
+  function toggleRowSelection(id) {
+    const row = document.getElementById(`row-${id}`);
+    const checkbox = row.querySelector('.merge-checkbox');
+    
+    if (checkbox.checked) {
+      row.classList.add('selected');
+    } else {
+      row.classList.remove('selected');
+      document.getElementById('selectAllCheckbox').checked = false;
+    }
+    
+    updateMergeBasket();
+  }
+  
+  function toggleSelectAll() {
+    const master = document.getElementById('selectAllCheckbox');
+    const checkboxes = document.querySelectorAll('.merge-checkbox');
+    checkboxes.forEach(cb => {
+      cb.checked = master.checked;
+      const row = document.getElementById(`row-${cb.value}`);
+      if(master.checked) row.classList.add('selected');
+      else row.classList.remove('selected');
+    });
+    updateMergeBasket();
+  }
+  
+  function updateMergeBasket() {
+    const checkboxes = document.querySelectorAll('.merge-checkbox:checked');
+    selectedItems = Array.from(checkboxes).map(cb => ({
+      id: cb.value,
+      name: cb.getAttribute('data-name')
+    }));
+    
+    const basketEl = document.getElementById('merge-basket');
+    const selectEl = document.getElementById('target-select');
+    const targetArea = document.getElementById('target-selection-area');
+    
+    // Reset selection box
+    selectEl.innerHTML = '<option value="">-- Pilih target (data yang dipertahankan) --</option>';
+    
+    if (selectedItems.length < 2) {
+      targetArea.style.display = 'none';
+      if (selectedItems.length === 0) {
+        basketEl.innerHTML = '<div style="text-align:center; color:var(--muted); font-style:italic; padding:10px 0;">Belum ada item dipilih.</div>';
+      } else {
+        basketEl.innerHTML = `<div class="target-item"><span>[#${selectedItems[0].id}] ${selectedItems[0].name}</span></div>
+                              <div style="font-size:12px; color:var(--muted); text-align:center; margin-top:8px;">Pilih minimal 1 lagi untuk digabung.</div>`;
+      }
+      return;
+    }
+    
+    // Render basket items & populate select
+    targetArea.style.display = 'block';
+    basketEl.innerHTML = '';
+    
+    selectedItems.forEach(item => {
+      // Basket
+      const div = document.createElement('div');
+      div.className = 'target-item';
+      div.id = `basket-item-${item.id}`;
+      div.innerHTML = `<span style="font-family:var(--mono); color:var(--muted); margin-right:8px;">#${item.id}</span> <span style="font-weight:500;">${item.name}</span> <span class="target-badge" style="display:none; font-size:10px; background:var(--accent); color:white; padding:2px 6px; border-radius:10px; margin-left:auto;">TARGET</span>`;
+      basketEl.appendChild(div);
+      
+      // Select option
+      const option = document.createElement('option');
+      option.value = item.id;
+      option.textContent = item.name;
+      selectEl.appendChild(option);
+    });
+    
+    document.getElementById('btn-merge').disabled = true;
+    document.getElementById('btn-merge').style.opacity = '0.5';
+  }
+  
+  function updateTargetHighlight() {
+    const targetId = document.getElementById('target-select').value;
+    const btn = document.getElementById('btn-merge');
+    
+    // Reset all highlights
+    document.querySelectorAll('.target-item').forEach(el => {
+      el.classList.remove('is-target');
+      el.querySelector('.target-badge').style.display = 'none';
+    });
+    
+    if (targetId) {
+      const selectedEl = document.getElementById(`basket-item-${targetId}`);
+      if (selectedEl) {
+        selectedEl.classList.add('is-target');
+        selectedEl.querySelector('.target-badge').style.display = 'block';
+      }
+      btn.disabled = false;
+      btn.style.opacity = '1';
+    } else {
+      btn.disabled = true;
+      btn.style.opacity = '0.5';
+    }
+  }
+
+  // Accordion Preview Logic
+  async function togglePreview(id) {
+    const previewRow = document.getElementById(`preview-${id}`);
+    const btn = document.getElementById(`btn-preview-${id}`);
+    const isOpen = previewRow.classList.contains('open');
+    
+    // Close all other previews
+    document.querySelectorAll('.preview-row.open').forEach(row => {
+      if (row.id !== `preview-${id}`) {
+        row.classList.remove('open');
+        const oldBtn = document.getElementById(`btn-preview-${row.id.split('-')[1]}`);
+        if(oldBtn) {
+           oldBtn.classList.remove('active');
+           oldBtn.innerHTML = '<i data-lucide="eye" style="width:14px;height:14px;"></i> Intip';
+        }
+      }
+    });
+    
+    if (isOpen) {
+      previewRow.classList.remove('open');
+      btn.classList.remove('active');
+      btn.innerHTML = '<i data-lucide="eye" style="width:14px;height:14px;"></i> Intip';
+      lucide.createIcons();
+      return;
+    }
+    
+    // Open this preview
+    previewRow.classList.add('open');
+    btn.classList.add('active');
+    btn.innerHTML = '<i data-lucide="eye-off" style="width:14px;height:14px;"></i> Tutup';
+    lucide.createIcons();
+    
+    const container = document.getElementById(`preview-data-${id}`);
+    
+    try {
+      const res = await fetch(`{% url 'referensi:preview_entity' %}?type={{ tab }}&id=${id}`);
+      const data = await res.json();
+      
+      if (data.error) {
+        container.innerHTML = `<span style="color:var(--danger);">${data.error}</span>`;
+        return;
+      }
+      
+      if (data.samples.length === 0) {
+        container.innerHTML = `Tidak ada data fakta yang menggunakan ID ini.`;
+        return;
+      }
+      
+      let tableHtml = `<div style="max-height: 250px; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px; margin-top: 8px;">
+        <table class="preview-table" style="margin: 0; border: none;">
+        <thead style="position: sticky; top: 0; background: #F8FAFC; box-shadow: 0 1px 2px rgba(0,0,0,0.05); z-index: 10;">
+          <tr>
+            <th>Nilai Fakta</th>
+            <th>Tahun</th>
+            <th>Asal Tabel</th>
+            <th>Buku Publikasi</th>
+          </tr>
+        </thead>
+        <tbody>`;
+        
+      data.samples.forEach(s => {
+        tableHtml += `<tr>
+          <td style="font-weight:600; font-family:var(--mono);">${s.nilai}</td>
+          <td>${s.tahun_data}</td>
+          <td><a href="/data/tabel/${s.tabel_id}" style="color:var(--accent); text-decoration:none; font-weight:600;">${s.tabel_no}</a>: ${s.tabel_judul}</td>
+          <td style="color:var(--muted); font-size:12px;">${s.publikasi}</td>
+        </tr>`;
+      });
+      
+      tableHtml += `</tbody></table></div>`;
+      container.innerHTML = tableHtml;
+      
+    } catch (err) {
+      container.innerHTML = `<span style="color:var(--danger);">Gagal mengambil data preview.</span>`;
+    }
+  }
+  
+  // Submit Merge Logic
+  async function submitMerge() {
+    const targetId = document.getElementById('target-select').value;
+    if (!targetId) return;
+    
+    const sourceIds = selectedItems.map(item => item.id).filter(id => id !== targetId);
+    
+    const btn = document.getElementById('btn-merge');
+    btn.disabled = true;
+    btn.innerHTML = '<i data-lucide="loader-2" class="animate-spin"></i> Sedang Memproses...';
+    lucide.createIcons();
+    
+    try {
+      const response = await fetch("{% url 'referensi:merge_entities' %}", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": "{{ csrf_token }}"
+        },
+        body: JSON.stringify({
+          type: "{{ tab }}",
+          target_id: targetId,
+          source_ids: sourceIds
+        })
+      });
+      
+      const result = await response.json();
+      if (result.success) {
+        btn.style.backgroundColor = "var(--ok)";
+        btn.innerHTML = '<i data-lucide="check-circle"></i> Berhasil!';
+        lucide.createIcons();
+        setTimeout(() => location.reload(), 1500);
+      } else {
+        alert("Gagal: " + result.error);
+        btn.disabled = false;
+        btn.style.backgroundColor = "";
+        btn.innerHTML = '<i data-lucide="git-merge"></i> Gabungkan Data!';
+        lucide.createIcons();
+      }
+    } catch (err) {
+      alert("Terjadi kesalahan sistem.");
+      btn.disabled = false;
+      btn.innerHTML = '<i data-lucide="git-merge"></i> Gabungkan Data!';
+      lucide.createIcons();
+    }
+  }
+
+  // Auto Clean
+  async function autoClean() {
+    if(!confirm("Yakin ingin menjalankan pembersihan kurung siku otomatis? Aksi ini akan membersihkan semua indikator yang mengandung tanda [...] di seluruh database.")) return;
+    
+    try {
+      const response = await fetch("{% url 'referensi:auto_clean' %}", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": "{{ csrf_token }}"
+        }
+      });
+      const result = await response.json();
+      if (result.success) {
+        alert(`Berhasil! ${result.merged_count} indikator kotor telah digabungkan otomatis.`);
+        location.reload();
+      } else {
+        alert("Gagal: " + result.error);
+      }
+    } catch (err) {
+      alert("Terjadi kesalahan sistem saat Auto-Clean.");
+    }
+  }
+
+  // AI Suggestions
+  async function showSuggestions() {
+    const listBody = document.querySelector('tbody');
+    listBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:40px;"><i data-lucide="loader-2" class="animate-spin"></i> Sedang menganalisis teks dengan AI...</td></tr>`;
+    lucide.createIcons();
+    
+    try {
+      const res = await fetch(`{% url 'referensi:smart_suggestions' %}?tab={{ tab }}`);
+      const data = await res.json();
+      
+      if(data.clusters.length === 0) {
+        listBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:40px;">Tidak ada rekomendasi AI yang ditemukan. Data sudah cukup bersih.</td></tr>`;
+        return;
+      }
+      
+      listBody.innerHTML = `<tr><td colspan="5" style="background:#FFFBEB; color:#92400E; padding:12px; font-size:13px;"><i data-lucide="sparkles" style="width:16px;height:16px;vertical-align:text-bottom;"></i> AI menemukan ${data.clusters.length} grup data yang terindikasi typo. Sentang kotak untuk menyetujui saran.</td></tr>`;
+      
+      data.clusters.forEach(c => {
+        // Group Header (Target)
+        listBody.innerHTML += `<tr style="background:#F8FAFC;">
+          <td colspan="5" style="font-weight:600; font-size:13px; color:var(--accent);">Rekomendasi Target Induk: ${c.target.nama}</td>
+        </tr>`;
+        
+        // Add target to select list but visually mark it
+        let allItems = [c.target, ...c.sources];
+        allItems.forEach(item => {
+          listBody.innerHTML += `
+            <tr class="data-row" id="row-${item.id}">
+              <td class="cell-checkbox">
+                <input type="checkbox" class="custom-checkbox merge-checkbox" value="${item.id}" data-name="${item.nama}" onchange="toggleRowSelection(${item.id})">
+              </td>
+              <td class="cell" style="font-family: var(--mono); color: var(--muted); font-size: 13px;">#${item.id}</td>
+              <td class="cell" style="font-weight: ${item.id===c.target.id ? '600' : '400'}; color: var(--ink);">
+                ${item.nama}
+              </td>
+              <td class="cell"></td>
+              <td class="cell-action"></td>
+            </tr>`;
+        });
+      });
+      lucide.createIcons();
+    } catch(err) {
+      listBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:40px; color:var(--danger);">Gagal memuat rekomendasi AI.</td></tr>`;
+    }
+  }
+
+  // History & Undo
+  {% if tab == 'riwayat' %}
+  async function loadHistory() {
+    const container = document.getElementById('history-container');
+    try {
+      const res = await fetch(`{% url 'referensi:merge_history' %}`);
+      const data = await res.json();
+      
+      if(data.history.length === 0) {
+        container.innerHTML = `<div style="text-align:center; color:var(--muted); padding:40px;">Belum ada riwayat aktivitas.</div>`;
+        return;
+      }
+      
+      let html = `<table class="data-list" style="width:100%;">
+        <thead>
+          <tr style="background: #F8FAFC; border-bottom: 2px solid var(--line);">
+            <th class="cell">Waktu</th>
+            <th class="cell">Tipe Entitas</th>
+            <th class="cell">Jumlah Sumber</th>
+            <th class="cell">Aksi</th>
+          </tr>
+        </thead><tbody>`;
+        
+      data.history.forEach(h => {
+        const d = new Date(h.timestamp).toLocaleString();
+        html += `<tr>
+          <td class="cell">${d}</td>
+          <td class="cell" style="text-transform:uppercase;">${h.entity_type}</td>
+          <td class="cell">${h.sources_count} item digabung</td>
+          <td class="cell">
+            <button onclick="undoMerge('${h.filename}')" class="btn" style="color:white; background:var(--danger); border:none; padding:6px 12px; border-radius:6px; font-size:12px;">
+              <i data-lucide="rotate-ccw" style="width:14px;height:14px;"></i> Batalkan (Undo)
+            </button>
+          </td>
+        </tr>`;
+      });
+      html += `</tbody></table>`;
+      container.innerHTML = html;
+      lucide.createIcons();
+    } catch(err) {
+      container.innerHTML = `<div style="color:var(--danger);">Gagal memuat riwayat.</div>`;
+    }
+  }
+  
+  async function undoMerge(filename) {
+    if(!confirm("Yakin ingin membatalkan penggabungan ini? Data akan dikembalikan ke kondisi semula.")) return;
+    
+    try {
+      const res = await fetch("{% url 'referensi:undo_merge' %}", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": "{{ csrf_token }}"
+        },
+        body: JSON.stringify({ filename: filename })
+      });
+      const data = await res.json();
+      if(data.success) {
+        alert("Berhasil! Penggabungan telah dibatalkan.");
+        loadHistory();
+      } else {
+        alert("Gagal Undo: " + data.error);
+      }
+    } catch(err) {
+      alert("Terjadi kesalahan sistem saat Undo.");
+    }
+  }
+  
+  loadHistory();
+  {% endif %}
+</script>
+{% endblock %}

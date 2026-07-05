@@ -1,9 +1,26 @@
 {% extends "base.html" %}
+{% load l10n %}
 {% block title %}{% if edit %}Edit Tabel{% else %}Tabel Baru{% endif %}{% endblock %}
 {% block eyebrow %}{{ bab.nama }}{% endblock %}
 {% block heading %}{% if edit %}Edit Tabel{% else %}Tabel Baru{% endif %}{% endblock %}
 
 {% block content %}
+{% if edit %}
+<div style="display:flex; justify-content:flex-end; gap:8px; margin-bottom: 16px;">
+  {% if tabel.prev_tabel %}
+    <a href="{% url 'katalog:tabel_edit' tabel.prev_tabel.pk %}" class="btn btn--ghost" style="border:1px solid var(--line);"><i data-lucide="arrow-left" style="width:16px;height:16px;"></i> Prev</a>
+  {% else %}
+    <button class="btn btn--ghost" style="border:1px solid var(--line); opacity:0.5; cursor:not-allowed;" disabled><i data-lucide="arrow-left" style="width:16px;height:16px;"></i> Prev</button>
+  {% endif %}
+  
+  {% if tabel.next_tabel %}
+    <a href="{% url 'katalog:tabel_edit' tabel.next_tabel.pk %}" class="btn btn--ghost" style="border:1px solid var(--line);">Next <i data-lucide="arrow-right" style="width:16px;height:16px;"></i></a>
+  {% else %}
+    <button class="btn btn--ghost" style="border:1px solid var(--line); opacity:0.5; cursor:not-allowed;" disabled>Next <i data-lucide="arrow-right" style="width:16px;height:16px;"></i></button>
+  {% endif %}
+</div>
+{% endif %}
+
 <form method="post">
 {% csrf_token %}
 <div class="panel" style="max-width:760px;">
@@ -17,10 +34,9 @@
   {% endfor %}
 </div>
 
+<datalist id="indikator-ada"></datalist>
+
 {% if not edit %}
-<datalist id="indikator-ada">
-  {% for nm in indikator_ada %}<option value="{{ nm }}"></option>{% endfor %}
-</datalist>
 
 <div class="panel">
   <h2>Kolom Tabel <span class="hint">(header asli buku)</span></h2>
@@ -45,14 +61,36 @@
 <div class="panel">
   <h2>Kolom Tabel</h2>
   {% if koloms %}
-  <p class="hint">Ubah nama indikator, satuan, tahun, atau tipe kolom. Untuk mengubah angka isi tabel, gunakan "Edit Nilai" di halaman tabel.</p>
+  <div style="display:flex; justify-content:space-between; align-items:flex-end;">
+    <p class="hint">Ubah nama indikator, satuan, tahun, atau tipe kolom. Untuk mengubah angka isi tabel, gunakan "Edit Nilai" di halaman tabel.</p>
+    <button type="button" class="btn btn--ghost" onclick="samakanKolom()" style="margin-bottom:12px; font-size:13px; color:var(--accent);">
+      <i data-lucide="copy" style="width:14px;height:14px;"></i> Terapkan Nama & Satuan ke Bawah
+    </button>
+  </div>
   {% for k in koloms %}
   <div class="form-row kolom-baris">
-    <div><label>Nama kolom #{{ k.urutan }}</label><input type="text" name="kolom-{{ k.id }}-nama" value="{{ k.indikator.nama }}"></div>
-    <div><label>Satuan</label><input type="text" name="kolom-{{ k.id }}-satuan" value="{{ k.satuan }}"></div>
-    <div><label>Tahun</label><input type="number" name="kolom-{{ k.id }}-tahun" value="{{ k.tahun|default_if_none:'' }}"></div>
+    <div>
+      <label style="display:flex; justify-content:space-between; align-items:center;">
+        <span>Nama kolom #{{ k.urutan }}</span>
+        <button type="button" class="btn btn--ghost" onclick="suggestAI('{{ k.id|unlocalize }}')" style="padding:2px 6px; font-size:12px; color:var(--primary); height:auto;" title="Rekomendasi AI">
+          <i data-lucide="sparkles" id="ai-icon-{{ k.id|unlocalize }}" style="width:12px;height:12px;"></i> AI
+        </button>
+      </label>
+      <input type="text" id="input-nama-{{ k.id|unlocalize }}" name="kolom-{{ k.id|unlocalize }}-nama" list="indikator-ada" class="edit-nama" value="{{ k.indikator.nama }}" oninput="checkGenericWarning(this)">
+      <div class="generic-warning" style="display:none; color:#ef4444; font-size:11px; margin-top:4px; font-weight:500;">Peringatan: Terlalu umum. Sesuaikan dengan judul.</div>
+    </div>
+    <div><label>Satuan</label><input type="text" name="kolom-{{ k.id|unlocalize }}-satuan" class="edit-satuan" value="{{ k.satuan }}"></div>
+    <div>
+      <label style="display:flex; justify-content:space-between; align-items:center;">
+        <span>Tahun</span>
+        <button type="button" class="btn btn--ghost" onclick="extractYear('{{ k.id|unlocalize }}')" style="padding:2px 6px; font-size:12px; color:var(--muted); height:auto;" title="Ekstrak Tahun">
+          <i data-lucide="scissors" style="width:12px;height:12px;"></i>
+        </button>
+      </label>
+      <input type="text" id="input-tahun-{{ k.id|unlocalize }}" name="kolom-{{ k.id|unlocalize }}-tahun" class="edit-tahun" value="{% if k.tahun %}{{ k.tahun|unlocalize }}{% endif %}">
+    </div>
     <div><label>Tipe</label>
-      <select name="kolom-{{ k.id }}-tipe">
+      <select name="kolom-{{ k.id|unlocalize }}-tipe">
         <option value="numerik" {% if k.tipe_nilai == 'numerik' %}selected{% endif %}>Numerik</option>
         <option value="teks" {% if k.tipe_nilai == 'teks' %}selected{% endif %}>Teks</option>
       </select>
@@ -71,20 +109,129 @@
 </div>
 </form>
 
-{% if not edit %}
 <script>
-function tambahKolom() {
-  var wrap = document.getElementById('kolom-wrap');
-  var i = parseInt(document.getElementById('n_kol').value, 10);
-  var div = document.createElement('div');
-  div.className = 'form-row kolom-baris';
-  div.innerHTML = '<div><label>Nama kolom</label><input type="text" name="kol-'+i+'-nama" list="indikator-ada"></div>'
-    + '<div><label>Satuan</label><input type="text" name="kol-'+i+'-satuan"></div>'
-    + '<div><label>Tahun</label><input type="number" name="kol-'+i+'-tahun"></div>'
-    + '<div><label>Tipe</label><select name="kol-'+i+'-tipe"><option value="numerik">Numerik</option><option value="teks">Teks</option></select></div>';
-  wrap.appendChild(div);
-  document.getElementById('n_kol').value = i + 1;
-}
+  function tambahKolom() {
+    const wrap = document.getElementById('kolom-wrap');
+    const nInput = document.getElementById('n_kol');
+    const i = parseInt(nInput.value);
+    const html = `
+    <div class="form-row kolom-baris">
+      <div><label>Nama kolom</label><input type="text" name="kol-${i}-nama" list="indikator-ada"></div>
+      <div><label>Satuan</label><input type="text" name="kol-${i}-satuan"></div>
+      <div><label>Tahun</label><input type="number" name="kol-${i}-tahun"></div>
+      <div><label>Tipe</label><select name="kol-${i}-tipe"><option value="numerik">Numerik</option><option value="teks">Teks</option></select></div>
+    </div>`;
+    wrap.insertAdjacentHTML('beforeend', html);
+    nInput.value = i + 1;
+  }
+  
+  function samakanKolom() {
+    const namaInputs = document.querySelectorAll('.edit-nama');
+    const satuanInputs = document.querySelectorAll('.edit-satuan');
+    if (namaInputs.length > 0) {
+      const targetNama = namaInputs[0].value;
+      const targetSatuan = satuanInputs[0].value;
+      for (let i = 1; i < namaInputs.length; i++) {
+        namaInputs[i].value = targetNama;
+        satuanInputs[i].value = targetSatuan;
+        checkGenericWarning(namaInputs[i]);
+      }
+    }
+  }
+
+  function checkGenericWarning(input) {
+    const val = input.value.toLowerCase().trim();
+    const blacklist = ['tahun', 'jumlah', 'laki-laki', 'perempuan', 'total', 'angka'];
+    const warningDiv = input.parentElement.querySelector('.generic-warning');
+    if (blacklist.includes(val)) {
+      input.style.borderColor = '#ef4444';
+      if (warningDiv) warningDiv.style.display = 'block';
+    } else {
+      input.style.borderColor = '';
+      if (warningDiv) warningDiv.style.display = 'none';
+    }
+  }
+
+  function extractYear(id) {
+    const namaInput = document.getElementById('input-nama-' + id);
+    const tahunInput = document.getElementById('input-tahun-' + id);
+    if (!namaInput || !tahunInput) return;
+    
+    const match = namaInput.value.match(/\b(19|20)\d{2}\b/);
+    if (match) {
+      tahunInput.value = match[0];
+      tahunInput.style.borderColor = '#10b981';
+      setTimeout(() => tahunInput.style.borderColor = '', 1000);
+    }
+  }
+
+  async function suggestAI(id) {
+    const judulTabel = "{{ tabel.judul|escapejs }}";
+    const input = document.getElementById('input-nama-' + id);
+    const icon = document.getElementById('ai-icon-' + id);
+    
+    if (!input || !judulTabel) return;
+    
+    // Loading state
+    icon.setAttribute('data-lucide', 'loader-2');
+    icon.classList.add('animate-spin');
+    lucide.createIcons();
+    
+    try {
+      const res = await fetch('/kelola/api/suggest-indicator/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        },
+        body: JSON.stringify({ judul: judulTabel, nama_kolom: input.value })
+      });
+      const data = await res.json();
+      
+      if (data.suggestion) {
+        input.value = data.suggestion;
+        checkGenericWarning(input);
+        input.style.borderColor = '#8b5cf6';
+        setTimeout(() => input.style.borderColor = '', 1500);
+      } else if (data.error) {
+        alert("AI Error: " + data.error);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Gagal menghubungi AI.");
+    } finally {
+      icon.setAttribute('data-lucide', 'sparkles');
+      icon.classList.remove('animate-spin');
+      lucide.createIcons();
+    }
+  }
+
+  // Initial check for generic warnings
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.edit-nama').forEach(checkGenericWarning);
+  });
+  
+  // AJAX Autocomplete for datalist
+  let searchTimeout;
+  document.addEventListener('input', function(e) {
+    if (e.target && e.target.classList.contains('edit-nama')) {
+      clearTimeout(searchTimeout);
+      const val = e.target.value.trim();
+      if (val.length < 2) return;
+      
+      searchTimeout = setTimeout(async () => {
+        try {
+          const res = await fetch('/kelola/api/search-indicator/?q=' + encodeURIComponent(val));
+          const data = await res.json();
+          if (data.results) {
+            const datalist = document.getElementById('indikator-ada');
+            datalist.innerHTML = data.results.map(nm => `<option value="${nm}"></option>`).join('');
+          }
+        } catch (err) {
+          console.error('Autocomplete error', err);
+        }
+      }, 300); // debounce 300ms
+    }
+  });
 </script>
-{% endif %}
 {% endblock %}

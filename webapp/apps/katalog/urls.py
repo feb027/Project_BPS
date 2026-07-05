@@ -1,6 +1,7 @@
 from django.urls import path
 
 from . import views
+from . import sync_views
 
 app_name = "katalog"
 
@@ -14,4 +15,7 @@ urlpatterns = [
     path("bab/<int:bab_pk>/tabel/baru/", views.tabel_create, name="tabel_create"),
     path("tabel/<int:pk>/edit/", views.tabel_edit, name="tabel_edit"),
     path("tabel/<int:pk>/hapus/", views.tabel_delete, name="tabel_delete"),
+    path("api/search-indicator/", views.api_search_indicator, name="api_search_indicator"),
+    path("api/suggest-indicator/", views.api_suggest_indicator, name="api_suggest_indicator"),
+    path("sync/", sync_views.SyncDashboardView.as_view(), name="sync_dashboard"),
 ]

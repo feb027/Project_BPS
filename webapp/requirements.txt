@@ -16,3 +16,7 @@ pillow>=10.0
 google-genai>=1.0
 # Driver PostgreSQL
 psycopg[binary]>=3.2
+
+# API & CORS
+djangorestframework>=3.14
+django-cors-headers>=4.3

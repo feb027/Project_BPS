@@ -5,70 +5,64 @@
 
 {% block content %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://unpkg.com/lucide@latest"></script>
 
 <style>
-  /* Stats Grid */
-  .stat-grid-modern { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; margin-top: 10px; }
-  .stat-card { background: #fff; border: 1px solid #e2e8f0; padding: 20px; border-radius: 12px; display: flex; flex-direction: column; }
-  .stat-card .label { font-size: 0.875rem; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
-  .stat-card .value { font-size: 2rem; font-weight: 800; color: #0f172a; margin-top: 8px; line-height: 1; font-family: monospace; }
-  .stat-card.warning { background: #fff1f2; border-color: #fecdd3; }
-  .stat-card.warning .label, .stat-card.warning .value { color: #be123c; }
-
-  /* Modern Panel */
-  .modern-panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom: 24px; }
-  .modern-panel h2 { font-size: 1.1rem; font-weight: 700; color: #0f172a; margin-top: 0; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; border-bottom: 2px solid #f1f5f9; padding-bottom: 12px; }
+  /* Modern Panel - Override to use global vars */
+  .modern-panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
+  .modern-panel h2 { font-size: 1.1rem; font-weight: 600; color: #0F172A; margin-top: 0; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); padding-bottom: 12px; }
   
   /* 2-Col Grid for bottom panels */
   .two-col-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 
   /* Anomaly List */
   .anomaly-list { list-style: none; padding: 0; margin: 0; display:flex; flex-direction:column; gap:8px; }
-  .anomaly-item { display: flex; justify-content: space-between; padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #f59e0b; border-radius: 6px; }
-  .anomaly-item.err { border-left-color: #ef4444; background: #fef2f2; }
-  .anomaly-item .context { font-size: 0.85rem; color: #64748b; margin-top: 4px; }
-  .anomaly-item .val { font-weight: bold; font-family: monospace; background: #fff; color: #991b1b; padding: 4px 8px; border-radius: 4px; border: 1px solid #fecdd3; text-align: center; font-size: 0.8rem; }
+  .anomaly-item { display: flex; justify-content: space-between; padding: 12px; background: #FEF2F2; border: 1px solid #FECACA; border-left: 4px solid var(--danger); border-radius: 6px; }
+  .anomaly-item .context { font-size: 13px; color: #64748B; margin-top: 4px; }
+  .anomaly-item .val { font-weight: bold; font-family: var(--mono); background: #fff; color: #991B1B; padding: 4px 8px; border-radius: 4px; border: 1px solid #FECACA; text-align: center; font-size: 12px; }
 
   /* Live Feed */
-  .feed-list { position: relative; padding-left: 20px; border-left: 2px solid #e2e8f0; margin-left: 10px; }
+  .feed-list { position: relative; padding-left: 20px; border-left: 2px solid var(--line); margin-left: 10px; }
   .feed-item { position: relative; margin-bottom: 20px; }
-  .feed-item::before { content: ''; position: absolute; left: -26px; top: 4px; width: 10px; height: 10px; border-radius: 50%; background: #10b981; border: 2px solid #fff; box-shadow: 0 0 0 1px #e2e8f0; }
-  .feed-time { font-size: 0.75rem; color: #94a3b8; margin-bottom: 2px; }
-  .feed-content { font-size: 0.9rem; color: #334155; }
+  .feed-item::before { content: ''; position: absolute; left: -26px; top: 4px; width: 10px; height: 10px; border-radius: 50%; background: var(--ok); border: 2px solid #fff; box-shadow: 0 0 0 1px var(--line); }
+  .feed-time { font-size: 12px; color: var(--muted); margin-bottom: 4px; font-weight: 500; }
+  .feed-content { font-size: 14px; color: #334155; line-height: 1.4; }
 
   @media (max-width: 768px) {
       .two-col-grid { grid-template-columns: 1fr; }
-      .stat-grid-modern { grid-template-columns: 1fr 1fr; }
   }
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
+  @keyframes spin { to { transform: rotate(360deg); } }
   .animate-spin { animation: spin 1s linear infinite; }
 </style>
 
-<div class="stat-grid-modern">
-  <div class="stat-card">
-    <div class="label">Total Publikasi</div>
-    <div class="value">{{ jml_publikasi }}</div>
+<div class="stat-grid" style="margin-bottom: 24px; margin-top: 10px;">
+  <div class="stat">
+    <div class="stat-label">Total Publikasi</div>
+    <div class="stat-value">{{ jml_publikasi }}</div>
   </div>
-  <div class="stat-card">
-    <div class="label">Total Tabel</div>
-    <div class="value">{{ jml_tabel }}</div>
+  <div class="stat">
+    <div class="stat-label">Total Tabel</div>
+    <div class="stat-value">{{ jml_tabel }}</div>
   </div>
-  <div class="stat-card">
-    <div class="label">Total Fakta (Data)</div>
-    <div class="value">{{ jml_fakta }}</div>
+  <div class="stat">
+    <div class="stat-label">Total Fakta (Data)</div>
+    <div class="stat-value">{{ jml_fakta }}</div>
   </div>
-  <div class="stat-card warning">
-    <div class="label">Anomali & Cek</div>
-    <div class="value">{{ jml_perlu_cek }}</div>
+  <div class="stat stat--warn">
+    <div class="stat-label" style="color: var(--danger);">Anomali & Cek</div>
+    <div class="stat-value" style="color: var(--danger);">{{ jml_perlu_cek }}</div>
   </div>
+</div>
+
+<!-- Quick Actions -->
+<div style="margin-bottom: 24px; display:flex; gap:12px;">
+  <a href="{% url 'referensi:cleaning_dashboard' %}" class="btn btn--primary" style="text-decoration:none; display:inline-flex; align-items:center; gap:8px;">
+    <i data-lucide="wrench"></i> Data Cleaning Tool
+  </a>
 </div>
 
 <!-- Visualisasi Grafik -->
 <div class="modern-panel">
-  <h2><i data-lucide="bar-chart-2" style="color: #3b82f6;"></i> Distribusi Fakta per Kategori (Bab)</h2>
+  <h2><i data-lucide="bar-chart-2" style="color: var(--accent-2);"></i> Distribusi Fakta per Kategori (Bab)</h2>
   <div style="height: 300px; width: 100%;">
     <canvas id="distribusiChart"></canvas>
   </div>
@@ -77,30 +71,30 @@
 <div class="two-col-grid">
   <!-- Anomali Panel -->
   <div class="modern-panel">
-    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 2px solid #fee2e2; padding-bottom: 12px; margin-bottom: 16px;">
-      <h2 style="color: #b91c1c; border:none; padding:0; margin:0;"><i data-lucide="alert-octagon"></i> Data Anomali</h2>
+    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid var(--line); padding-bottom: 12px; margin-bottom: 16px;">
+      <h2 style="color: var(--danger); border:none; padding:0; margin:0;"><i data-lucide="alert-octagon"></i> Data Anomali</h2>
       {% if anomali_list %}
-      <button class="btn btn--sm" onclick="amanSemua()" style="background:#10b981; color:white; border:none; display:flex; align-items:center; gap:4px; font-weight:bold; cursor:pointer;"><i data-lucide="check-square" style="width:14px;height:14px;"></i> Aman Semua</button>
+      <button class="btn btn--sm" onclick="amanSemua()" style="background:var(--ok); color:white; border:none; display:flex; align-items:center; gap:6px; font-weight:600; cursor:pointer;"><i data-lucide="check-square" style="width:14px;height:14px;"></i> Aman Semua</button>
       {% endif %}
     </div>
     {% if anomali_list %}
     <div class="anomaly-list">
       {% for a in anomali_list %}
-      <div class="anomaly-item err">
+      <div class="anomaly-item">
         <div style="flex: 1;">
-          <div style="font-weight:600; color:#1e293b;">Tabel: {{ a.tabel.judul|truncatechars:50 }}</div>
+          <div style="font-weight:600; color:#0F172A;">Tabel: {{ a.tabel.judul|truncatechars:50 }}</div>
           <div class="context">
-            <b>Buku:</b> {{ a.tabel.bab.publikasi.judul|truncatechars:30 }} ({{ a.tabel.bab.publikasi.tahun_terbit }})<br>
-            <b>Posisi:</b> Baris {% if a.wilayah %}{{ a.wilayah.nama }}{% elif a.rincian %}{{ a.rincian.nama }}{% else %}-{% endif %}, Kolom {% if a.kolom and a.kolom.indikator %}{{ a.kolom.indikator.nama }}{% else %}-{% endif %}, Tahun {{ a.tahun|default:"-" }}
+            <b>Buku:</b> {{ a.tabel.bab.publikasi.judul|truncatechars:30 }} ({{ a.tabel.bab.publikasi.tahun_terbit|stringformat:"s" }})<br>
+            <b>Posisi:</b> Baris {% if a.wilayah %}{{ a.wilayah.nama }}{% elif a.rincian %}{{ a.rincian.nama }}{% else %}-{% endif %}, Kolom {% if a.kolom and a.kolom.indikator %}{{ a.kolom.indikator.nama }}{% else %}-{% endif %}, Tahun {{ a.tahun|default:"-" |stringformat:"s"}}
           </div>
         </div>
         <div style="display:flex; flex-direction:column; gap:8px; align-items: flex-end;">
           <div class="val">Perlu Dicek ⚠️</div>
           <div style="display:flex; gap:6px;">
-            <a href="{% url 'data:tabel_detail' a.tabel.id %}" style="display:flex; align-items:center; gap:4px; background:#e2e8f0; color:#0f172a; padding:4px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; text-decoration:none;"><i data-lucide="external-link" style="width:12px;height:12px;"></i> Cek Tabel</a>
+            <a href="{% url 'data:tabel_detail' a.tabel.id %}" class="btn btn--sm btn--ghost" style="display:flex; align-items:center; gap:4px; padding:4px 8px; font-size:12px;"><i data-lucide="external-link" style="width:12px;height:12px;"></i> Cek Tabel</a>
             <form method="POST" action="{% url 'data:mark_fakta_safe' a.id %}" style="margin:0;" onsubmit="handleAman(event, this)">
               {% csrf_token %}
-              <button type="submit" style="display:flex; align-items:center; gap:4px; background:#10b981; color:#fff; border:none; padding:4px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer; transition: opacity 0.2s;"><i data-lucide="check-circle" style="width:12px;height:12px;"></i> Aman</button>
+              <button type="submit" class="btn btn--sm" style="display:flex; align-items:center; gap:4px; background:var(--ok); padding:4px 8px; font-size:12px; transition: opacity 0.2s;"><i data-lucide="check-circle" style="width:12px;height:12px;"></i> Aman</button>
             </form>
           </div>
         </div>
@@ -108,28 +102,45 @@
       {% endfor %}
     </div>
     {% else %}
-    <div style="text-align:center; padding: 20px; color: #10b981; font-weight:600;">
-      <i data-lucide="check-circle" style="width:48px; height:48px; margin-bottom:8px;"></i><br>Pangkalan data bersih dari anomali.
+    <div style="text-align:center; padding: 30px 20px; color: var(--ok); font-weight:600;">
+      <i data-lucide="check-circle" style="width:48px; height:48px; margin-bottom:12px; opacity:0.8;"></i><br>Pangkalan data bersih dari anomali.
     </div>
     {% endif %}
   </div>
 
   <!-- Live Feed Ekstraksi -->
   <div class="modern-panel">
-    <h2><i data-lucide="activity" style="color: #10b981;"></i> Live Feed Aktivitas</h2>
+    <h2><i data-lucide="activity" style="color: var(--ok);"></i> Live Feed Aktivitas</h2>
     {% if live_feed %}
     <div class="feed-list">
       {% for t in live_feed %}
       <div class="feed-item">
-        <div class="feed-time">{{ t.diubah_pada|timesince }} yang lalu</div>
-        <div class="feed-content">
-          <b>Tabel {{ t.nomor_tabel }}</b> ({{ t.bab.publikasi.tahun_terbit }}) berhasil berstatus <span style="background:#e2e8f0; padding:2px 6px; border-radius:4px; font-size:0.8rem; font-weight:bold;">{{ t.get_status_verifikasi_display }}</span>.
+        <div class="feed-time" style="display:flex; justify-content:space-between; align-items:center;">
+          <span>{{ t.diubah_pada|timesince }} yang lalu</span>
+          {% if t.status_verifikasi == 'sudah' or 'verifikasi' in t.get_status_verifikasi_display|lower %}
+            <span class="badge" style="background:#D1FAE5; color:#065F46; border:1px solid #A7F3D0;"><i data-lucide="check-circle" style="width:12px;height:12px;vertical-align:text-bottom;margin-right:4px;"></i>{{ t.get_status_verifikasi_display }}</span>
+          {% else %}
+            <span class="badge" style="background:#EFF6FF; color:#1E40AF; border:1px solid #BFDBFE;"><i data-lucide="file-scan" style="width:12px;height:12px;vertical-align:text-bottom;margin-right:4px;"></i>{{ t.get_status_verifikasi_display }}</span>
+          {% endif %}
+        </div>
+        <div class="feed-content" style="margin-top:6px; background:#F8FAFC; border:1px solid var(--line); padding:10px 12px; border-radius:6px; transition:border-color 0.2s;">
+          <a href="{% url 'data:tabel_detail' t.id %}" style="text-decoration:none; display:block;">
+            <div style="font-weight:600; color:var(--ink-2); margin-bottom:4px; display:flex; align-items:center; gap:6px;">
+              <i data-lucide="table" style="width:14px;height:14px;"></i> Tabel {{ t.nomor_tabel }}
+            </div>
+            <div style="font-size:13px; color:var(--ink); line-height:1.4; margin-bottom:6px;">
+              {{ t.judul|truncatechars:85 }}
+            </div>
+            <div style="font-size:12px; color:var(--muted); display:flex; align-items:center; gap:4px;">
+              <i data-lucide="book" style="width:12px;height:12px;"></i> Buku Publikasi: {{ t.bab.publikasi.tahun_terbit|stringformat:"s" }}
+            </div>
+          </a>
         </div>
       </div>
       {% endfor %}
     </div>
     {% else %}
-    <p class="empty" style="text-align:left; margin:0;">Belum ada aktivitas hari ini.</p>
+    <p class="empty" style="text-align:left; margin:0; padding:20px 0;">Belum ada aktivitas hari ini.</p>
     {% endif %}
   </div>
 </div>
@@ -146,7 +157,7 @@
           datasets: [{
             label: 'Jumlah Baris Data',
             data: ctxData.data,
-            backgroundColor: '#3b82f6',
+            backgroundColor: '#3B82F6', /* accent-2 */
             borderRadius: 6,
           }]
         },
@@ -174,7 +185,7 @@
     // UI Feedback (Loading)
     btn.style.opacity = '0.7';
     btn.innerHTML = '<i data-lucide="loader-2" class="animate-spin" style="width:12px;height:12px;"></i>';
-    lucide.createIcons();
+    if(window.lucide) lucide.createIcons();
     btn.disabled = true;
 
     try {
@@ -207,13 +218,13 @@
   function checkListEmpty() {
     const list = document.querySelector('.anomaly-list');
     if (list && list.children.length === 0) {
-      const emptyHtml = `<div style="text-align:center; padding: 20px; color: #10b981; font-weight:600;">
+      const emptyHtml = `<div style="text-align:center; padding: 20px; color: var(--ok); font-weight:600;">
         <i data-lucide="check-circle" style="width:48px; height:48px; margin-bottom:8px;"></i><br>Daftar di layar sudah bersih.<br>
-        <button class="btn btn--sm" onclick="location.reload()" style="margin-top:16px; background:#f1f5f9; color:#0f172a; border:1px solid #cbd5e1; display:inline-flex; align-items:center; gap:4px; font-weight:bold; cursor:pointer;"><i data-lucide="refresh-cw" style="width:14px;height:14px;"></i> Cek Sisa Anomali Lainnya</button>
+        <button class="btn btn--sm" onclick="location.reload()" style="margin-top:16px; background:var(--surface); color:var(--ink); border:1px solid var(--line); display:inline-flex; align-items:center; gap:4px; font-weight:bold; cursor:pointer;"><i data-lucide="refresh-cw" style="width:14px;height:14px;"></i> Cek Sisa Anomali Lainnya</button>
       </div>`;
       list.parentElement.innerHTML += emptyHtml;
       list.remove();
-      lucide.createIcons();
+      if(window.lucide) lucide.createIcons();
     }
   }
 
@@ -226,7 +237,7 @@
     const promises = Array.from(forms).map(form => {
       const btn = form.querySelector('button');
       btn.innerHTML = '<i data-lucide="loader-2" class="animate-spin" style="width:12px;height:12px;"></i>';
-      lucide.createIcons();
+      if(window.lucide) lucide.createIcons();
       return fetch(form.action, {
         method: 'POST',
         body: new FormData(form),
@@ -247,8 +258,5 @@
       alert("Ada kegagalan saat memproses beberapa data.");
     }
   }
-
-  // Render Lucide Icons
-  lucide.createIcons();
 </script>
 {% endblock %}

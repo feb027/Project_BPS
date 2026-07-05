@@ -39,7 +39,15 @@ _NOMOR_RE = re.compile(r"\d+(?:\.\d+){1,3}")
 # --------------------------------------------------------------------------- #
 def _get_dedup_chars(page):
     """Buang duplikasi karakter akibat fake bold (teks dicetak bertumpuk)."""
-    chars = sorted(page.chars, key=lambda c: (c["top"], c["x0"]))
+    chars_stream = page.chars
+    text_stream = "".join(c.get("text", "") for c in chars_stream)
+    match = re.search(r"https?://[a-zA-Z0-9.-]+\.bps\.go\.id", text_stream)
+    bad_ids = set()
+    if match:
+        start, end = match.span()
+        bad_ids = {id(chars_stream[i]) for i in range(start, end)}
+        
+    chars = sorted((c for c in chars_stream if id(c) not in bad_ids), key=lambda c: (c["top"], c["x0"]))
     dedup = []
     for c in chars:
         if not dedup:
@@ -142,9 +150,11 @@ def col_edges(page):
         tabs = page.find_tables()
     except Exception:
         tabs = []
-    if tabs:
+    
+    valid_tabs = [t for t in tabs if (t.bbox[3] - t.bbox[1]) > 50]
+    if valid_tabs:
         xset = set()
-        for cell in tabs[0].cells:
+        for cell in valid_tabs[0].cells:
             if cell:
                 xset.add(round(cell[0], 1))
                 xset.add(round(cell[2], 1))
@@ -152,10 +162,21 @@ def col_edges(page):
         if len(edges) >= 3:
             return edges
     # --- cadangan borderless: pakai celah teks di area badan tabel ---
-    tbl_top = _table_top(page)
-    lo = (tbl_top - 5) if tbl_top else 130
+    tbl_top = _table_top(page) or 130
     chars = _get_dedup_chars(page)
-    body = [c for c in chars if lo < c["top"] < 560]
+    colnum_top = _get_colnum_top(chars, tbl_top)
+    lo = colnum_top + 5
+    
+    # Cari batas bawah (footer tabel)
+    body_bottom = 560
+    for ln in cluster_lines(chars, tol=None):
+        if ln["top"] > lo:
+            t = "".join(c["text"] for c in ln["chars"]).strip().lower()
+            if "sumber" in t or "source" in t or "catatan" in t or "note" in t or "figures" in t or ("dalam angka" in t and ln["top"] > 500):
+                body_bottom = min(body_bottom, ln["top"])
+                break
+                
+    body = [c for c in chars if lo < c["top"] < body_bottom and c.get("text", "").strip()]
     return _edges_from_items(body, min_gap=None)
 
 
@@ -188,6 +209,12 @@ def row_to_cols(line, edges):
 def clean_num(raw):
     """-> (nilai_num_str|None, teks, flag)"""
     raw = (raw or "").strip()
+    
+    # Ubah spasi pemisah desimal menjadi koma (mis. "1 77" -> "1,77")
+    raw = re.sub(r'(?<=\d)\s+(?=\d{2}(?:\D|$))', ',', raw)
+    # Ubah spasi pemisah ribuan menjadi titik (mis. "1 102" -> "1.102")
+    raw = re.sub(r'(?<=\d)\s+(?=\d{3}(?:\D|$))', '.', raw)
+    
     if "..." in raw or raw in ("..", "…"):
         return None, raw, "tidak_tersedia"
     neg = raw.startswith("(") and raw.endswith(")")
@@ -244,7 +271,15 @@ def _is_italic(w):
 
 def _table_top(page):
     """Tepi atas tabel (anchor bebas-font utk awal area header). None bila tak ada."""
-    hlines = [e["top"] for e in page.edges if e["top"] == e["bottom"] and (e["x1"] - e["x0"]) > 200]
+    for w in page.extract_words():
+        text_lower = w["text"].lower()
+        if text_lower in ("tabel", "table", "gambar"):
+            if w["x0"] < 100:
+                return w["top"]
+        elif text_lower in ("lanjutan", "continued", "lanjutan/continued"):
+            return w["top"]
+
+    hlines = [e["top"] for e in getattr(page, "edges", []) if e["top"] == e["bottom"] and (e["x1"] - e["x0"]) > 200]
     if hlines:
         return min(hlines)
         
@@ -255,6 +290,20 @@ def _table_top(page):
     if not tabs:
         return None
     return min(t.bbox[1] for t in tabs)
+
+def _get_colnum_top(chars, tbl_top):
+    for ln in cluster_lines(chars, tol=None):
+        if ln["top"] < tbl_top - 2:
+            continue
+        t = "".join(c["text"] for c in ln["chars"]).strip()
+        if re.fullmatch(r"(?:(?:\(\d+\)|-\d+)\s*){2,}", t):
+            return ln["top"]
+    for ln in cluster_lines(chars, tol=None):
+        t = "".join(c["text"] for c in ln["chars"]).strip()
+        if re.search(r"(?:\(\d+\)|-\d+)", t) and ln["top"] > tbl_top:
+            return ln["top"]
+    return tbl_top + 80
+
 
 
 def identitas_halaman(page):
@@ -267,44 +316,93 @@ def identitas_halaman(page):
     txt = page.extract_text() or ""
 
     lanjutan = bool(re.search(r"Lanjutan|Continued", txt))
-
     nomor = None
-    m = re.search(r"(?:Lanjutan\s+Tabel|Continued\s+Table)[^\d]*(\d+(?:\.\d+){1,3})", txt)
+    nomor_asli = None
+    m = re.search(r"(?:Lanjutan\s+Tabel|Continued\s+Table)[^\d]*(\d+(?:\.\d+| \d{1,3}(?!\d)){1,3})", txt)
     if m:
-        nomor = m.group(1)
+        nomor_asli = m.group(1)
+        nomor = nomor_asli.replace(" ", ".")
     else:
-        mm = re.search(r"(?m)^\s*(\d+(?:\.\d+){1,3})\s*$", txt)
-        if mm:
-            nomor = mm.group(1)
+        m2 = re.search(r"(?:Tabel|Table)\s*(\d+(?:\.\d+| \d{1,3}(?!\d)){1,3})", txt)
+        if m2:
+            nomor_asli = m2.group(1)
+            nomor = nomor_asli.replace(" ", ".")
+        else:
+            mm = re.search(r"(?m)^\s*(\d+(?:\.\d+| \d{1,3}(?!\d)){1,3})\.?\s*$", txt)
+            if mm:
+                nomor_asli = mm.group(1)
+                nomor = nomor_asli.replace(" ", ".")
 
     # anchor atas: kata 'Tabel'/'Table'/'Gambar' di kolom kiri; cadangan: posisi tetap
     kata_tabel = [w for w in words
-                  if w["text"] in ("Tabel", "Table", "Gambar", "Figure") and w["x0"] < 75]
+                  if w["text"] in ("Tabel", "Table", "Gambar", "Figure") and w["x0"] < 100]
     tabel_top = min((w["top"] for w in kata_tabel), default=None)
-    # anchor bawah area judul: tepi atas tabel
-    header_top = _table_top(page) or 9999
-
-    def order(ws):
-        ws = sorted(ws, key=lambda w: (round(w["top"]), w["x0"]))
-        return re.sub(r"\s+", " ", " ".join(w["text"] for w in ws)).strip()
-
-    judul_id = judul_en = ""
+    header_top = None
     if tabel_top is not None:
-        lo, hi = tabel_top - 3, header_top - 3
-        # judul ada di kolom teks (x0 > ~110), abaikan nomor tabel di kolom kiri
-        reg = [w for w in words if w["x0"] > 105 and lo <= w["top"] < hi]
-        idw = [w for w in reg if not _is_italic(w)]
-        enw = [w for w in reg if _is_italic(w)]
-        if idw and enw:
-            judul_id, judul_en = order(idw), order(enw)
-        else:
-            # font tidak memisahkan ID/EN -> pakai batas tahun pertama
-            full = order(reg)
-            mm = re.search(r",?\s*(?:19|20)\d{2}", full)
-            if mm:
-                judul_id, judul_en = full[:mm.end()].strip(), full[mm.end():].strip()
+        lines = cluster_lines(page.chars, tol=None)
+        # Abaikan baris yang isinya hanya spasi kosong agar gap tidak terputus
+        title_lines = []
+        for ln in lines:
+            if ln["top"] >= tabel_top - 5:
+                teks_baris = "".join(c["text"] for c in ln["chars"]).strip()
+                if teks_baris:
+                    title_lines.append(ln)
+                    
+        for i in range(len(title_lines) - 1):
+            if title_lines[i+1]["top"] - title_lines[i]["top"] > 15:
+                header_top = title_lines[i+1]["top"]
+                break
+    if header_top is None:
+        header_top = _table_top(page) or 9999
+
+    judul_id = ""
+    judul_en = ""
+    if header_top is not None:
+        lines = cluster_lines(page.chars, tol=None)
+        title_block = [ln for ln in lines if tabel_top and tabel_top - 5 <= ln["top"] < header_top]
+        if title_block:
+            title_block_text = "\n".join("".join(c["text"] for c in ln["chars"]).strip() for ln in title_block)
+            if not nomor:
+                # Fallback: cari angka di kolom margin kiri (x0 < 115)
+                # Berguna jika tulisan "4 1 1" terpisah baris dengan "Tabel"
+                left_words = [w["text"] for w in words if w["x0"] < 115 and 50 <= w["top"] < header_top]
+                nums = [w for w in left_words if re.match(r"^\d+[\.\d]*$", w)]
+                if nums:
+                    nomor_asli = " ".join(nums)
+                    nomor = nomor_asli.replace(" ", ".")
+            # Bersihkan nomor dari judul (jika masih menempel)
+            if nomor_asli:
+                num_str = re.escape(nomor_asli)
+                title_block_text = re.sub(rf"(?:Tabel|Table)\s*({num_str})", "", title_block_text, flags=re.IGNORECASE)
+                title_block_text = re.sub(rf"(?:Lanjutan|Continued)\s*({num_str})", "", title_block_text, flags=re.IGNORECASE)
+                title_block_text = re.sub(rf"(?im)^\s*{num_str}\s*$", "", title_block_text)
+                # Remove also exact match if someone typed Table X.Y without 'Table' word in title
+                title_block_text = re.sub(rf"(?i)^\s*(?:Tabel|Table)?\s*{num_str}\.?\s*$", "", title_block_text)
+            reg = [w for w in words if w["x0"] > 90 and 50 <= w["top"] < header_top]
+
+            def order(ws):
+                ws = sorted(ws, key=lambda w: (round(w["top"]), w["x0"]))
+                return re.sub(r"\s+", " ", " ".join(w["text"] for w in ws)).strip()
+
+            idw = [w for w in reg if not _is_italic(w)]
+            enw = [w for w in reg if _is_italic(w)]
+            if idw and enw:
+                judul_id, judul_en = order(idw), order(enw)
             else:
-                judul_id = full
+                full = order(reg)
+                mm = re.search(r",?\s*(?:19|20)\d{2}", full)
+                if mm:
+                    judul_id, judul_en = full[:mm.end()].strip(), full[mm.end():].strip()
+                else:
+                    judul_id = full
+
+            if nomor_asli:
+                num_str = re.escape(nomor_asli)
+                # Bersihkan dari seluruh judul (bisa di tengah karena urutan Y-koordinat OCR)
+                judul_id = re.sub(rf"(?i)\b(?:Tabel|Table)?\s*{num_str}\b\.?", "", judul_id).strip()
+                judul_id = re.sub(r"\s+", " ", judul_id)
+                judul_en = re.sub(rf"(?i)\b(?:Tabel|Table)?\s*{num_str}\b\.?", "", judul_en).strip()
+                judul_en = re.sub(r"\s+", " ", judul_en)
 
     bab = ""
     # nama bab = running header paling atas (kapital), bukan footer "...Dalam Angka"
@@ -365,30 +463,19 @@ def detect_headers(page, edges):
     dedup_chars = _get_dedup_chars(cpage)
     words = pdfplumber.utils.extract_words(dedup_chars, extra_attrs=["fontname"])
     tbl_top = _table_top(page) or 110
-    # baris '(1)(2)..' menandai akhir header
-    colnum_top = None
-    for ln in cluster_lines(dedup_chars, tol=None):
-        if ln["top"] < tbl_top - 2:
-            continue
-        t = "".join(c["text"] for c in ln["chars"]).strip()
-        # baris penanda kolom: deretan '(1)(2)(3)..' (kadang '(1)' diabaikan -> mulai '(2)')
-        if re.fullmatch(r"(?:\(\d+\)\s*){2,}", t):
-            colnum_top = ln["top"]
-            break
+    colnum_top = _get_colnum_top(dedup_chars, tbl_top)
     n = len(edges) - 1
-    # Fallback jika baris (1)(2)(3) tidak ketemu di halaman ini
-    if colnum_top is None:
-        # Coba cari baris dengan pola angka kolom yang lebih longgar
-        for ln in cluster_lines(dedup_chars, tol=None):
-            t = "".join(c["text"] for c in ln["chars"]).strip()
-            if re.search(r"\(\d+\)", t) and ln["top"] > tbl_top:
-                colnum_top = ln["top"]
-                break
-        if colnum_top is None:
-            colnum_top = tbl_top + 80   # fallback: ambil 80pt di bawah top tabel
+            
+    lines_all = cluster_lines(dedup_chars, tol=None)
+    title_lines = [ln for ln in lines_all if ln["top"] >= tbl_top - 5 and ln["top"] < colnum_top]
+    header_top = tbl_top - 4
+    for i in range(len(title_lines) - 1):
+        if title_lines[i+1]["top"] - title_lines[i]["top"] > 18:
+            header_top = title_lines[i+1]["top"] - 2
+            break
             
     # Ambil kata-kata di area header.
-    id_words = [w for w in words if (tbl_top - 4 < w["top"] < colnum_top - 1)]
+    id_words = [w for w in words if (header_top < w["top"] < colnum_top - 1)]
             
     # Kelompokkan kata-kata header menjadi baris
     header_lines = cluster_lines(id_words, tol=None)
@@ -406,6 +493,7 @@ def detect_headers(page, edges):
 
     col_headers = [[] for _ in range(n)]
     
+    blk_id_counter = 0
     for ln in header_lines:
         # Gabungkan kata-kata yang berdekatan di baris ini
         ln_words = ln["chars"]
@@ -461,6 +549,7 @@ def detect_headers(page, edges):
                     and blk_text_len > 30):
                 continue
 
+            blk_id_counter += 1
             for i in range(n):
                 col_x0 = edges[i]
                 col_x1 = edges[i + 1]
@@ -471,7 +560,14 @@ def detect_headers(page, edges):
                 if overlap_x1 - overlap_x0 > 5 or (col_x0 <= (span_x0 + span_x1)/2 < col_x1):
                     # Simpan block beserta info italic-nya
                     is_it = all(_is_italic(w) for w in blk["words"])
-                    col_headers[i].append({"text": blk["text"].strip(), "italic": is_it})
+                    col_headers[i].append({"text": blk["text"].strip(), "italic": is_it, "id": blk_id_counter, "top": blk["top"]})
+
+    # Hitung kemunculan blok di tiap kolom untuk mendeteksi super-header sejati
+    block_counts = {}
+    for i in range(n):
+        for b in col_headers[i]:
+            key = b["id"]
+            block_counts[key] = block_counts.get(key, 0) + 1
 
     out = []
     for i in range(n):
@@ -480,63 +576,89 @@ def detect_headers(page, edges):
         # Filter bahasa Inggris berdasarkan italic PER KOLOM
         # Jika ada setidaknya satu blok normal (non-italic), buang semua blok italic
         has_normal = any(not b["italic"] for b in blocks)
+        
+        # Jika blok normal HANYA berisi angka/simbol (tidak ada huruf), 
+        # jangan buang blok italic karena teks utamanya mungkin dicetak miring
         if has_normal:
-            lines = [b["text"] for b in blocks if not b["italic"]]
+            only_symbols = all(not re.search(r"[A-Za-z]", b["text"]) for b in blocks if not b["italic"])
+            if only_symbols:
+                has_normal = False
+
+        if has_normal:
+            blocks_to_use = [b for b in blocks if not b["italic"]]
         else:
-            lines = [b["text"] for b in blocks]
+            blocks_to_use = blocks
         
         nama_id = ""
         satuan = ""
         tahun = ""
         
-        if lines:
-            raw_full = " ".join(lines)
+        if blocks_to_use:
+            raw_full = " ".join(b["text"] for b in blocks_to_use)
             satuan = _parse_satuan(raw_full)
             
-            # Format Multi-level: [Baris 1] Baris 2 ... (jika ada lebih dari 1 baris logis)
-            bersih_lines = [_bersih_nama_kolom(l) for l in lines]
-            bersih_lines = [l for l in bersih_lines if l]
+            super_headers = []
+            normal_lines = []
+            for b in blocks_to_use:
+                txt = _bersih_nama_kolom(b["text"])
+                if not txt: continue
+                # Jika muncul di > 1 kolom, ia adalah super-header
+                if block_counts.get(b["id"], 1) > 1:
+                    super_headers.append(txt)
+                else:
+                    normal_lines.append(txt)
 
             # ── Pisahkan tahun dari nama kolom ──
-            # 1) Baris yang SELURUHNYA tahun → masuk tahun_lines
-            # 2) Baris yang MENGANDUNG tahun di akhir → strip tahun
             tahun_lines = []
             nama_lines = []
-            for bl in bersih_lines:
+            for bl in normal_lines:
                 stripped = re.sub(r'[\s/\-–—]', '', bl)
-                # Baris murni tahun: "2024/2025", "2024/2025 2025/2026", "2024"
                 if re.fullmatch(r'(?:(?:19|20)\d{2})+', stripped):
                     tahun_lines.append(bl)
                 else:
-                    # Strip pola tahun di akhir teks: "Negeri 2024/2025 2025/2026" → "Negeri"
                     cleaned = re.sub(
                         r'\s+(?:(?:19|20)\d{2}(?:[/\-–—](?:19|20)\d{2})?\s*)+$',
                         '', bl
                     ).strip()
-                    # Cek juga sisa: jika kosong setelah stripping, itu pure tahun
                     if not cleaned:
                         tahun_lines.append(bl)
                     else:
-                        # Ambil tahun dari bagian yang distrip
                         stripped_part = bl[len(cleaned):]
                         yr = re.findall(r'((?:19|20)\d{2})', stripped_part)
                         if yr and not tahun:
                             tahun = yr[0]
                         nama_lines.append(cleaned)
+                        
+            # Cek juga dari super header jika ada tahun murni
+            for bl in super_headers:
+                stripped = re.sub(r'[\s/\-–—]', '', bl)
+                if re.fullmatch(r'(?:(?:19|20)\d{2})+', stripped):
+                    tahun_lines.append(bl)
+                else:
+                    cleaned = re.sub(
+                        r'\s+(?:(?:19|20)\d{2}(?:[/\-–—](?:19|20)\d{2})?\s*)+$',
+                        '', bl
+                    ).strip()
+                    if not cleaned:
+                        tahun_lines.append(bl)
+                    else:
+                        stripped_part = bl[len(cleaned):]
+                        yr = re.findall(r'((?:19|20)\d{2})', stripped_part)
+                        if yr and not tahun:
+                            tahun = yr[0]
 
-            # Ambil tahun dari baris tahun pertama
             if tahun_lines and not tahun:
                 tahun_raw = re.sub(r'\D', '', tahun_lines[0])[:4]
                 if re.match(r'(19|20)\d{2}', tahun_raw):
                     tahun = tahun_raw
 
-            bersih_lines = nama_lines
-            
-            if len(bersih_lines) > 1:
-                # Anggap elemen pertama adalah Super-Header/Group
-                nama_id = f"[{bersih_lines[0]}] {' '.join(bersih_lines[1:])}"
-            elif len(bersih_lines) == 1:
-                nama_id = bersih_lines[0]
+            super_str = " - ".join(sh for sh in super_headers if not re.fullmatch(r'(?:(?:19|20)\d{2})+', re.sub(r'[\s/\-–—]', '', sh)))
+            sub_str = " ".join(nama_lines)
+
+            if super_str:
+                nama_id = f"[{super_str}] {sub_str}".strip()
+            else:
+                nama_id = sub_str
 
             # Fallback: cek tahun dari nama_id jika belum terisi
             if not tahun:
@@ -544,6 +666,14 @@ def detect_headers(page, edges):
                 if mt:
                     tahun = mt.group(0)
                 
+            # Prepend tahun if it's a grouped column scenario
+            if tahun and not re.search(r"\[" + tahun, nama_id):
+                if re.search(r"[A-Za-z]", nama_id):
+                    nama_id = f"[{tahun}] {nama_id}".strip()
+                else:
+                    nama_id = f"[{tahun}]"
+                    
+            # Jika nama masih kosong tapi ada tahun (kasus nama hanya simbol/angka)
             if tahun and not re.search(r"[A-Za-z]", nama_id):
                 nama_id = ""
                 
@@ -565,26 +695,74 @@ def extract_page_rows(page):
     for ln in cluster_lines(chars, tol=None):
         if len(ln["chars"]) < 3 or ln["top"] < 130:
             continue
-        name = row_to_cols(ln, edges)[0]
+        cols = row_to_cols(ln, edges)
+        name = cols[0]
+        name2 = cols[1] if len(cols) > 1 else ""
         if is_kab_total(name):
-            anchors.append((ln["top"], "__KAB__"))
+            anchors.append((ln["top"], "__KAB__", 1))
+        elif is_kab_total(name2):
+            anchors.append((ln["top"], "__KAB__", 2))
         else:
-            kec = match_kec(name)
-            if kec:
-                anchors.append((ln["top"], kec))
+            if match_kec(name):
+                anchors.append((ln["top"], match_kec(name), 1))
+            elif match_kec(name2):
+                anchors.append((ln["top"], match_kec(name2), 2))
     anchors.sort(key=lambda a: a[0])
 
+    if len([a for a in anchors if a[1] != "__KAB__"]) < 3:
+        seq_anchors = []
+        expected_seq = -999
+        for ln in cluster_lines(chars, tol=None):
+            if len(ln["chars"]) < 3 or ln["top"] < 130:
+                continue
+            cols = row_to_cols(ln, edges)
+            name = cols[0].strip()
+            name2 = cols[1].strip() if len(cols) > 1 else ""
+            
+            if is_kab_total(name):
+                seq_anchors.append((ln["top"], "__KAB__", 1))
+            elif is_kab_total(name2):
+                seq_anchors.append((ln["top"], "__KAB__", 2))
+            else:
+                m = re.fullmatch(r"(\d+)\.?", name)
+                if m:
+                    num = int(m.group(1))
+                    if num < 1000:
+                        if expected_seq == -999 or expected_seq <= num <= expected_seq + 3:
+                            label_text = ""
+                            label_idx = 1
+                            for idx in range(1, min(4, len(cols))):
+                                if cols[idx].strip():
+                                    label_text = cols[idx].strip()
+                                    label_idx = idx
+                                    break
+                            if label_text:
+                                seq_anchors.append((ln["top"], label_text, label_idx + 1))
+                                expected_seq = num + 1
+                                
+        if len([a for a in seq_anchors if a[1] != "__KAB__"]) >= 3:
+            anchors = seq_anchors
+
     rows, kab = [], None
-    for i, (top, name) in enumerate(anchors):
+    start_col = 1
+    if anchors:
+        start_cols = [a[2] for a in anchors]
+        start_col = max(set(start_cols), key=start_cols.count)
+        
+    for i, (top, name, _) in enumerate(anchors):
         lo = (anchors[i - 1][0] + top) / 2 if i > 0 else top - 5
         hi = (anchors[i + 1][0] + top) / 2 if i + 1 < len(anchors) else top + 6
         band = [c for c in chars if lo < c["top"] <= hi]
         cols = row_to_cols({"chars": band}, edges)
+        
+        # Format ulang cols: cols[0] = label, cols[1:] = data
+        new_cols = [name] + cols[start_col:]
+        
         if name == "__KAB__":
-            kab = cols
+            kab = new_cols
         else:
-            rows.append((name, cols))
-    return rows, kab
+            rows.append((name, new_cols))
+    return rows, kab, start_col
 
 
 def extract_page_rows_kategori(page):
@@ -621,7 +799,7 @@ def extract_page_rows_kategori(page):
             pending = ""
         elif punya_label:
             pending = label
-    return rows, kab
+    return rows, kab, 1
 
 
 # --------------------------------------------------------------------------- #
@@ -650,41 +828,50 @@ def _rakit_tabel(pages_info):
     def kumpul(mode):
         gabung, urutan, total_cells = {}, [], None
         horizontal_pages = []
+        nama_total_asli = "Kabupaten Tasikmalaya"
         
         for pidx, info in enumerate(pages_info):
             page = info[0]
             if mode == "kategori":
-                rows, kab = extract_page_rows_kategori(page)
+                rows, kab, start_col = extract_page_rows_kategori(page)
             else:
-                rows, kab = extract_page_rows(page)
+                rows, kab, start_col = extract_page_rows(page)
                 
             page_has_first = False
+            seen_on_page = {}
             for nama, cols in rows:
                 if not urutan:
                     urutan.append(nama)
                 if nama == urutan[0]:
                     page_has_first = True
+                
+                c = seen_on_page.get(nama, 0)
+                seen_on_page[nama] = c + 1
+                nama_unik = f"{nama}_{c}" if c > 0 else nama
                     
-                if nama not in gabung:
-                    gabung[nama] = []
-                    if nama not in urutan:
-                        urutan.append(nama)
-                gabung[nama].extend(cols[1:])
+                if nama_unik not in gabung:
+                    gabung[nama_unik] = []
+                    if nama_unik not in urutan:
+                        urutan.append(nama_unik)
+                gabung[nama_unik].extend(cols[1:])
                 
             if page_has_first:
                 horizontal_pages.append(pidx)
                 
             if kab:
+                # simpan nama asli baris total dari PDF (kolom pertama)
+                if kab[0]:
+                    nama_total_asli = kab[0].strip() or nama_total_asli
                 total_cells = (total_cells or []) + kab[1:]
-        return gabung, urutan, total_cells, horizontal_pages
+        return gabung, urutan, total_cells, horizontal_pages, nama_total_asli, start_col
 
-    g_kec, u_kec, t_kec, hp_kec = kumpul("kecamatan")
+    g_kec, u_kec, t_kec, hp_kec, kab_nama_kec, start_col = kumpul("kecamatan")
     if len(u_kec) >= 5:
         mode = "kecamatan"
-        gabung, urutan, total_cells, horizontal_pages = g_kec, u_kec, t_kec, hp_kec
+        gabung, urutan, total_cells, horizontal_pages, nama_total = g_kec, u_kec, t_kec, hp_kec, kab_nama_kec
     else:
         mode = "kategori"
-        gabung, urutan, total_cells, horizontal_pages = kumpul("kategori")
+        gabung, urutan, total_cells, horizontal_pages, nama_total, start_col = kumpul("kategori")
 
     # --- tentukan headers dari halaman-halaman horizontal ---
     # Hanya ekstrak header dari halaman yang mengandung baris pertama (horizontal continuation)
@@ -699,14 +886,13 @@ def _rakit_tabel(pages_info):
             allh = detect_headers(page_h, edges_h)
             if allh:
                 if not headers: # First time
-                    label_kolom = allh[0]["nama"]
-                # Kolom 0 = label baris → lewati
-                headers.extend(allh[1:])
+                    label_kolom = allh[start_col - 1]["nama"] if start_col - 1 < len(allh) else ""
+                headers.extend(allh[start_col:])
 
     n_kolom = max((len(v) for v in gabung.values()), default=0)
 
     hasil_rows = [{"wilayah": n, "sel": _buat_sel(gabung[n])} for n in urutan]
-    total = ({"wilayah": "Kabupaten Tasikmalaya", "sel": _buat_sel(total_cells)}
+    total = ({"wilayah": nama_total, "sel": _buat_sel(total_cells)}
              if total_cells else None)
 
     # --- samakan panjang headers dengan n_kolom ---
@@ -942,11 +1128,14 @@ def ekstrak_range(pdf_path, hal_awal, hal_akhir, pakai_ocr="auto",
             if pno < 1 or pno > n_pages:
                 continue
             page, is_ocr = page_untuk(pno)
+            if not is_ocr:
+                page = clean_page(page)
             ident = identitas_halaman(page)
-            edges = col_edges(clean_page(page) if not is_ocr else page)
+            edges = col_edges(page)
             if edges is None:
                 continue  # halaman tanpa tabel (mis. grafik) -> lewati
-            mulai_baru = (not ident["lanjutan"]) and bool(ident["nomor"]) and bool(grup)
+            sama_dengan_sebelumnya = bool(grup) and ident["nomor"] == grup[-1][1]["nomor"] and bool(ident["nomor"])
+            mulai_baru = (not ident["lanjutan"]) and bool(ident["nomor"]) and bool(grup) and not sama_dengan_sebelumnya
             if not grup:
                 grup = [(page, ident, is_ocr)]
             elif mulai_baru:

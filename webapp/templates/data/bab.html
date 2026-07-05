@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ bab.nama }}{% endblock %}
-{% block eyebrow %}Bab {{ bab.nomor }} · {{ bab.publikasi.tahun_terbit }}{% endblock %}
+{% block eyebrow %}Bab {{ bab.nomor }} · {{ bab.publikasi.tahun_terbit|stringformat:"s" }}{% endblock %}
 {% block heading %}{{ bab.nama }}{% endblock %}
 
 {% block content %}

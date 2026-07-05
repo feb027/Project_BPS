@@ -9,13 +9,13 @@
   {% csrf_token %}
 
   <div class="panel">
-    <div class="step-head"><span class="step-num">1</span><h2>Pilih Publikasi</h2></div>
+    <div class="step-head"><span class="step-num">1</span><h2 style="display:flex;align-items:center;gap:8px;"><i data-lucide="book-open" style="color:var(--accent-2);"></i> Pilih Publikasi</h2></div>
     <div class="form-row">
       <div class="full">
         <label>Publikasi tujuan</label>
         <select name="pub_id" id="pub-selector">
           <option value="">— Buat publikasi baru —</option>
-          {% for p in pubs %}<option value="{{ p.pk }}">{{ p.judul }} ({{ p.tahun_terbit }})</option>{% endfor %}
+          {% for p in pubs %}<option value="{{ p.pk }}">{{ p.judul }} ({{ p.tahun_terbit|stringformat:"s" }})</option>{% endfor %}
         </select>
       </div>
     </div>
@@ -26,26 +26,26 @@
   </div>
 
   <div class="panel">
-    <div class="step-head"><span class="step-num">2</span><h2>Unggah &amp; Pilih Halaman</h2></div>
+    <div class="step-head"><span class="step-num">2</span><h2 style="display:flex;align-items:center;gap:8px;"><i data-lucide="upload-cloud" style="color:var(--accent-2);"></i> Unggah &amp; Pilih Halaman</h2></div>
     <p class="hint" style="margin-top:0;">Engine memisah <strong>setiap tabel</strong> dalam rentang (halaman "Lanjutan" digabung otomatis) dan mengisi identitas, kolom, satuan, tahun, serta jenis tabel.</p>
     <div class="form-row">
       <div class="full">
         <label>File PDF</label>
         <input type="file" name="pdf" id="pdf-input" accept="application/pdf" required>
-        <p class="hint" id="pdf-hint" style="display:none; color:var(--accent); font-weight:bold;">✅ Publikasi ini sudah memiliki file PDF tersimpan di server. Anda tidak perlu mengunggah ulang kecuali ingin menggantinya.</p>
+        <p class="hint" id="pdf-hint" style="display:none; color:var(--ok); font-weight:600;"><i data-lucide="check-circle" style="width:14px;height:14px;vertical-align:middle;"></i> Publikasi ini sudah memiliki file PDF tersimpan di server. Anda tidak perlu mengunggah ulang kecuali ingin menggantinya.</p>
       </div>
     </div>
     
-    <div class="panel" id="pdf-viewer-panel" style="display:none; background:#fafafa; border:1px solid #ddd; padding:12px; margin-bottom:12px; border-radius:6px;">
-      <div style="font-weight:600; margin-bottom:6px;">Pilih Halaman secara Visual</div>
-      <p class="hint" style="margin:0 0 10px;">Klik untuk memilih <b>Halaman Awal</b>. Tekan <kbd>Shift</kbd> + Klik untuk <b>Halaman Akhir</b>.</p>
-      <div class="pdf-gallery" id="pdf-gallery" style="display:flex; overflow-x:auto; gap:12px; padding-bottom:10px; min-height:160px; position:relative;"></div>
+    <div class="panel" id="pdf-viewer-panel" style="display:none; background:var(--surface); border:1px solid var(--line); padding:16px; margin-bottom:16px; border-radius:8px;">
+      <div style="font-weight:600; margin-bottom:6px; color:var(--ink-2);"><i data-lucide="mouse-pointer-click" style="width:16px;height:16px;vertical-align:middle;"></i> Pilih Halaman secara Visual</div>
+      <p class="hint" style="margin:0 0 12px;">Klik untuk memilih <b>Halaman Awal</b>. Tekan <kbd style="background:#E2E8F0;padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:11px;">Shift</kbd> + Klik untuk <b>Halaman Akhir</b>.</p>
+      <div class="pdf-gallery" id="pdf-gallery" style="display:flex; overflow-x:auto; gap:12px; padding-bottom:12px; min-height:160px; position:relative;"></div>
     </div>
 
     <!-- Floating Hover Preview -->
-    <div id="pdf-hover-preview" style="display:none; position:absolute; z-index:9999; border:2px solid var(--accent); background:#fff; padding:8px; border-radius:8px; box-shadow:0 15px 40px rgba(0,0,0,0.3); pointer-events:none; transform: translateX(-50%);">
+    <div id="pdf-hover-preview" style="display:none; position:absolute; z-index:9999; border:2px solid var(--accent-2); background:#fff; padding:8px; border-radius:8px; box-shadow:0 15px 40px rgba(15,23,42,0.3); pointer-events:none; transform: translateX(-50%);">
         <div id="pdf-hover-canvas-container" style="max-height:600px; display:flex; justify-content:center;"></div>
-        <div id="pdf-hover-label" style="text-align:center; font-weight:bold; margin-top:8px; font-size:16px; color:#333;"></div>
+        <div id="pdf-hover-label" style="text-align:center; font-weight:700; margin-top:8px; font-size:16px; color:var(--ink);"></div>
     </div>
 
     <div class="form-row">
@@ -82,21 +82,22 @@
     </div>
   </div>
 
-  <div class="toolbar" style="margin-top:18px;">
+  <div class="toolbar" style="margin-top:24px;">
     <span class="hint">Maksimal 80 halaman sekali jalan.</span>
-    <button class="btn btn--accent" type="submit">Ekstrak &amp; Pratinjau →</button>
+    <button class="btn btn--accent" type="submit" style="font-size:15px; padding:12px 24px;"><i data-lucide="play-circle"></i> Ekstrak &amp; Pratinjau</button>
   </div>
 </form>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
 <style>
-  .pdf-thumb { cursor:pointer; text-align:center; font-size:11px; color:#555; border:3px solid transparent; border-radius:4px; padding:2px; flex-shrink:0; position:relative; background:#fff; }
-  .pdf-thumb canvas { display:block; width:100px; height:auto; min-height:140px; box-shadow:0 1px 3px rgba(0,0,0,0.2); margin-bottom:4px; background:#fff; }
-  .pdf-thumb.selected-start { border-color:var(--accent); background:#eff6ff; }
-  .pdf-thumb.selected-end { border-color:#e11d48; background:#fff1f2; }
-  .pdf-thumb.in-range { background:#fef3c7; border-color:#fbbf24; }
-  .pdf-thumb.selected-start::after { content:'AWAL'; position:absolute; top:-10px; left:50%; transform:translateX(-50%); background:var(--accent); color:#fff; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:10px; }
-  .pdf-thumb.selected-end::after { content:'AKHIR'; position:absolute; top:-10px; left:50%; transform:translateX(-50%); background:#e11d48; color:#fff; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:10px; }
+  .pdf-thumb { cursor:pointer; text-align:center; font-size:12px; color:var(--muted); border:3px solid transparent; border-radius:6px; padding:4px; flex-shrink:0; position:relative; background:#fff; transition: transform 0.2s; }
+  .pdf-thumb:hover { transform: translateY(-2px); }
+  .pdf-thumb canvas { display:block; width:110px; height:auto; min-height:150px; box-shadow:0 2px 6px rgba(0,0,0,0.1); margin-bottom:6px; background:#fff; border-radius:2px; }
+  .pdf-thumb.selected-start { border-color:var(--accent-2); background:#EFF6FF; }
+  .pdf-thumb.selected-end { border-color:var(--accent); background:#FFFBEB; }
+  .pdf-thumb.in-range { background:#F8FAFC; border-color:#CBD5E1; }
+  .pdf-thumb.selected-start::after { content:'AWAL'; position:absolute; top:-12px; left:50%; transform:translateX(-50%); background:var(--accent-2); color:#fff; padding:2px 8px; border-radius:10px; font-weight:700; font-size:10px; font-family:var(--mono); }
+  .pdf-thumb.selected-end::after { content:'AKHIR'; position:absolute; top:-12px; left:50%; transform:translateX(-50%); background:var(--accent); color:#fff; padding:2px 8px; border-radius:10px; font-weight:700; font-size:10px; font-family:var(--mono); }
 </style>
 <script>
 (function () {
@@ -148,7 +149,7 @@
   halAkhirInp.addEventListener('input', updateGallerySelection);
 
   function loadPDF(urlOrData) {
-      gallery.innerHTML = '<div style="padding:20px;color:#666;">Memuat pratinjau PDF visual... ⏳</div>';
+      gallery.innerHTML = '<div style="padding:20px;color:var(--muted);font-weight:500;">Memuat pratinjau PDF visual... ⏳</div>';
       viewerPanel.style.display = 'block';
       
       pdfjsLib.getDocument(urlOrData).promise.then(function(pdf) {
@@ -160,9 +161,9 @@
               var div = document.createElement('div');
               div.className = 'pdf-thumb';
               div.dataset.page = i;
-              div.style.width = '100px';
-              div.style.minHeight = '140px';
-              div.innerHTML = '<div>Hal ' + i + '</div>';
+              div.style.width = '118px';
+              div.style.minHeight = '150px';
+              div.innerHTML = '<div style="font-weight:600;margin-top:2px;">Hal ' + i + '</div>';
               
               div.addEventListener('click', function(e) {
                   var p = parseInt(this.dataset.page);
@@ -202,6 +203,8 @@
                                   clone.style.height = 'auto';
                                   clone.style.maxWidth = '500px';
                                   clone.style.maxHeight = '700px';
+                                  clone.style.borderRadius = '4px';
+                                  clone.style.border = '1px solid #E2E8F0';
                                   container.appendChild(clone);
                                   
                                   document.getElementById('pdf-hover-label').textContent = 'Halaman ' + p;
@@ -230,7 +233,7 @@
           Array.from(gallery.children).forEach(function(child) { observer.observe(child); });
           updateGallerySelection();
       }).catch(function(err) {
-          gallery.innerHTML = '<div style="padding:20px;color:red;">Gagal memuat pratinjau PDF: ' + err.message + '</div>';
+          gallery.innerHTML = '<div style="padding:20px;color:var(--danger);font-weight:600;">Gagal memuat pratinjau PDF: ' + err.message + '</div>';
       });
   }
 

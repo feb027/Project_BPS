@@ -1,214 +1,175 @@
 {% extends "base.html" %}
-{% load format_id %}
+{% load format_id l10n %}
 {% block title %}{{ tabel.nama_tampil }}{% endblock %}
-{% block eyebrow %}Tabel {{ tabel.nomor_tabel }} · {{ tabel.bab.publikasi.tahun_terbit }}{% endblock %}
+{% block eyebrow %}Tabel {{ tabel.nomor_tabel }} &middot; {{ tabel.bab.publikasi.tahun_terbit|stringformat:"s" }}{% endblock %}
 {% block heading %}{{ tabel.nama_tampil }}{% endblock %}
 
 {% block content %}
-<script src="https://unpkg.com/lucide@latest"></script>
-<!-- Handsontable -->
-<script src="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.js"></script>
-<link href="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.css" rel="stylesheet">
-
-<style>
-  .badge-status { font-weight: bold; padding: 4px 10px; border-radius: 6px; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 4px; }
-  .status-draft { background: #e2e8f0; color: #475569; }
-  .status-ekstrak { background: #fef08a; color: #854d0e; }
-  .status-verifikasi { background: #10b981; color: #fff; }
-  .anomaly-cell { background-color: #fef08a !important; color: #991b1b; font-weight: bold; }
-  .anomaly-cell.err { background-color: #fecdd3 !important; }
-</style>
-
-<div class="toolbar" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; margin-bottom:16px;">
-  <div>
-    <p class="hint" style="margin:0 0 8px 0;">{{ tabel.judul }}{% if tabel.sumber %} · <em>Sumber: {{ tabel.sumber }}</em>{% endif %}</p>
-    <div style="display:flex; gap:10px; align-items:center;">
-      <span class="badge-status {% if tabel.status_verifikasi == 'VERIFIKASI' %}status-verifikasi{% elif tabel.status_verifikasi == 'EKSTRAK' %}status-ekstrak{% else %}status-draft{% endif %}">
-        {% if tabel.status_verifikasi == 'VERIFIKASI' %}<i data-lucide="check-circle" style="width:14px;height:14px;"></i> Terverifikasi
-        {% elif tabel.status_verifikasi == 'EKSTRAK' %}<i data-lucide="file-text" style="width:14px;height:14px;"></i> Terekstrak
-        {% else %}<i data-lucide="edit-3" style="width:14px;height:14px;"></i> Draft{% endif %}
-      </span>
-      {% if tabel.status_verifikasi != 'VERIFIKASI' and not edit %}
-      <form method="POST" action="{% url 'data:verifikasi_tabel' tabel.pk %}" style="margin:0;">
-        {% csrf_token %}
-        <button type="submit" class="btn btn--sm" style="background:#10b981; color:white; border:none; border-radius:6px; font-weight:bold; cursor:pointer;"><i data-lucide="lock" style="width:14px;height:14px;"></i> Kunci & Verifikasi</button>
-      </form>
-      {% endif %}
-    </div>
-  </div>
-  
-  {% if edit %}
-    <span class="badge badge--perlu_cek" style="display:flex; align-items:center; gap:4px;"><i data-lucide="edit-2" style="width:14px;height:14px;"></i> Mode Edit Spreadsheet</span>
+<div style="display:flex; justify-content:flex-end; gap:8px; margin-bottom: 16px;">
+  {% if tabel.prev_tabel %}
+    <a href="{% url 'data:tabel_detail' tabel.prev_tabel.pk %}" class="btn btn--ghost" style="border:1px solid var(--line);"><i data-lucide="arrow-left" style="width:16px;height:16px;"></i> Prev</a>
   {% else %}
-    <span style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
-      <a class="btn btn--accent" href="{% url 'data:tabel_isi' tabel.pk %}" style="display:flex; align-items:center; gap:4px;"><i data-lucide="plus" style="width:16px;height:16px;"></i> Isi / Tambah</a>
-      {% if tabel.status_verifikasi != 'VERIFIKASI' %}
-      <a class="btn btn--ghost" href="?edit=1" style="display:flex; align-items:center; gap:4px;"><i data-lucide="edit" style="width:16px;height:16px;"></i> Edit Nilai</a>
-      {% endif %}
-      <a class="btn btn--ghost" href="{% url 'katalog:tabel_edit' tabel.pk %}" style="display:flex; align-items:center; gap:4px;"><i data-lucide="settings" style="width:16px;height:16px;"></i> Pengaturan</a>
-      <a class="btn btn--ghost" href="{% url 'data:export_tabel' tabel.pk %}" style="display:flex; align-items:center; gap:4px;"><i data-lucide="file-text" style="width:16px;height:16px;"></i> CSV</a>
-      <a class="btn btn--ghost" href="{% url 'data:export_tabel' tabel.pk %}?format=xlsx" style="display:flex; align-items:center; gap:4px;"><i data-lucide="table" style="width:16px;height:16px;"></i> Excel</a>
-      <a class="btn btn--danger" href="{% url 'katalog:tabel_delete' tabel.pk %}" style="display:flex; align-items:center; gap:4px;"><i data-lucide="trash-2" style="width:16px;height:16px;"></i> Hapus</a>
+    <button class="btn btn--ghost" style="border:1px solid var(--line); opacity:0.5; cursor:not-allowed;" disabled><i data-lucide="arrow-left" style="width:16px;height:16px;"></i> Prev</button>
+  {% endif %}
+  
+  {% if tabel.next_tabel %}
+    <a href="{% url 'data:tabel_detail' tabel.next_tabel.pk %}" class="btn btn--ghost" style="border:1px solid var(--line);">Next <i data-lucide="arrow-right" style="width:16px;height:16px;"></i></a>
+  {% else %}
+    <button class="btn btn--ghost" style="border:1px solid var(--line); opacity:0.5; cursor:not-allowed;" disabled>Next <i data-lucide="arrow-right" style="width:16px;height:16px;"></i></button>
+  {% endif %}
+</div>
+
+<div class="toolbar">
+  <p class="hint" style="margin:0; font-size:14px; font-weight:500;">{{ tabel.judul }}{% if tabel.sumber %}<br><span style="color:var(--muted); font-size:12px; font-weight:normal;">Sumber: {{ tabel.sumber }}</span>{% endif %}</p>
+  {% if edit %}
+    <span class="badge badge--perlu_cek" style="display:inline-flex; align-items:center; gap:6px;"><i data-lucide="alert-circle" style="width:14px;height:14px;"></i> Mode Edit — desimal gunakan titik (.), baris bisa diubah/dihapus</span>
+  {% else %}
+    <span style="display:flex; gap:10px; flex-wrap:wrap;">
+      <a class="btn btn--accent" href="{% url 'data:tabel_isi' tabel.pk %}"><i data-lucide="plus-circle" style="width:16px;height:16px;"></i> Isi / Tambah Data</a>
+      <a class="btn btn--ghost" href="?edit=1"><i data-lucide="edit-3" style="width:16px;height:16px;"></i> Edit Nilai</a>
+      <a class="btn btn--ghost" href="{% url 'katalog:tabel_edit' tabel.pk %}"><i data-lucide="settings" style="width:16px;height:16px;"></i> Pengaturan</a>
+      <a class="btn btn--danger" href="{% url 'katalog:tabel_delete' tabel.pk %}"><i data-lucide="trash-2" style="width:16px;height:16px;"></i> Hapus</a>
     </span>
   {% endif %}
 </div>
 
 <form method="post" id="data-form">
 {% csrf_token %}
-<div class="panel" style="overflow-x:auto; padding: 0;">
+<style>
+  .data-table-wrapper {
+    max-height: 75vh;
+    overflow: auto;
+    position: relative;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .data-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background-color: #F8FAFC;
+    box-shadow: 0 1px 0 #E2E8F0;
+  }
+  .data-table tbody td.rowhead, .data-table tfoot td.rowhead {
+    position: sticky;
+    left: 0;
+    z-index: 5;
+    background-color: #FFFFFF;
+    box-shadow: 1px 0 0 #E2E8F0;
+  }
+  .data-table thead th.rowhead {
+    position: sticky;
+    top: 0;
+    left: 0;
+    z-index: 15;
+    background-color: #F8FAFC;
+    box-shadow: 1px 1px 0 #E2E8F0;
+  }
+  .cell-edit { width:100%; text-align:center; padding:8px; border:1px solid transparent; border-radius:4px; font-variant-numeric:tabular-nums; background:transparent; transition: all 0.2s; font-family:var(--mono); }
+  .cell-edit:hover { border-color:var(--line); background:#fff; }
+  .cell-edit:focus { border-color:var(--accent-2); outline:none; background:#fff; box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
+</style>
+<div class="panel data-table-wrapper" style="padding:0; margin-top:16px;">
   {% if baris %}
-  
-  {% if edit %}
-    <!-- Spreadsheet Container -->
-    <div id="hot-container" style="width: 100%; height: 500px; overflow: hidden; border-radius: 6px;"></div>
-    <div id="hidden-inputs"></div>
-  {% else %}
-    <!-- Standard View Table -->
-    <table class="data-table wide" style="margin:0;">
-      <thead>
-        <tr>
-          <th class="rowhead">{{ label_baris }}</th>
-          {% for kj in kolom_judul %}<th>{{ kj }}</th>{% endfor %}
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in baris %}
-        <tr>
-          <td class="rowhead">{{ row.nama }}</td>
-          {% for f in row.sel %}
-            <td class="{% if f.flag == 'perlu_cek' %}anomaly-cell err{% elif f.flag == 'nihil' or f.flag == 'tidak_tersedia' %}anomaly-cell{% endif %}">
-              {% if f is None %}<span class="hint">·</span>
-              {% elif f.flag == 'nihil' %}<span class="hint" title="Nihil">–</span>
-              {% elif f.flag == 'tidak_tersedia' %}<span class="hint" title="Tidak Tersedia">…</span>
-              {% elif f.nilai_num is not None %}{{ f.nilai_num|angka_id }}
-              {% else %}{{ f.nilai_teks }}{% endif %}
-            </td>
-          {% endfor %}
-        </tr>
+  <table class="data-table wide" style="margin:0;">
+    <thead>
+      <tr>
+        <th class="rowhead">{{ label_baris }}</th>
+        {% for k in koloms %}
+          <th>
+            {% if edit %}
+              <div style="font-size:11px; color:var(--muted); margin-bottom:4px; font-weight:600;">{{ k.indikator.nama }}</div>
+              <div style="display:flex; flex-direction:column; gap:4px; align-items:center;">
+                <input type="text" name="kol-{{ k.id|unlocalize }}-satuan" value="{% if k.satuan and k.satuan != '-' %}{{ k.satuan }}{% endif %}" placeholder="Satuan" style="width:80px; padding:4px; font-size:11px; border:1px solid var(--line); border-radius:4px; text-align:center;">
+                <input type="text" name="kol-{{ k.id|unlocalize }}-tahun" value="{% if k.tahun %}{{ k.tahun|unlocalize }}{% endif %}" placeholder="Tahun" style="width:80px; padding:4px; font-size:11px; border:1px solid var(--line); border-radius:4px; text-align:center;">
+              </div>
+            {% else %}
+              {{ k.indikator.nama }}{% if k.tahun %} <span style="color:var(--ink-2);"><br>({{ k.tahun|unlocalize }})</span>{% endif %}{% if k.satuan and k.satuan != '-' %} &mdash; {{ k.satuan }}{% endif %}
+            {% endif %}
+          </th>
         {% endfor %}
-      </tbody>
-      {% if baris_total %}
-      <tfoot>
-        {% for row in baris_total %}
-        <tr class="row-total">
-          <td class="rowhead">{{ row.nama }} <span class="tag-total">TOTAL</span></td>
-          {% for f in row.sel %}
-            <td class="{% if f.flag == 'perlu_cek' %}anomaly-cell err{% elif f.flag == 'nihil' or f.flag == 'tidak_tersedia' %}anomaly-cell{% endif %}">
-              {% if f is None %}<span class="hint">·</span>
-              {% elif f.flag == 'nihil' %}<span class="hint">–</span>
-              {% elif f.flag == 'tidak_tersedia' %}<span class="hint">…</span>
-              {% elif f.nilai_num is not None %}{{ f.nilai_num|angka_id }}
-              {% else %}{{ f.nilai_teks }}{% endif %}
-            </td>
-          {% endfor %}
-        </tr>
+        {% if edit %}<th>Hapus</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in baris %}
+      <tr>
+        <td class="rowhead">
+          {% if edit %}
+            <input type="text" name="row-{{ row.id|unlocalize }}-nama" value="{{ row.nama }}" class="cell-edit" style="width:200px; text-align:left; border:1px solid var(--line); background:#fff;">
+          {% else %}
+            {{ row.nama }}
+          {% endif %}
+        </td>
+        {% for f in row.sel %}
+          <td>
+            {% if f is None %}
+              <span class="hint">·</span>
+            {% elif edit %}
+              <input type="text" name="f-{{ f.id|unlocalize }}" class="cell-edit"
+                value="{% if f.nilai_num is not None %}{{ f.nilai_num|unlocalize }}{% else %}{{ f.nilai_teks }}{% endif %}">
+            {% elif f.flag == 'nihil' %}
+              <span class="hint">–</span>
+            {% elif f.flag == 'tidak_tersedia' %}
+              <span class="hint">…</span>
+            {% elif f.nilai_num is not None %}
+              {{ f.nilai_num|angka_id }}
+            {% else %}
+              {{ f.nilai_teks }}
+            {% endif %}
+          </td>
         {% endfor %}
-      </tfoot>
-      {% endif %}
-    </table>
-  {% endif %}
-  
+        {% if edit %}
+          <td style="text-align:center;">
+            <button type="button" class="btn btn--sm btn--ghost" style="color:var(--danger); border-color:transparent;" onclick="if(confirm('Hapus baris ini?')) { document.getElementById('del-{{ row.id|unlocalize }}').value='1'; this.closest('tr').style.display='none'; }"><i data-lucide="x" style="width:14px;height:14px;"></i></button>
+            <input type="hidden" name="del-{{ row.id|unlocalize }}" id="del-{{ row.id|unlocalize }}" value="0">
+          </td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+    {% if baris_total %}
+    <tfoot>
+      {% for row in baris_total %}
+      <tr class="row-total">
+        <td class="rowhead">{{ row.nama }} <span class="tag-total">TOTAL</span></td>
+        {% for f in row.sel %}
+          <td>
+            {% if f is None %}
+              <span class="hint">·</span>
+            {% elif edit %}
+              {# baris total: nilai bisa diedit sama seperti baris biasa #}
+              <input type="text" name="f-{{ f.id|unlocalize }}" class="cell-edit"
+                value="{% if f.nilai_num is not None %}{{ f.nilai_num|angka_id }}{% else %}{{ f.nilai_teks }}{% endif %}">
+            {% elif f.flag == 'nihil' %}
+              <span class="hint">–</span>
+            {% elif f.flag == 'tidak_tersedia' %}
+              <span class="hint">…</span>
+            {% elif f.nilai_num is not None %}
+              {{ f.nilai_num|angka_id }}
+            {% else %}
+              {{ f.nilai_teks }}
+            {% endif %}
+          </td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tfoot>
+    {% endif %}
+  </table>
   {% else %}
-  <div style="padding:20px;"><p class="empty">Belum ada data untuk tabel ini.</p></div>
+  <div style="padding:40px 20px; text-align:center;">
+    <i data-lucide="database" style="width:48px;height:48px;color:var(--line);margin-bottom:12px;"></i>
+    <p class="empty" style="margin:0;padding:0;">Belum ada data. Gunakan <a href="{% url 'data:tabel_isi' tabel.pk %}" style="font-weight:600;">Isi / Tambah Data</a>.</p>
+  </div>
   {% endif %}
 </div>
 
 {% if edit %}
-<div class="toolbar" style="margin-top:16px;">
-  <button class="btn btn--accent" type="submit" id="btn-simpan" style="display:flex; align-items:center; gap:6px;"><i data-lucide="save" style="width:16px;height:16px;"></i> Simpan Perubahan</button>
-  <a class="btn" href="{% url 'data:tabel_detail' tabel.pk %}">Batal</a>
+<div class="toolbar" style="margin-top:24px; padding-top:16px; border-top:1px solid var(--line);">
+  <button class="btn btn--accent" type="submit"><i data-lucide="save"></i> Simpan Perubahan</button>
+  <a class="btn btn--ghost" href="{% url 'data:tabel_detail' tabel.pk %}">Batal</a>
 </div>
 {% endif %}
 </form>
-
-{% if edit %}
-<script>
-  document.addEventListener("DOMContentLoaded", function() {
-    const data = [];
-    const idMap = []; 
-    const headers = ["{{ label_baris }}"];
-    
-    {% for kj in kolom_judul %}
-      headers.push("{{ kj|escapejs }}");
-    {% endfor %}
-    
-    {% for row in baris %}
-      var rowData = ["{{ row.nama|escapejs }}"];
-      var rowIds = [null];
-      {% for f in row.sel %}
-        {% if f is None %}
-          rowData.push("");
-          rowIds.push(null);
-        {% else %}
-          rowData.push("{% if f.nilai_num is not None %}{{ f.nilai_num|escapejs }}{% else %}{{ f.nilai_teks|escapejs }}{% endif %}");
-          rowIds.push("{{ f.id }}");
-        {% endif %}
-      {% endfor %}
-      data.push(rowData);
-      idMap.push(rowIds);
-    {% endfor %}
-    
-    {% for row in baris_total %}
-      var rowData = ["{{ row.nama|escapejs }} (TOTAL)"];
-      var rowIds = [null];
-      {% for f in row.sel %}
-        {% if f is None %}
-          rowData.push("");
-          rowIds.push(null);
-        {% else %}
-          rowData.push("{% if f.nilai_num is not None %}{{ f.nilai_num|escapejs }}{% else %}{{ f.nilai_teks|escapejs }}{% endif %}");
-          rowIds.push("{{ f.id }}");
-        {% endif %}
-      {% endfor %}
-      data.push(rowData);
-      idMap.push(rowIds);
-    {% endfor %}
-
-    const container = document.getElementById('hot-container');
-    const hot = new Handsontable(container, {
-      data: data,
-      rowHeaders: true,
-      colHeaders: headers,
-      fixedColumnsStart: 1, 
-      contextMenu: true,
-      manualColumnResize: true,
-      manualRowResize: true,
-      licenseKey: 'non-commercial-and-evaluation',
-      cells: function(row, col) {
-        var cellProperties = {};
-        if (col === 0) {
-          cellProperties.readOnly = true; 
-          cellProperties.className = 'htDimmed';
-        }
-        return cellProperties;
-      }
-    });
-
-    const form = document.getElementById('data-form');
-    form.addEventListener('submit', function(e) {
-      const gridData = hot.getData();
-      const hiddenContainer = document.getElementById('hidden-inputs');
-      hiddenContainer.innerHTML = ''; 
-      
-      for (let r = 0; r < gridData.length; r++) {
-        for (let c = 1; c < gridData[r].length; c++) {
-          const fid = idMap[r][c];
-          if (fid) {
-            const val = gridData[r][c] || "";
-            const input = document.createElement('input');
-            input.type = 'hidden';
-            input.name = 'f-' + fid;
-            input.value = val;
-            hiddenContainer.appendChild(input);
-          }
-        }
-      }
-    });
-  });
-</script>
-{% endif %}
-
-<script>
-  lucide.createIcons();
-</script>
 {% endblock %}

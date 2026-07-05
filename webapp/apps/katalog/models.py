@@ -1,3 +1,4 @@
+import re
 from django.db import models
 
 from apps.core.models import TimeStampedModel
@@ -92,6 +93,32 @@ class Tabel(TimeStampedModel):
     def nama_tampil(self):
         return self.nama_ringkas or self.judul
 
+    @property
+    def prev_tabel(self):
+        tables = list(self.bab.tabel_set.all())
+        nsre = re.compile('([0-9]+)')
+        tables.sort(key=lambda x: [int(t) if t.isdigit() else t.lower() for t in nsre.split(x.nomor_tabel)])
+        try:
+            idx = tables.index(self)
+            if idx > 0:
+                return tables[idx - 1]
+        except ValueError:
+            pass
+        return None
+
+    @property
+    def next_tabel(self):
+        tables = list(self.bab.tabel_set.all())
+        nsre = re.compile('([0-9]+)')
+        tables.sort(key=lambda x: [int(t) if t.isdigit() else t.lower() for t in nsre.split(x.nomor_tabel)])
+        try:
+            idx = tables.index(self)
+            if idx < len(tables) - 1:
+                return tables[idx + 1]
+        except ValueError:
+            pass
+        return None
+
 
 class KolomTabel(TimeStampedModel):
     """Definisi kolom (= header dari Excel). Bisa diedit & menggerakkan ekstraksi."""
@@ -117,3 +144,26 @@ class KolomTabel(TimeStampedModel):
 
     def __str__(self):
         return f"{self.tabel.nomor_tabel} kol#{self.urutan}: {self.indikator.nama}"
+
+class SyncLog(TimeStampedModel):
+    """Riwayat aksi sinkronisasi untuk fitur Undo."""
+    source_publikasi = models.ForeignKey(Publikasi, on_delete=models.CASCADE, related_name="sync_logs_source")
+    target_publikasi = models.ForeignKey(Publikasi, on_delete=models.CASCADE, related_name="sync_logs_target")
+    
+    class Meta:
+        verbose_name = "Log Sinkronisasi"
+        verbose_name_plural = "Log Sinkronisasi"
+        ordering = ["-dibuat_pada"]
+
+class SyncAction(TimeStampedModel):
+    """Detail kolom yang diubah dalam satu sesi sinkronisasi."""
+    log = models.ForeignKey(SyncLog, on_delete=models.CASCADE, related_name="actions")
+    kolom = models.ForeignKey(KolomTabel, on_delete=models.CASCADE)
+    old_indikator = models.ForeignKey("referensi.Indikator", on_delete=models.CASCADE, related_name="+")
+    old_satuan = models.CharField(max_length=40, blank=True)
+    old_tahun = models.PositiveIntegerField(null=True, blank=True)
+    new_indikator = models.ForeignKey("referensi.Indikator", on_delete=models.CASCADE, related_name="+")
+    
+    class Meta:
+        verbose_name = "Aksi Sinkronisasi"
+        verbose_name_plural = "Aksi Sinkronisasi"

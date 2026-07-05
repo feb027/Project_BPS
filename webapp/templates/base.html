@@ -5,7 +5,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Pangkalan Data Publikasi{% endblock %} · BPS Tasikmalaya</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
   <div class="layout">
@@ -16,18 +19,26 @@
       </div>
       <nav class="nav">
         <a class="nav-link {% if request.resolver_match.namespace == 'core' %}is-active{% endif %}" href="{% url 'core:dashboard' %}">
-          <span class="nav-num">00</span> Beranda
+          <i data-lucide="layout-dashboard" style="width:16px;height:16px;"></i> Beranda
         </a>
         <a class="nav-link {% if request.resolver_match.namespace == 'ekstraksi' %}is-active{% endif %}" href="{% url 'ekstraksi:index' %}">
-          <span class="nav-num">01</span> Ekstraksi PDF
+          <i data-lucide="file-scan" style="width:16px;height:16px;"></i> Ekstraksi PDF
         </a>
         <a class="nav-link {% if request.resolver_match.namespace == 'pencarian' %}is-active{% endif %}" href="{% url 'pencarian:cari' %}">
-          <span class="nav-num">02</span> Pencarian
+          <i data-lucide="search" style="width:16px;height:16px;"></i> Pencarian
         </a>
         <a class="nav-link {% if request.resolver_match.namespace == 'data' %}is-active{% endif %}" href="{% url 'data:home' %}">
-          <span class="nav-num">03</span> Data Tabel
+          <i data-lucide="database" style="width:16px;height:16px;"></i> Data Tabel
         </a>
-        <a class="nav-link" href="/admin/"><span class="nav-num">04</span> Katalog &amp; Master</a>
+        <a class="nav-link {% if request.resolver_match.namespace == 'referensi' %}is-active{% endif %}" href="{% url 'referensi:cleaning_dashboard' %}">
+          <i data-lucide="wrench" style="width:16px;height:16px;"></i> Pembersihan Data
+        </a>
+        <a class="nav-link {% if request.resolver_match.url_name == 'sync_dashboard' %}is-active{% endif %}" href="{% url 'katalog:sync_dashboard' %}">
+          <i data-lucide="git-compare" style="width:16px;height:16px;"></i> Auto-Sync Kolom
+        </a>
+        <a class="nav-link" href="/admin/">
+          <i data-lucide="settings" style="width:16px;height:16px;"></i> Katalog &amp; Master
+        </a>
       </nav>
       <div class="sidebar-foot">
         <a href="/admin/">Panel Admin</a>
@@ -85,6 +96,9 @@
       if (txt && form.dataset.loading) txt.textContent = form.dataset.loading;
       if (ov) ov.hidden = false;
     });
+
+    // Inisialisasi ikon global
+    lucide.createIcons();
   })();
   </script>
 </body>

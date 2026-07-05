@@ -1,0 +1,706 @@
+{% extends "base.html" %}
+{% block title %}Auto-Sync Standarisasi Kolom{% endblock %}
+{% block eyebrow %}Utilitas Katalog{% endblock %}
+{% block heading %}Auto-Sync Standarisasi Lintas Tahun{% endblock %}
+
+{% block content %}
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&display=swap');
+  
+  .sync-container {
+    max-width: 1200px;
+  }
+  
+  .panel-header {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 24px;
+    background: var(--surface);
+    padding: 24px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 24px;
+    align-items: end;
+  }
+  
+  .form-group label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent-2);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  
+  .form-group select {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #fff;
+    font-size: 15px;
+  }
+  
+  .data-dense-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'Fira Code', monospace;
+    font-size: 13px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  
+  .data-dense-table th {
+    background: #F8FAFC;
+    color: #1E3A8A;
+    font-weight: 600;
+    text-align: left;
+    padding: 12px 16px;
+    border-bottom: 2px solid var(--border);
+    font-family: var(--sans);
+  }
+  
+  .data-dense-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+    color: #334155;
+    vertical-align: top;
+  }
+  
+  .data-dense-table tr:hover {
+    background: #F1F5F9;
+  }
+  
+  .target-col {
+    color: #64748B;
+  }
+  
+  .proposed-col {
+    color: #1E40AF;
+    font-weight: 500;
+  }
+  
+  .badge-score {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: var(--sans);
+  }
+  
+  .badge-green { background: #DCFCE7; color: #166534; }
+  .badge-yellow { background: #FEF9C3; color: #854D0E; }
+  
+  .table-group-header {
+    background: #E2E8F0 !important;
+    font-family: var(--sans);
+    font-weight: 700 !important;
+    color: #0F172A !important;
+  }
+  
+  .sticky-action-bar {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(30, 64, 175, 0.95);
+    backdrop-filter: blur(8px);
+    color: white;
+    padding: 16px 32px;
+    border-radius: 100px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+    z-index: 50;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.3s ease;
+  }
+  
+  .sticky-action-bar.visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  
+  .btn-sync {
+    background: #F59E0B;
+    color: white;
+    border: none;
+    padding: 8px 24px;
+    border-radius: 99px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: background 0.2s;
+  }
+  
+  .btn-sync:hover { background: #D97706; }
+  
+  .btn-undo {
+    background: #EF4444;
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+  }
+  
+  /* Quick Edit Input */
+  .quick-edit-input {
+    width: 100%;
+    padding: 4px 8px;
+    border: 1px solid #CBD5E1;
+    border-radius: 4px;
+    font-family: 'Fira Code', monospace;
+    font-size: 13px;
+    color: #1E40AF;
+  }
+  
+  .diff-highlight {
+    background: #DCFCE7;
+    color: #166534;
+    padding: 0 2px;
+    border-radius: 2px;
+  }
+  
+  /* Loader */
+  .loader {
+    display: none;
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid #1E40AF;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  
+</style>
+
+<div class="sync-container">
+  <div id="undoBanner" style="display:none; background:#FEF2F2; border:1px solid #FCA5A5; padding:16px; border-radius:8px; margin-bottom:24px; display:flex; justify-content:space-between; align-items:center;">
+    <div style="display:flex; align-items:center; gap:12px; color:#991B1B;">
+      <i data-lucide="check-circle" style="color:#10B981;"></i>
+      <div>
+        <strong>Sinkronisasi Selesai!</strong><br>
+        <span id="undoText" style="font-size:13px;"></span>
+      </div>
+    </div>
+    <button id="btnUndo" class="btn-undo">
+      <i data-lucide="rotate-ccw" style="width:16px;height:16px;"></i> Batalkan (Undo)
+    </button>
+  </div>
+
+  <div class="panel-header">
+    <div class="form-group">
+      <label>Buku Sumber / Master (Telah Rapih)</label>
+      <select id="sourcePub">
+        <option value="">-- Pilih Publikasi Master --</option>
+        {% for p in publikasi_list %}
+          <option value="{{ p.id }}">{{ p.judul }} ({{ p.tahun_terbit }})</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Buku Target (Akan Di-sync)</label>
+      <select id="targetPub">
+        <option value="">-- Pilih Publikasi Target --</option>
+        {% for p in publikasi_list %}
+          <option value="{{ p.id }}">{{ p.judul }} ({{ p.tahun_terbit }})</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <button id="btnAnalyze" class="btn" style="background:#1E40AF; color:white; border:none; padding:10px 20px; display:inline-flex; align-items:center; gap:8px;">
+        <i data-lucide="scan-line" style="width:18px;height:18px;"></i> Mulai Analisis
+      </button>
+    </div>
+  </div>
+
+  <div id="loadingArea" style="display:none; text-align:center; padding: 40px;">
+    <div class="loader" style="margin: 0 auto 16px; display:block;"></div>
+    <p style="color:var(--muted); font-family:var(--mono); font-size:14px;">Mesin sedang menganalisis kecocokan ribuan kolom...</p>
+  </div>
+
+  <div id="resultsArea" style="display:none; margin-bottom: 100px;">
+    <div style="margin-bottom: 16px; display:flex; justify-content:space-between; align-items:center;">
+      <h3 style="margin:0; font-size:18px; color:#0F172A;">Hasil Pemetaan (Usulan)</h3>
+      <div style="display:flex; align-items:center; gap:24px;">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:14px; color:var(--muted);">
+          <input type="checkbox" id="checkFilter"> Sembunyikan Skor > 98%
+        </label>
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:14px; font-weight:600; color:#1E3A8A;">
+          <input type="checkbox" id="checkAll" checked> Pilih Semua
+        </label>
+      </div>
+    </div>
+    
+    <div style="border-radius:8px; overflow:hidden; border:1px solid var(--border);">
+      <table class="data-dense-table" id="syncTable">
+        <thead>
+          <tr>
+            <th style="width:40px; text-align:center;">✓</th>
+            <th>Tabel & Kolom Saat Ini</th>
+            <th style="width:40px;"></th>
+            <th>Usulan Standar Baru</th>
+            <th style="width:120px;">Skor</th>
+          </tr>
+        </thead>
+        <tbody id="syncTableBody">
+          <!-- Rows will be injected here via JS -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="sticky-action-bar" id="actionBar">
+  <div>
+    <strong id="selectedCount">0</strong> kolom terpilih untuk disinkronkan.
+  </div>
+  <button class="btn-sync" id="btnSync">
+    <i data-lucide="refresh-cw" style="width:18px;height:18px;"></i> Sync Terpilih
+  </button>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const btnAnalyze = document.getElementById('btnAnalyze');
+  const sourcePub = document.getElementById('sourcePub');
+  const targetPub = document.getElementById('targetPub');
+  const loadingArea = document.getElementById('loadingArea');
+  const resultsArea = document.getElementById('resultsArea');
+  const tbody = document.getElementById('syncTableBody');
+  const checkAll = document.getElementById('checkAll');
+  const checkFilter = document.getElementById('checkFilter');
+  const actionBar = document.getElementById('actionBar');
+  const selectedCountEl = document.getElementById('selectedCount');
+  const btnSync = document.getElementById('btnSync');
+  
+  const undoBanner = document.getElementById('undoBanner');
+  const undoText = document.getElementById('undoText');
+  const btnUndo = document.getElementById('btnUndo');
+  
+  let syncItems = [];
+  let currentLogId = null;
+  
+  document.getElementById('undoBanner').style.display = 'none'; // hide initially
+  
+  // Setup CSRF for AJAX
+  function getCookie(name) {
+      let cookieValue = null;
+      if (document.cookie && document.cookie !== '') {
+          const cookies = document.cookie.split(';');
+          for (let i = 0; i < cookies.length; i++) {
+              const cookie = cookies[i].trim();
+              if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                  cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                  break;
+              }
+          }
+      }
+      return cookieValue;
+  }
+  const csrftoken = getCookie('csrftoken');
+  
+  // Visual diff helper
+  function highlightDiff(oldText, newText) {
+    if (!oldText || !newText) return newText;
+    const oldWords = oldText.toLowerCase().split(' ');
+    const newWords = newText.split(' ');
+    return newWords.map(w => {
+      if (!oldWords.includes(w.toLowerCase())) {
+        return `<span class="diff-highlight">${w}</span>`;
+      }
+      return w;
+    }).join(' ');
+  }
+
+  btnAnalyze.addEventListener('click', function() {
+    if (!sourcePub.value || !targetPub.value) {
+      alert('Silakan pilih Publikasi Master dan Target terlebih dahulu.');
+      return;
+    }
+    if (sourcePub.value === targetPub.value) {
+      alert('Publikasi Master dan Target tidak boleh sama.');
+      return;
+    }
+    
+    resultsArea.style.display = 'none';
+    loadingArea.style.display = 'block';
+    actionBar.classList.remove('visible');
+    undoBanner.style.display = 'none';
+    tbody.innerHTML = '';
+    syncItems = [];
+    
+    const formData = new FormData();
+    formData.append('action', 'analyze');
+    formData.append('source_pub', sourcePub.value);
+    formData.append('target_pub', targetPub.value);
+    
+    fetch('{% url "katalog:sync_dashboard" %}', {
+      method: 'POST',
+      headers: {'X-CSRFToken': csrftoken},
+      body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+      loadingArea.style.display = 'none';
+      if (data.error) {
+        alert('Error: ' + data.error);
+        return;
+      }
+      
+      syncItems = data.matches;
+      if (syncItems.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:32px;">Tidak ditemukan kolom yang perlu disinkronkan.</td></tr>';
+      } else {
+        renderTable();
+        updateSelection();
+        actionBar.classList.add('visible');
+      }
+      resultsArea.style.display = 'block';
+      lucide.createIcons();
+    })
+    .catch(err => {
+      loadingArea.style.display = 'none';
+      alert('Terjadi kesalahan koneksi.');
+      console.error(err);
+    });
+  });
+  
+  function renderTable() {
+    let currentTable = '';
+    let html = '';
+    const hidePerfect = checkFilter.checked;
+    
+    syncItems.forEach((item, index) => {
+      // filtering
+      if (hidePerfect && item.match_score >= 98) return;
+      
+      if (item.target_table_name !== currentTable) {
+        html += `
+          <tr class="table-group-header">
+            <td colspan="5" style="padding: 12px 16px;">
+              <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
+                <div style="flex:1;">
+                  <i data-lucide="table" style="width:14px;height:14px; display:inline-block; vertical-align:middle; margin-right:6px;"></i>
+                  <a href="/data/tabel/${item.target_table_id}/" target="_blank" style="color:inherit; text-decoration:none;" title="Lihat Tabel Target">
+                    ${item.target_table_name}
+                  </a>
+                </div>
+                <div style="font-size: 11px; color: #64748B; font-weight: 500; text-align:right; max-width: 40%;">
+                  <i data-lucide="link" style="width:12px;height:12px; display:inline-block; vertical-align:middle; margin-right:4px;"></i>
+                  Sumber (2026):<br>
+                  <a href="/data/tabel/${item.source_table_id}/" target="_blank" style="color:#1E40AF; text-decoration:none;" title="Lihat Tabel Master">
+                    ${item.source_table_name}
+                  </a>
+                </div>
+              </div>
+            </td>
+          </tr>
+        `;
+        currentTable = item.target_table_name;
+      }
+      
+      const badgeClass = item.match_score >= 98 ? 'badge-green' : (item.match_score > 0 ? 'badge-yellow' : '');
+      const badgeIcon = item.match_score >= 98 ? 'check' : (item.match_score > 0 ? 'alert-triangle' : 'help-circle');
+      
+      const isUnmatched = item.match_score === 0;
+      const checkboxState = item.match_score >= 95 ? 'checked' : '';
+      
+      const displayText = item.custom_ind_name || item.source_ind_name || '';
+      let highlightedName = '';
+      if (isUnmatched) {
+         highlightedName = '<em style="color:#94A3B8;">Tidak ada usulan otomatis. Gunakan Edit Kilat.</em>';
+      } else {
+         highlightedName = highlightDiff(item.target_col_name, displayText);
+      }
+      
+      const t_sat = (item.target_col_satuan || '').toLowerCase().trim();
+      const s_sat = (item.suggested_satuan || '').toLowerCase().trim();
+      const unitMismatch = t_sat && s_sat && t_sat !== s_sat;
+      
+      let warnings = '';
+      if (unitMismatch) {
+        warnings += `<div style="margin-top:6px; font-size:11px; color:#B91C1C; background:#FEF2F2; padding:4px 8px; border-radius:4px; border:1px solid #FECACA; display:inline-block;"><i data-lucide="alert-circle" style="width:12px;height:12px; vertical-align:middle;"></i> Beda Satuan! Hati-hati.</div> `;
+      }
+      if (item.is_anomaly) {
+        warnings += `<div style="margin-top:6px; font-size:11px; color:#9A3412; background:#FFEDD5; padding:4px 8px; border-radius:4px; border:1px solid #FED7AA; display:inline-block;"><i data-lucide="activity" style="width:12px;height:12px; vertical-align:middle;"></i> Anomali Data >10x lipat!</div>`;
+      }
+      
+      html += `
+        <tr>
+          <td style="text-align:center; vertical-align:middle;">
+            <input type="checkbox" class="sync-checkbox" data-index="${index}" ${checkboxState}>
+          </td>
+          <td class="target-col">
+            <div style="font-weight:600; color:#475569; margin-bottom:4px;">${item.target_col_name}</div>
+            <div style="font-size:11px;">Satuan: ${item.target_col_satuan || '-'}</div>
+            <div style="font-size:11px;">Tahun: ${item.target_col_tahun || '-'}</div>
+          </td>
+          <td style="vertical-align:middle; text-align:center; color:#94A3B8;">
+            <i data-lucide="arrow-right"></i>
+          </td>
+          <td class="proposed-col">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+              <div style="flex:1;">
+                <div style="font-weight:600; color:#1E40AF; margin-bottom:4px;" id="disp_${index}">
+                  ${highlightedName}
+                </div>
+                <div style="display:none; flex-direction:column; gap:4px; margin-bottom:4px;" id="edit_${index}">
+                  <input type="text" class="quick-edit-input" id="input_${index}" value="${displayText}" placeholder="Nama Indikator" style="width:100%; box-sizing:border-box;">
+                  <div style="display:flex; gap:4px;">
+                    <input type="text" class="quick-edit-satuan" id="satuan_${index}" value="${item.suggested_satuan || item.target_col_satuan || ''}" placeholder="Satuan" style="font-size:11px; padding:2px 4px; width:50%;">
+                    <input type="text" class="quick-edit-tahun" id="tahun_${index}" value="${item.suggested_tahun || item.target_col_tahun || ''}" placeholder="Tahun" style="font-size:11px; padding:2px 4px; width:50%;">
+                  </div>
+                  <div style="display:flex; gap:4px; margin-top:4px;">
+                    <button class="btn-quick-save" data-index="${index}" style="background:#10B981; color:white; border:none; border-radius:4px; padding:2px 8px; font-size:11px; cursor:pointer;">Simpan</button>
+                    <button class="btn-quick-cancel" data-index="${index}" style="background:#F1F5F9; color:#64748B; border:none; border-radius:4px; padding:2px 8px; font-size:11px; cursor:pointer;">Batal</button>
+                  </div>
+                </div>
+                <div style="font-size:11px; color:#3B82F6;" id="disp_satuan_${index}">Satuan: ${item.suggested_satuan || '-'}</div>
+                <div style="font-size:11px; color:#3B82F6;" id="disp_tahun_${index}">Tahun: ${item.suggested_tahun || '-'}</div>
+                ${warnings}
+              </div>
+              <div style="margin-left:12px;">
+                 <button class="btn-quick-edit" id="btn_edit_${index}" data-index="${index}" style="background:none; border:none; color:#94A3B8; cursor:pointer;" title="Edit Kilat">
+                    <i data-lucide="edit-3" style="width:14px;height:14px;"></i>
+                 </button>
+              </div>
+            </div>
+          </td>
+          <td style="vertical-align:middle;">
+            ${isUnmatched ? 
+              `<span class="badge-score" style="background:#F1F5F9; color:#64748B;">
+                <i data-lucide="${badgeIcon}" style="width:12px;height:12px;"></i> -
+              </span>` 
+              :
+              `<span class="badge-score ${badgeClass}">
+                <i data-lucide="${badgeIcon}" style="width:12px;height:12px;"></i> ${item.match_score}%
+              </span>`
+            }
+          </td>
+        </tr>
+      `;
+    });
+    
+    tbody.innerHTML = html;
+    lucide.createIcons();
+    
+    // Attach listeners
+    document.querySelectorAll('.sync-checkbox').forEach(cb => {
+      cb.addEventListener('change', updateSelection);
+    });
+    
+    document.querySelectorAll('.btn-quick-edit').forEach(btn => {
+      btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        const idx = this.getAttribute('data-index');
+        const disp = document.getElementById('disp_' + idx);
+        const edit = document.getElementById('edit_' + idx);
+        const dispSat = document.getElementById('disp_satuan_' + idx);
+        const dispThn = document.getElementById('disp_tahun_' + idx);
+        const btnEdit = document.getElementById('btn_edit_' + idx);
+        
+        disp.style.display = 'none';
+        if(dispSat) dispSat.style.display = 'none';
+        if(dispThn) dispThn.style.display = 'none';
+        edit.style.display = 'flex';
+        btnEdit.style.color = '#3B82F6';
+        
+        const inp = document.getElementById('input_' + idx);
+        if(inp) inp.focus();
+      });
+    });
+    
+    document.querySelectorAll('.btn-quick-cancel').forEach(btn => {
+      btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        const idx = this.getAttribute('data-index');
+        document.getElementById('disp_' + idx).style.display = 'block';
+        if(document.getElementById('disp_satuan_' + idx)) document.getElementById('disp_satuan_' + idx).style.display = 'block';
+        if(document.getElementById('disp_tahun_' + idx)) document.getElementById('disp_tahun_' + idx).style.display = 'block';
+        document.getElementById('edit_' + idx).style.display = 'none';
+        document.getElementById('btn_edit_' + idx).style.color = syncItems[idx].custom_ind_name ? '#10B981' : '#94A3B8';
+      });
+    });
+
+    document.querySelectorAll('.btn-quick-save').forEach(btn => {
+      btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        const idx = this.getAttribute('data-index');
+        const disp = document.getElementById('disp_' + idx);
+        const edit = document.getElementById('edit_' + idx);
+        const dispSat = document.getElementById('disp_satuan_' + idx);
+        const dispThn = document.getElementById('disp_tahun_' + idx);
+        const btnEdit = document.getElementById('btn_edit_' + idx);
+        
+        const inp = document.getElementById('input_' + idx);
+        const satEl = document.getElementById('satuan_' + idx);
+        const thnEl = document.getElementById('tahun_' + idx);
+        
+        syncItems[idx].custom_ind_name = inp.value;
+        syncItems[idx].suggested_satuan = satEl.value;
+        syncItems[idx].suggested_tahun = thnEl.value;
+        
+        disp.innerHTML = '<span style="color:#10B981;"><i data-lucide="check" style="width:12px;height:12px;display:inline-block;margin-right:2px;"></i>' + inp.value + '</span>';
+        if(dispSat) dispSat.innerHTML = 'Satuan: ' + (satEl.value || '-');
+        if(dispThn) dispThn.innerHTML = 'Tahun: ' + (thnEl.value || '-');
+        
+        const checkbox = document.querySelector('.sync-checkbox[data-index="'+idx+'"]');
+        if (checkbox) {
+          checkbox.checked = true;
+        }
+        updateSelection();
+        
+        disp.style.display = 'block';
+        if(dispSat) dispSat.style.display = 'block';
+        if(dispThn) dispThn.style.display = 'block';
+        edit.style.display = 'none';
+        btnEdit.style.color = '#10B981';
+        
+        lucide.createIcons();
+      });
+    });
+  }
+  
+  checkAll.addEventListener('change', function() {
+    const isChecked = this.checked;
+    document.querySelectorAll('.sync-checkbox').forEach(cb => {
+      cb.checked = isChecked;
+    });
+    updateSelection();
+  });
+  
+  checkFilter.addEventListener('change', function() {
+    renderTable();
+    updateSelection();
+  });
+  
+  function updateSelection() {
+    const checkedBoxes = document.querySelectorAll('.sync-checkbox:checked');
+    const count = checkedBoxes.length;
+    selectedCountEl.textContent = count;
+    
+    if (count === 0) {
+      btnSync.style.opacity = '0.5';
+      btnSync.style.pointerEvents = 'none';
+    } else {
+      btnSync.style.opacity = '1';
+      btnSync.style.pointerEvents = 'auto';
+    }
+  }
+  
+  btnSync.addEventListener('click', function() {
+    const checkedBoxes = document.querySelectorAll('.sync-checkbox:checked');
+    const itemsToSync = [];
+    
+    checkedBoxes.forEach(cb => {
+      const idx = parseInt(cb.getAttribute('data-index'));
+      itemsToSync.push(syncItems[idx]);
+    });
+    
+    if (itemsToSync.length === 0) return;
+    
+    const originalText = btnSync.innerHTML;
+    btnSync.innerHTML = '<i data-lucide="loader" class="loader" style="display:inline-block; border-color:#fff; border-top-color:transparent; width:16px; height:16px;"></i> Menyinkronkan...';
+    btnSync.style.pointerEvents = 'none';
+    
+    fetch('{% url "katalog:sync_dashboard" %}', {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': csrftoken,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        action: 'sync',
+        source_pub: sourcePub.value,
+        target_pub: targetPub.value,
+        items: itemsToSync
+      })
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        alert('Gagal menyinkronkan: ' + data.error);
+        btnSync.innerHTML = originalText;
+        btnSync.style.pointerEvents = 'auto';
+        return;
+      }
+      
+      // Show Undo Banner
+      currentLogId = data.log_id;
+      undoText.innerHTML = `<strong>${data.synced_count} kolom</strong> telah distandarisasi dan disimpan ke database.`;
+      undoBanner.style.display = 'flex';
+      
+      // Reset button state so it doesn't get stuck
+      btnSync.innerHTML = originalText;
+      btnSync.style.pointerEvents = 'auto';
+      
+      // Refresh analysis
+      btnAnalyze.click();
+    })
+    .catch(err => {
+      alert('Terjadi kesalahan koneksi.');
+      btnSync.innerHTML = originalText;
+      btnSync.style.pointerEvents = 'auto';
+      console.error(err);
+    });
+  });
+
+  // Undo action
+  btnUndo.addEventListener('click', function() {
+    if (!currentLogId) return;
+    if (!confirm('Anda yakin ingin membatalkan sinkronisasi terakhir? Semua kolom yang diubah akan dikembalikan ke asalnya.')) return;
+    
+    const originalText = btnUndo.innerHTML;
+    btnUndo.innerHTML = 'Membatalkan...';
+    btnUndo.style.pointerEvents = 'none';
+    
+    const formData = new FormData();
+    formData.append('action', 'undo');
+    formData.append('log_id', currentLogId);
+    
+    fetch('{% url "katalog:sync_dashboard" %}', {
+      method: 'POST',
+      headers: {'X-CSRFToken': csrftoken},
+      body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        alert('Gagal membatalkan: ' + data.error);
+        btnUndo.innerHTML = originalText;
+        btnUndo.style.pointerEvents = 'auto';
+        return;
+      }
+      alert(`Pembatalan berhasil! ${data.restored_count} kolom telah dikembalikan.`);
+      undoBanner.style.display = 'none';
+      currentLogId = null;
+      btnAnalyze.click(); // refresh UI
+    })
+    .catch(err => {
+      alert('Terjadi kesalahan koneksi.');
+      btnUndo.innerHTML = originalText;
+      btnUndo.style.pointerEvents = 'auto';
+    });
+  });
+
+});
+</script>
+{% endblock %}

@@ -4,6 +4,20 @@
 {% block heading %}Isi Data — {{ tabel.nama_tampil }}{% endblock %}
 
 {% block content %}
+<div style="display:flex; justify-content:flex-end; gap:8px; margin-bottom: 16px;">
+  {% if tabel.prev_tabel %}
+    <a href="{% url 'data:tabel_isi' tabel.prev_tabel.pk %}" class="btn btn--ghost" style="border:1px solid var(--line);"><i data-lucide="arrow-left" style="width:16px;height:16px;"></i> Prev</a>
+  {% else %}
+    <button class="btn btn--ghost" style="border:1px solid var(--line); opacity:0.5; cursor:not-allowed;" disabled><i data-lucide="arrow-left" style="width:16px;height:16px;"></i> Prev</button>
+  {% endif %}
+  
+  {% if tabel.next_tabel %}
+    <a href="{% url 'data:tabel_isi' tabel.next_tabel.pk %}" class="btn btn--ghost" style="border:1px solid var(--line);">Next <i data-lucide="arrow-right" style="width:16px;height:16px;"></i></a>
+  {% else %}
+    <button class="btn btn--ghost" style="border:1px solid var(--line); opacity:0.5; cursor:not-allowed;" disabled>Next <i data-lucide="arrow-right" style="width:16px;height:16px;"></i></button>
+  {% endif %}
+</div>
+
 <script src="https://unpkg.com/lucide@latest"></script>
 <script src="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.js"></script>
 <link href="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.css" rel="stylesheet">
@@ -24,7 +38,7 @@
 <div class="toolbar" style="margin-bottom:16px;">
   <p class="hint" style="margin:0;">
     <i data-lucide="info" style="width:14px;height:14px; display:inline-block; vertical-align:middle;"></i>
-    {% if is_kategori %}Gunakan tombol <strong>+ Tambah Baris</strong> lalu isi nilainya.{% else %}39 kecamatan + Total sudah disiapkan. Anda dapat melakukan <strong>Copy-Paste</strong> dari Excel.{% endif %} Angka pakai format standar (mis. 1234.56 atau 1234,56).
+    Gunakan tombol <strong>+ Tambah Baris</strong> lalu isi nilainya, atau edit teks pada rincian/kecamatan. Anda juga dapat melakukan <strong>Copy-Paste</strong> dari Excel. Angka pakai format standar (mis. 1234.56 atau 1234,56).
   </p>
 </div>
 
@@ -34,9 +48,7 @@
   <div id="hot-container" style="width: 100%; height: 500px; overflow: hidden; border-radius: 6px;"></div>
   
   <div style="padding:16px; background:#f8fafc; border-top:1px solid #e2e8f0;">
-    {% if is_kategori %}
-      <button class="btn" type="button" onclick="tambahBaris()" style="display:inline-flex; align-items:center; gap:6px;"><i data-lucide="plus-circle" style="width:16px;height:16px;"></i> Tambah Baris</button>
-    {% endif %}
+    <button class="btn" type="button" onclick="tambahBaris()" style="display:inline-flex; align-items:center; gap:6px;"><i data-lucide="plus-circle" style="width:16px;height:16px;"></i> Tambah Baris</button>
   </div>
 </div>
 
@@ -57,7 +69,7 @@
     const headers = ["{{ label_baris }}"];
     
     {% for k in koloms %}
-      headers.push("{{ k.indikator.nama|escapejs }}{% if k.tahun %} ({{ k.tahun }}){% endif %}{% if k.satuan %} — {{ k.satuan|escapejs }}{% endif %}");
+      headers.push("{{ k.indikator.nama|escapejs }}{% if k.tahun %} ({{ k.tahun|stringformat:"s" }}){% endif %}{% if k.satuan %} — {{ k.satuan|escapejs }}{% endif %}");
     {% endfor %}
     
     {% for row in baris %}
@@ -86,7 +98,7 @@
         // Kita berasumsi baris terakhir adalah "TOTAL" atau "Kabupaten Tasikmalaya"
         if (data.length > 0) {
           const totalRowIdx = data.length - 1;
-          const totalRowName = data[totalRowIdx][0].toLowerCase();
+          const totalRowName = (data[totalRowIdx][0] || "").toLowerCase();
           
           if (totalRowName.includes('total') || totalRowName.includes('tasikmalaya')) {
             // Evaluasi ulang semua kolom
@@ -124,13 +136,6 @@
       },
       cells: function(row, col) {
         var cellProperties = {};
-        {% if not is_kategori %}
-        // Untuk kecamatan, kolom pertama read-only
-        if (col === 0) {
-          cellProperties.readOnly = true; 
-          cellProperties.className = 'htDimmed';
-        }
-        {% endif %}
         return cellProperties;
       }
     });
@@ -169,13 +174,11 @@
     });
   });
   
-  {% if is_kategori %}
   function tambahBaris() {
     if (hot) {
       hot.alter('insert_row_below', hot.countRows());
     }
   }
-  {% endif %}
 </script>
 
 <script>

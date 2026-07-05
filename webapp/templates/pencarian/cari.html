@@ -1,35 +1,195 @@
 {% extends "base.html" %}
+{% load l10n %}
 {% block title %}Pencarian{% endblock %}
 {% block eyebrow %}Temukan Data{% endblock %}
 {% block heading %}Pencarian Data{% endblock %}
 
 {% block content %}
 <div class="panel">
-  <form method="get" style="display:flex; gap:12px; max-width:560px;">
-    <input type="text" name="q" value="{{ q }}" placeholder="Ketik kata kunci (mis. nama kecamatan, ibukota)…" autofocus>
-    <button class="btn" type="submit">Cari</button>
+  <form method="get" style="display:flex; flex-direction:column; gap:16px;">
+    <!-- Baris Pencarian Utama -->
+    <div style="display:flex; gap:12px;">
+      <input type="text" name="q" value="{{ q }}" placeholder="Ketik kata kunci (mis. nama kecamatan, ibukota)…" style="flex:1; min-width:300px;" autofocus>
+      <button class="btn" type="submit">Cari</button>
+      {% if q and hasil %}
+      <button class="btn btn--ghost" type="submit" name="export" value="csv" style="display:flex; align-items:center; gap:6px;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" x2="12" y1="15" y2="3"></line></svg>
+        Download CSV
+      </button>
+      {% endif %}
+    </div>
+    
+    <!-- Filter Lanjutan -->
+    <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap; background:#f8fafc; padding:12px; border-radius:6px; border:1px solid #e2e8f0;">
+      <span style="font-weight:600; color:#475569; font-size:0.9em;">Filter:</span>
+      <input type="text" name="indikator" value="{{ indikator_q }}" placeholder="Filter Indikator spesifik..." style="padding:6px 12px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.9em; background:white; min-width: 200px;">
+      <select name="tahun" style="padding:6px 12px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.9em; background:white;">
+        <option value="">Semua Tahun</option>
+        {% for t in list_tahun %}
+        <option value="{{ t|stringformat:"s" }}" {% if t|stringformat:"s" == tahun_terpilih %}selected{% endif %}>{{ t|stringformat:"s" }}</option>
+        {% endfor %}
+      </select>
+      <select name="wilayah" style="padding:6px 12px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.9em; background:white;">
+        <option value="">Semua Wilayah</option>
+        {% for w in list_wilayah %}
+        <option value="{{ w.id|unlocalize }}" {% if w.id|stringformat:"s" == wilayah_terpilih %}selected{% endif %}>{{ w.nama }}</option>
+        {% endfor %}
+      </select>
+    </div>
   </form>
-  <p class="hint" style="margin-top:10px;">Pencarian penuh (filter wilayah/indikator/tahun) diperkaya pada Fase 4.</p>
 </div>
 
 {% if q %}
 <div class="panel">
-  <h2>Hasil untuk &ldquo;{{ q }}&rdquo;</h2>
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+    <h2>Hasil untuk &ldquo;{{ q }}&rdquo;</h2>
+    <span style="color:#64748b; font-size:0.9em;">Menampilkan hingga 100 data teratas</span>
+  </div>
+
   {% if hasil %}
-  <table class="data-table">
-    <thead><tr><th>Tabel</th><th>Wilayah/Rincian</th><th>Tahun</th><th class="num">Nilai</th><th>Status</th></tr></thead>
+  <!-- Tombol Toggle Grafik -->
+  <button type="button" id="toggleChartBtn" style="margin-bottom: 16px; padding: 8px 16px; background-color: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9em; display: flex; align-items: center; gap: 8px; transition: background-color 0.2s;">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
+    Tampilkan Grafik Visualisasi
+  </button>
+
+  <!-- Wadah Grafik -->
+  <div id="chartContainer" style="display:none; margin-bottom: 24px; padding: 16px; background: white; border: 1px solid #e2e8f0; border-radius: 8px;">
+    <canvas id="searchChart" style="width:100%; max-height:300px;"></canvas>
+  </div>
+
+{% load humanize %}
+  <table class="data-table" style="width: 100%; border-collapse: separate; border-spacing: 0;">
+    <thead>
+      <tr style="background-color: #f8fafc;">
+        <th style="padding: 12px 16px; border-bottom: 2px solid #e2e8f0; text-align: left; color: #475569; font-weight: 600;">Tabel</th>
+        <th style="padding: 12px 16px; border-bottom: 2px solid #e2e8f0; text-align: left; color: #475569; font-weight: 600;">Indikator</th>
+        <th style="padding: 12px 16px; border-bottom: 2px solid #e2e8f0; text-align: left; color: #475569; font-weight: 600;">Wilayah / Subjek</th>
+        <th style="padding: 12px 16px; border-bottom: 2px solid #e2e8f0; text-align: center; color: #475569; font-weight: 600;">Tahun</th>
+        <th style="padding: 12px 16px; border-bottom: 2px solid #e2e8f0; text-align: right; color: #475569; font-weight: 600;">Nilai Data</th>
+      </tr>
+    </thead>
     <tbody>
       {% for f in hasil %}
-      <tr>
-        <td>{{ f.tabel.nomor_tabel }}</td>
-        <td>{{ f.wilayah|default:f.rincian|default:"–" }}</td>
-        <td class="num">{{ f.tahun|default:"–" }}</td>
-        <td class="num">{{ f.nilai_num|default:f.nilai_teks }}</td>
-        <td><span class="badge badge--{{ f.flag }}">{{ f.get_flag_display }}</span></td>
+      <tr style="transition: all 0.2s; border-bottom: 1px solid #f1f5f9;">
+        <td style="padding: 16px; max-width: 300px; vertical-align: top; border-bottom: 1px solid #f1f5f9;">
+          <a href="{% url 'data:tabel_detail' f.tabel.pk %}" style="text-decoration: none; color: #0284c7; font-weight: 600; font-size: 1.05em; display: inline-block; margin-bottom: 4px;">{{ f.tabel.nomor_tabel }}</a>
+          <br>
+          <span style="color: #64748b; font-size: 0.9em; line-height: 1.4; display: block;">{{ f.tabel.nama_tampil }}</span>
+        </td>
+        <td style="padding: 16px; vertical-align: top; border-bottom: 1px solid #f1f5f9; color: #334155; font-weight: 500;">
+          {% if f.kolom %}
+            {{ f.kolom.indikator.nama }}
+          {% else %}
+            <span style="color:#cbd5e1">-</span>
+          {% endif %}
+        </td>
+        <td style="padding: 16px; vertical-align: top; border-bottom: 1px solid #f1f5f9; color: #0f172a;">
+          <div style="display:flex; align-items:center; gap:6px;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+            {% if f.wilayah %}
+              {{ f.wilayah.nama }}
+            {% elif f.rincian %}
+              {{ f.rincian.nama }}
+            {% else %}
+              <span style="color:#cbd5e1">-</span>
+            {% endif %}
+          </div>
+        </td>
+        <td style="padding: 16px; text-align: center; vertical-align: middle; border-bottom: 1px solid #f1f5f9;">
+          <span style="background-color: #f8fafc; padding: 4px 10px; border-radius: 12px; font-size: 0.85em; font-weight: 600; color: #475569; border: 1px solid #e2e8f0;">
+            {{ f.tahun_lengkap|default:"-"|stringformat:"s" }}
+          </span>
+        </td>
+        <td style="padding: 16px; text-align: right; vertical-align: middle; border-bottom: 1px solid #f1f5f9;">
+          {% if f.flag == 'ada' or f.flag == 'perlu_cek' %}
+            <span style="font-weight: 700; font-size: 1.15em; color: {% if f.flag == 'perlu_cek' %}#ef4444{% else %}#0f172a{% endif %};">
+              {% if f.flag == 'perlu_cek' %}
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px; vertical-align:text-bottom;"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>
+              {% endif %}
+              {{ f.nilai_tampil }}
+            </span>
+            {% if f.kolom and f.kolom.satuan %}
+              <span style="color: #64748b; font-size: 0.85em; margin-left: 4px; font-weight: 500;">{{ f.kolom.satuan }}</span>
+            {% endif %}
+          {% else %}
+            <span class="badge badge--{{ f.flag }}" style="font-style: italic;">{{ f.get_flag_display }}</span>
+          {% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+
+  <!-- Script Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", function() {
+      // Toggle logic
+      const toggleBtn = document.getElementById('toggleChartBtn');
+      const chartContainer = document.getElementById('chartContainer');
+      
+      toggleBtn.addEventListener('click', function() {
+        if (chartContainer.style.display === 'none') {
+          chartContainer.style.display = 'block';
+          toggleBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg> Sembunyikan Grafik Visualisasi';
+        } else {
+          chartContainer.style.display = 'none';
+          toggleBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg> Tampilkan Grafik Visualisasi';
+        }
+      });
+
+      // Data diambil dari template context (JSON)
+      const chartData = {{ chart_data_json|safe|default:'{"labels":[], "datasets":[]}' }};
+      const chartTitle = "{{ chart_title|escapejs|default:'Data Visualisasi' }}";
+
+      if (chartData.labels.length > 0 && chartData.datasets.length > 0) {
+        const ctx = document.getElementById('searchChart').getContext('2d');
+        new Chart(ctx, {
+          type: 'line',
+          data: chartData,
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+              mode: 'index',
+              intersect: false,
+            },
+            plugins: {
+              legend: { 
+                display: true,
+                position: 'bottom',
+                labels: {
+                  boxWidth: 12,
+                  font: {size: 11}
+                }
+              },
+              title: { display: true, text: chartTitle, font: {size: 14} },
+              tooltip: {
+                callbacks: {
+                  label: function(context) {
+                    let label = context.dataset.label || '';
+                    if (label) label += ': ';
+                    if (context.parsed.y !== null) {
+                      label += new Intl.NumberFormat('id-ID').format(context.parsed.y);
+                    }
+                    return label;
+                  }
+                }
+              }
+            },
+            scales: {
+              y: { beginAtZero: false } // Biarkan auto-scale agar grafik lebih terlihat naik turunnya
+            }
+          }
+        });
+      } else {
+        toggleBtn.style.display = 'none';
+        chartContainer.style.display = 'none';
+      }
+    });
+  </script>
+
   {% else %}
   <p class="empty">Tidak ada hasil.</p>
   {% endif %}

@@ -12,7 +12,7 @@
   {% for p in pubs %}
   <div class="pick-card" style="position:relative;">
     <a href="{% url 'data:publikasi' p.pk %}" style="display:flex;flex-direction:column;gap:4px;text-decoration:none;color:inherit;">
-      <span class="pick-year num">{{ p.tahun_terbit }}</span>
+      <span class="pick-year num">{{ p.tahun_terbit|stringformat:"s" }}</span>
       <span class="pick-name">{{ p.judul }}</span>
       <span class="pick-meta">{{ p.jml_bab }} bab · {{ p.get_jenis_display }}</span>
     </a>

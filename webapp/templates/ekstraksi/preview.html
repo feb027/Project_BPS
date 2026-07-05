@@ -92,21 +92,117 @@
       <div class="full"><label>Sumber</label><input type="text" name="t{{ ti }}-sumber" value="{{ t.sumber }}" placeholder="mis. BPS Kab. Tasikmalaya"></div>
     </div>
 
-    <div style="overflow-x:auto;">
+    <style>
+      .tabel-preview-wrapper {
+        max-height: 75vh;
+        overflow: auto;
+        position: relative;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      }
+      .tabel-preview-wrapper thead th {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background-color: #f8fafc;
+        box-shadow: 0 1px 0 #e2e8f0;
+      }
+      .tabel-preview-wrapper tbody td.rowhead {
+        position: sticky;
+        left: 0;
+        z-index: 5;
+        background-color: #ffffff;
+        box-shadow: 1px 0 0 #e2e8f0;
+      }
+      .tabel-preview-wrapper tfoot td {
+        position: sticky;
+        bottom: 0;
+        z-index: 10;
+        background-color: #f8fafc;
+        box-shadow: 0 -1px 0 #e2e8f0;
+      }
+      .tabel-preview-wrapper tfoot td.rowhead {
+        position: sticky;
+        left: 0;
+        bottom: 0;
+        z-index: 15;
+        background-color: #f8fafc;
+        box-shadow: 1px -1px 0 #e2e8f0;
+      }
+      .tabel-preview-wrapper thead th.rowhead {
+        position: sticky;
+        top: 0;
+        left: 0;
+        z-index: 15;
+        background-color: #f8fafc;
+        box-shadow: 1px 1px 0 #e2e8f0;
+      }
+      .tabel-preview-wrapper input[type="text"], .tabel-preview-wrapper input[type="number"] {
+        width: 100%;
+        text-align: center;
+        padding: 4px 6px;
+        border: 1px solid transparent;
+        border-radius: 4px;
+        font-family: var(--mono);
+        font-size: 13px;
+        background: transparent;
+        transition: all 0.2s;
+      }
+      .tabel-preview-wrapper input[type="text"]:hover, .tabel-preview-wrapper input[type="number"]:hover {
+        border-color: var(--line);
+        background: #fff;
+      }
+      .tabel-preview-wrapper input[type="text"]:focus, .tabel-preview-wrapper input[type="number"]:focus {
+        border-color: var(--accent-2);
+        outline: none;
+        background: #fff;
+        box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+      }
+      .tabel-preview-wrapper th input {
+        border: 1px solid var(--line) !important;
+        background: #fff !important;
+        font-weight: normal;
+        margin-top: 2px;
+      }
+      .tabel-preview-wrapper td.rowhead input {
+        text-align: left !important;
+        border: 1px solid var(--line) !important;
+        background: #fff !important;
+      }
+      .tabel-preview-wrapper .btn--ghost[data-action] {
+        opacity: 0.5;
+        transition: opacity 0.2s;
+        padding: 2px;
+        height: auto;
+      }
+      .tabel-preview-wrapper .btn--ghost[data-action]:hover {
+        opacity: 1;
+        background: var(--surface);
+      }
+      /* Dense overrides for table cells */
+      .tabel-preview-wrapper .data-table td, 
+      .tabel-preview-wrapper .data-table th {
+        padding: 4px !important;
+        vertical-align: middle;
+      }
+    </style>
+    <div class="tabel-preview-wrapper" style="overflow-x:auto;">
       {% if t.label_kolom %}<p class="hint">Label baris: <strong>{{ t.label_kolom }}</strong>. Kolom, satuan &amp; tahun terisi otomatis dari header PDF — rapikan bila perlu.</p>{% endif %}
       <table class="data-table wide">
         <thead>
           <tr>
             <th class="rowhead">{% if t.mode == 'kategori' %}Rincian{% else %}Kecamatan{% endif %}</th>
             {% for j, hdr in t.kolom_data %}
-            <th class="col-header">
-              <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                 <button type="button" class="btn btn--ghost" style="padding:2px 4px; font-size:10px; line-height:1;" data-action="ins-col" title="Sisipkan Kolom di Kiri">[+]</button>
-                 <button type="button" class="btn btn--ghost" style="color:var(--danger); padding:2px 4px; font-size:10px; line-height:1;" data-action="rm-col" title="Hapus Kolom">[x]</button>
+            <th class="col-header" style="min-width: 240px; vertical-align: top;">
+              <div style="display:flex; align-items:center; gap:4px; margin-bottom:4px;">
+                 <button type="button" class="btn btn--ghost" style="font-size:10px; line-height:1; padding:2px; height:auto; min-height:0;" data-action="ins-col" title="Sisipkan Kolom di Kiri"><i data-lucide="plus-circle" style="width:14px;height:14px;vertical-align:middle;"></i></button>
+                 <button type="button" class="btn btn--ghost" style="color:var(--danger); font-size:10px; line-height:1; padding:2px; height:auto; min-height:0;" data-action="rm-col" title="Hapus Kolom"><i data-lucide="x" style="width:14px;height:14px;vertical-align:middle;"></i></button>
+                 <input type="text" name="t{{ ti }}-kol-{{ j }}-nama" value="{{ hdr.nama }}" placeholder="Nama kolom" required style="flex:1; margin-top:0; font-size:12px;">
               </div>
-              <input type="text" name="t{{ ti }}-kol-{{ j }}-nama" value="{{ hdr.nama }}" placeholder="Nama kolom" required style="min-width:120px;">
-              <input type="text" name="t{{ ti }}-kol-{{ j }}-satuan" value="{{ hdr.satuan }}" placeholder="satuan" style="min-width:70px;margin-top:4px;">
-              <input type="number" name="t{{ ti }}-kol-{{ j }}-tahun" value="{{ hdr.tahun }}" placeholder="tahun" style="min-width:70px;margin-top:4px;">
+              <div style="display:flex; gap:4px;">
+                <input type="text" name="t{{ ti }}-kol-{{ j }}-satuan" value="{{ hdr.satuan }}" placeholder="satuan" style="flex:1; width:50%; font-size:12px;">
+                <input type="text" name="t{{ ti }}-kol-{{ j }}-tahun" value="{{ hdr.tahun }}" placeholder="tahun" style="flex:1; width:50%; font-size:12px;">
+              </div>
             </th>
             {% endfor %}
           </tr>
@@ -115,11 +211,11 @@
           {% for row in t.rows %}
           <tr class="data-row">
             <td class="rowhead">
-              <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                 <button type="button" class="btn btn--ghost" style="padding:2px 4px; font-size:10px; line-height:1;" data-action="ins-row" title="Sisipkan Baris di Atas">[+]</button>
-                 <button type="button" class="btn btn--ghost" style="color:var(--danger); padding:2px 4px; font-size:10px; line-height:1;" data-action="rm-row" title="Hapus Baris">[x]</button>
+              <div style="display:flex; align-items:center; gap:4px;">
+                 <button type="button" class="btn btn--ghost" style="font-size:10px; line-height:1;" data-action="ins-row" title="Sisipkan Baris di Atas"><i data-lucide="plus-circle" style="width:14px;height:14px;vertical-align:middle;"></i></button>
+                 <button type="button" class="btn btn--ghost" style="color:var(--danger); font-size:10px; line-height:1;" data-action="rm-row" title="Hapus Baris"><i data-lucide="x" style="width:14px;height:14px;vertical-align:middle;"></i></button>
+                 <input type="text" name="t{{ ti }}-row-{{ forloop.counter0 }}-nama" value="{{ row.wilayah }}" style="flex:1;">
               </div>
-              <input type="text" name="t{{ ti }}-row-{{ forloop.counter0 }}-nama" value="{{ row.wilayah }}">
             </td>
             {% for c in row.sel %}
             <td><input type="text" name="t{{ ti }}-cell-{{ forloop.parentloop.counter0 }}-{{ forloop.counter0 }}"
@@ -131,9 +227,14 @@
         {% if t.total %}
         <tfoot>
           <tr class="row-total">
-            <td class="rowhead">Kabupaten Tasikmalaya <span class="tag-total">TOTAL</span></td>
+            <td class="rowhead">
+              <div style="display:flex; align-items:center; gap:4px;">
+                <input type="text" name="t{{ ti }}-total-nama" value="Kabupaten Tasikmalaya" style="flex:1; font-weight:bold; color:var(--ink);">
+                <span class="tag-total" style="font-size:10px; background:var(--surface); padding:2px 4px; border-radius:4px; border:1px solid var(--line);">TOTAL</span>
+              </div>
+            </td>
             {% for c in t.total.sel %}
-            <td><input type="text" name="t{{ ti }}-total-{{ forloop.counter0 }}" value="{{ c.teks }}"></td>
+            <td><input type="text" name="t{{ ti }}-total-{{ forloop.counter0 }}" value="{{ c.teks }}" style="font-weight:bold; color:var(--ink);"></td>
             {% endfor %}
           </tr>
         </tfoot>
@@ -187,24 +288,26 @@
           <tr>
             <th class="rowhead">Rincian</th>
             <th class="col-header">
-              <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                 <button type="button" class="btn btn--ghost" style="padding:2px 4px; font-size:10px; line-height:1;" data-action="ins-col" title="Sisipkan Kolom di Kiri">[+]</button>
-                 <button type="button" class="btn btn--ghost" style="color:var(--danger); padding:2px 4px; font-size:10px; line-height:1;" data-action="rm-col" title="Hapus Kolom">[x]</button>
+              <div style="display:flex; align-items:center; gap:4px; margin-bottom:2px;">
+                 <button type="button" class="btn btn--ghost" style="font-size:10px; line-height:1;" data-action="ins-col" title="Sisipkan Kolom di Kiri"><i data-lucide="plus-circle" style="width:14px;height:14px;vertical-align:middle;"></i></button>
+                 <button type="button" class="btn btn--ghost" style="color:var(--danger); font-size:10px; line-height:1;" data-action="rm-col" title="Hapus Kolom"><i data-lucide="x" style="width:14px;height:14px;vertical-align:middle;"></i></button>
+                 <input type="text" name="t__TI__-kol-0-nama" value="" placeholder="Nama kolom" required style="min-width:120px; flex:1; margin-top:0;">
               </div>
-              <input type="text" name="t__TI__-kol-0-nama" value="" placeholder="Nama kolom" required style="min-width:120px;">
-              <input type="text" name="t__TI__-kol-0-satuan" value="" placeholder="satuan" style="min-width:70px;margin-top:4px;">
-              <input type="number" name="t__TI__-kol-0-tahun" value="" placeholder="tahun" style="min-width:70px;margin-top:4px;">
+              <div style="display:flex; gap:4px;">
+                 <input type="text" name="t__TI__-kol-0-satuan" value="" placeholder="satuan" style="min-width:60px; flex:1;">
+                 <input type="number" name="t__TI__-kol-0-tahun" value="" placeholder="tahun" style="min-width:60px; flex:1;">
+              </div>
             </th>
           </tr>
         </thead>
         <tbody>
           <tr class="data-row">
             <td class="rowhead">
-              <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                 <button type="button" class="btn btn--ghost" style="padding:2px 4px; font-size:10px; line-height:1;" data-action="ins-row" title="Sisipkan Baris di Atas">[+]</button>
-                 <button type="button" class="btn btn--ghost" style="color:var(--danger); padding:2px 4px; font-size:10px; line-height:1;" data-action="rm-row" title="Hapus Baris">[x]</button>
+              <div style="display:flex; align-items:center; gap:4px;">
+                 <button type="button" class="btn btn--ghost" style="font-size:10px; line-height:1;" data-action="ins-row" title="Sisipkan Baris di Atas"><i data-lucide="plus-circle" style="width:14px;height:14px;vertical-align:middle;"></i></button>
+                 <button type="button" class="btn btn--ghost" style="color:var(--danger); font-size:10px; line-height:1;" data-action="rm-row" title="Hapus Baris"><i data-lucide="x" style="width:14px;height:14px;vertical-align:middle;"></i></button>
+                 <input type="text" name="t__TI__-row-0-nama" value="" style="flex:1;">
               </div>
-              <input type="text" name="t__TI__-row-0-nama" value="">
             </td>
             <td><input type="text" name="t__TI__-cell-0-0" value=""></td>
           </tr>
@@ -608,13 +711,17 @@
         var currentTh = actionBtn.closest('th');
         var th = document.createElement("th");
         th.className = "col-header";
-        th.innerHTML = '<div style="display:flex; justify-content:space-between; margin-bottom:4px;">' +
-                       '<button type="button" class="btn btn--ghost" style="padding:2px 4px; font-size:10px; line-height:1;" data-action="ins-col" title="Sisipkan Kolom di Kiri">[+]</button> ' +
-                       '<button type="button" class="btn btn--ghost" style="color:var(--danger); padding:2px 4px; font-size:10px; line-height:1;" data-action="rm-col" title="Hapus Kolom">[x]</button>' +
+        th.style.minWidth = "240px";
+        th.style.verticalAlign = "top";
+        th.innerHTML = '<div style="display:flex; align-items:center; gap:4px; margin-bottom:4px;">' +
+                       '<button type="button" class="btn btn--ghost" style="font-size:10px; line-height:1; padding:2px; height:auto; min-height:0;" data-action="ins-col" title="Sisipkan Kolom di Kiri"><i data-lucide="plus-circle" style="width:14px;height:14px;vertical-align:middle;"></i></button> ' +
+                       '<button type="button" class="btn btn--ghost" style="color:var(--danger); font-size:10px; line-height:1; padding:2px; height:auto; min-height:0;" data-action="rm-col" title="Hapus Kolom"><i data-lucide="x" style="width:14px;height:14px;vertical-align:middle;"></i></button>' +
+                       '<input type="text" name="t' + ti + '-kol-99-nama" value="" placeholder="Nama kolom" required style="flex:1; margin-top:0; font-size:12px;">\n' +
                        '</div>' +
-                       '<input type="text" name="t' + ti + '-kol-99-nama" value="" placeholder="Nama kolom" required style="min-width:120px;">\n' +
-                       '<input type="text" name="t' + ti + '-kol-99-satuan" value="" placeholder="satuan" style="min-width:70px;margin-top:4px;">\n' +
-                       '<input type="number" name="t' + ti + '-kol-99-tahun" value="" placeholder="tahun" style="min-width:70px;margin-top:4px;">';
+                       '<div style="display:flex; gap:4px;">' +
+                       '<input type="text" name="t' + ti + '-kol-99-satuan" value="" placeholder="satuan" style="flex:1; width:50%; font-size:12px;">\n' +
+                       '<input type="text" name="t' + ti + '-kol-99-tahun" value="" placeholder="tahun" style="flex:1; width:50%; font-size:12px;">' +
+                       '</div>';
         theadTr.insertBefore(th, currentTh);
         
         var cellIndex = Array.prototype.slice.call(theadTr.children).indexOf(th);
@@ -658,8 +765,8 @@
         tr.className = "data-row";
         var html = '<td class="rowhead">' +
                    '<div style="display:flex; justify-content:space-between; margin-bottom:4px;">' +
-                   '<button type="button" class="btn btn--ghost" style="padding:2px 4px; font-size:10px; line-height:1;" data-action="ins-row" title="Sisipkan Baris di Atas">[+]</button> ' +
-                   '<button type="button" class="btn btn--ghost" style="color:var(--danger); padding:2px 4px; font-size:10px; line-height:1;" data-action="rm-row" title="Hapus Baris">[x]</button>' +
+                   '<button type="button" class="btn btn--ghost" style="padding:2px 4px; font-size:10px; line-height:1;" data-action="ins-row" title="Sisipkan Baris di Atas"><i data-lucide="plus-circle" style="width:14px;height:14px;vertical-align:middle;"></i></button> ' +
+                   '<button type="button" class="btn btn--ghost" style="color:var(--danger); padding:2px 4px; font-size:10px; line-height:1;" data-action="rm-row" title="Hapus Baris"><i data-lucide="x" style="width:14px;height:14px;vertical-align:middle;"></i></button>' +
                    '</div>' +
                    '<input type="text" name="t' + ti + '-row-99-nama" value=""></td>';
         for(var col=0; col<j_count; col++){
@@ -689,8 +796,8 @@
         tr.className = "data-row";
         var html = '<td class="rowhead">' +
                    '<div style="display:flex; justify-content:space-between; margin-bottom:4px;">' +
-                   '<button type="button" class="btn btn--ghost" style="padding:2px 4px; font-size:10px; line-height:1;" data-action="ins-row" title="Sisipkan Baris di Atas">[+]</button> ' +
-                   '<button type="button" class="btn btn--ghost" style="color:var(--danger); padding:2px 4px; font-size:10px; line-height:1;" data-action="rm-row" title="Hapus Baris">[x]</button>' +
+                   '<button type="button" class="btn btn--ghost" style="padding:2px 4px; font-size:10px; line-height:1;" data-action="ins-row" title="Sisipkan Baris di Atas"><i data-lucide="plus-circle" style="width:14px;height:14px;vertical-align:middle;"></i></button> ' +
+                   '<button type="button" class="btn btn--ghost" style="color:var(--danger); padding:2px 4px; font-size:10px; line-height:1;" data-action="rm-row" title="Hapus Baris"><i data-lucide="x" style="width:14px;height:14px;vertical-align:middle;"></i></button>' +
                    '</div>' +
                    '<input type="text" name="t' + ti + '-row-99-nama" value=""></td>';
         for(var col=0; col<j_count; col++){
@@ -716,13 +823,17 @@
         pushUndo("Tambah kolom kanan");
         var th = document.createElement("th");
         th.className = "col-header";
-        th.innerHTML = '<div style="display:flex; justify-content:space-between; margin-bottom:4px;">' +
-                       '<button type="button" class="btn btn--ghost" style="padding:2px 4px; font-size:10px; line-height:1;" data-action="ins-col" title="Sisipkan Kolom di Kiri">[+]</button> ' +
-                       '<button type="button" class="btn btn--ghost" style="color:var(--danger); padding:2px 4px; font-size:10px; line-height:1;" data-action="rm-col" title="Hapus Kolom">[x]</button>' +
+        th.style.minWidth = "240px";
+        th.style.verticalAlign = "top";
+        th.innerHTML = '<div style="display:flex; align-items:center; gap:4px; margin-bottom:4px;">' +
+                       '<button type="button" class="btn btn--ghost" style="font-size:10px; line-height:1; padding:2px; height:auto; min-height:0;" data-action="ins-col" title="Sisipkan Kolom di Kiri"><i data-lucide="plus-circle" style="width:14px;height:14px;vertical-align:middle;"></i></button> ' +
+                       '<button type="button" class="btn btn--ghost" style="color:var(--danger); font-size:10px; line-height:1; padding:2px; height:auto; min-height:0;" data-action="rm-col" title="Hapus Kolom"><i data-lucide="x" style="width:14px;height:14px;vertical-align:middle;"></i></button>' +
+                       '<input type="text" name="t' + ti + '-kol-99-nama" value="" placeholder="Nama kolom" required style="flex:1; margin-top:0; font-size:12px;">\n' +
                        '</div>' +
-                       '<input type="text" name="t' + ti + '-kol-99-nama" value="" placeholder="Nama kolom" required style="min-width:120px;">\n' +
-                       '<input type="text" name="t' + ti + '-kol-99-satuan" value="" placeholder="satuan" style="min-width:70px;margin-top:4px;">\n' +
-                       '<input type="number" name="t' + ti + '-kol-99-tahun" value="" placeholder="tahun" style="min-width:70px;margin-top:4px;">';
+                       '<div style="display:flex; gap:4px;">' +
+                       '<input type="text" name="t' + ti + '-kol-99-satuan" value="" placeholder="satuan" style="flex:1; width:50%; font-size:12px;">\n' +
+                       '<input type="text" name="t' + ti + '-kol-99-tahun" value="" placeholder="tahun" style="flex:1; width:50%; font-size:12px;">' +
+                       '</div>';
         theadTr.appendChild(th);
         
         tbody.querySelectorAll("tr").forEach(function(tr) {
@@ -751,9 +862,9 @@
         } else {
           var j_count = parseInt(inputCols.value);
           var tfoot = document.createElement("tfoot");
-          var html = '<tr class="row-total"><td class="rowhead">Kabupaten Tasikmalaya <span class="tag-total">TOTAL</span></td>';
+          var html = '<tr class="row-total"><td class="rowhead"><div style="display:flex; align-items:center; gap:4px;"><input type="text" name="t' + ti + '-total-nama" value="Kabupaten Tasikmalaya" style="flex:1; font-weight:bold; color:var(--ink);"><span class="tag-total" style="font-size:10px; background:var(--surface); padding:2px 4px; border-radius:4px; border:1px solid var(--line);">TOTAL</span></div></td>';
           for(var col=0; col<j_count; col++){
-             html += '<td><input type="text" name="t' + ti + '-total-' + col + '" value="" readonly style="background:#eefdf5; color:#008a44; font-weight:600;"></td>';
+             html += '<td><input type="text" name="t' + ti + '-total-' + col + '" value="" style="font-weight:bold; color:var(--ink);"></td>';
           }
           html += '</tr>';
           tfoot.innerHTML = html;
@@ -788,13 +899,15 @@
       var tfoot = tableEl.querySelector('tfoot');
       if (!tfoot) return;
       var tbodyTrs = tableEl.querySelectorAll('tbody tr.data-row');
-      var tfootInputs = tfoot.querySelectorAll('td input');
-      tfootInputs.forEach(function(inp, colIdx) {
+      var tfootTds = Array.prototype.slice.call(tfoot.querySelectorAll('td')).slice(1);
+      tfootTds.forEach(function(td, colIdx) {
+          var inp = td.querySelector('input');
+          if (!inp) return;
           var sum = 0;
           tbodyTrs.forEach(function(tr) {
-              var td = tr.querySelectorAll('td')[colIdx + 1];
-              if (td) {
-                  var cellInp = td.querySelector('input');
+              var dataTd = tr.querySelectorAll('td')[colIdx + 1];
+              if (dataTd) {
+                  var cellInp = dataTd.querySelector('input');
                   if (cellInp) sum += parseNum(cellInp.value);
               }
           });

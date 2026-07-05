@@ -13,3 +13,7 @@ __pycache__/
 
 # Local data
 output/
+
+.kiro/
+
+.vscode/

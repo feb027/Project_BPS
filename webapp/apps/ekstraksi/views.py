@@ -205,7 +205,9 @@ def simpan(request):
             if nm:
                 tambah(nm, f"t{ti}-cell-{i}")
         if request.POST.get(f"t{ti}-ada_total") == "1":
-            tambah("Kabupaten Tasikmalaya", f"t{ti}-total")
+            # Nama baris total bisa diedit di preview (default: Kabupaten Tasikmalaya)
+            nama_total = (request.POST.get(f"t{ti}-total-nama") or "Kabupaten Tasikmalaya").strip()
+            tambah(nama_total, f"t{ti}-total")
         nomor_disimpan.append(nomor_tabel)
 
     if not rows:

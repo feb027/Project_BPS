@@ -1,4 +1,5 @@
 from decimal import Decimal, InvalidOperation
+import re
 
 from django.contrib import messages
 from django.db.models import Count
@@ -42,11 +43,14 @@ def export_bab(request, pk):
 
 
 def _parse_angka(teks):
-    """'2.706,82' -> Decimal('2706.82'); '' -> None."""
+    """Parses standard numbers (e.g. '2018', '2.5'). Handles comma as decimal fallback."""
     s = (teks or "").strip()
     if s == "":
         return None
-    s = s.replace(".", "").replace(",", ".")
+    # If there are multiple dots (e.g. 1.234.567) or dot is followed by exactly 3 digits and no other separators,
+    # it's highly ambiguous. But if we instruct the user to avoid thousand separators, 
+    # we can just replace comma with dot (for Indonesian decimal typos) and parse.
+    s = s.replace(",", ".")
     try:
         return Decimal(s)
     except (InvalidOperation, ValueError):
@@ -101,18 +105,79 @@ def tabel_detail(request, pk):
     # ----- simpan (CRUD update/create) -----
     if request.method == "POST":
         diubah = 0
+        from apps.referensi.models import Wilayah, Rincian
+        from apps.data.services import _jenis_wilayah
+        
+        # 1. Update Kolom Tahun dan Satuan
+        for k in koloms:
+            yr_str = request.POST.get(f"kol-{k.id}-tahun")
+            sat_str = request.POST.get(f"kol-{k.id}-satuan")
+            
+            needs_save = False
+            
+            if yr_str is not None:
+                yr_val = yr_str.strip()
+                yr = None
+                if yr_val:
+                    m = re.search(r"\d{4}", yr_val)
+                    if m: yr = int(m.group(0))
+                if k.tahun != yr:
+                    k.tahun = yr
+                    needs_save = True
+                    
+            if sat_str is not None:
+                sat = sat_str.strip() or "-"
+                if k.satuan != sat:
+                    k.satuan = sat
+                    needs_save = True
+                    
+            if needs_save:
+                k.save(update_fields=['tahun', 'satuan'])
+                diubah += 1
+
+        # 2. Hapus & Ganti Nama Baris
+        for key, val in request.POST.items():
+            if key.startswith("del-") and val == "1":
+                sid = int(key.split("-")[1])
+                if is_kategori:
+                    Fakta.objects.filter(tabel=tabel, rincian_id=sid).delete()
+                else:
+                    Fakta.objects.filter(tabel=tabel, wilayah_id=sid).delete()
+                diubah += 1
+            elif key.startswith("row-") and key.endswith("-nama"):
+                sid = int(key.split("-")[1])
+                new_nama = val.strip()
+                if not new_nama: continue
+                if is_kategori:
+                    r_old = Rincian.objects.filter(id=sid).first()
+                    if r_old and r_old.nama != new_nama:
+                        r_new, _ = Rincian.objects.get_or_create(nama=new_nama, defaults={'kelompok': r_old.kelompok})
+                        Fakta.objects.filter(tabel=tabel, rincian_id=sid).update(rincian=r_new)
+                        diubah += 1
+                else:
+                    w_old = Wilayah.objects.filter(id=sid).first()
+                    if w_old and w_old.nama != new_nama:
+                        w_new, _ = Wilayah.objects.get_or_create(nama=new_nama, defaults={'jenis': _jenis_wilayah(new_nama)})
+                        Fakta.objects.filter(tabel=tabel, wilayah_id=sid).update(wilayah=w_new)
+                        diubah += 1
+
+        # 3. Update Nilai Sel Fakta
         for f in Fakta.objects.filter(tabel=tabel).select_related("kolom"):
             key = f"f-{f.id}"
             if key not in request.POST:
                 continue
+            # jika sel di baris yang sudah dihapus, request.POST[key] tetap ada tapi f mungkin masih di memory query
+            # tapi tidak apa-apa karena save() akan gagal atau tidak merusak data.
             raw = request.POST[key].strip()
             tipe_teks = f.kolom and f.kolom.tipe_nilai == "teks"
             if tipe_teks:
                 if f.nilai_teks != raw:
                     f.nilai_teks = raw
                     f.flag = Fakta.Flag.ADA if raw else f.flag
-                    f.save(update_fields=["nilai_teks", "flag"])
-                    diubah += 1
+                    try:
+                        f.save(update_fields=["nilai_teks", "flag"])
+                        diubah += 1
+                    except Exception: pass
             else:
                 num = _parse_angka(raw)
                 if f.nilai_num != num:
@@ -120,9 +185,12 @@ def tabel_detail(request, pk):
                     f.nilai_teks = raw
                     if num is not None:
                         f.flag = Fakta.Flag.ADA
-                    f.save(update_fields=["nilai_num", "nilai_teks", "flag"])
-                    diubah += 1
-        messages.success(request, f"{diubah} nilai diperbarui.")
+                    try:
+                        f.save(update_fields=["nilai_num", "nilai_teks", "flag"])
+                        diubah += 1
+                    except Exception: pass
+        
+        messages.success(request, f"{diubah} perubahan disimpan.")
         return redirect("data:tabel_detail", pk=pk)
 
     fakta = Fakta.objects.filter(tabel=tabel).select_related("wilayah", "rincian", "kolom")
@@ -133,7 +201,7 @@ def tabel_detail(request, pk):
             continue
         if ent.id not in subjek:
             if is_kategori:
-                is_total = "kabupaten tasikmalaya" in ent.nama.lower()
+                is_total = "kabupaten tasikmalaya" in ent.nama.lower() or ent.nama.lower().strip() in ["total", "jumlah", "tasikmalaya"]
             else:
                 is_total = ent.jenis != "kecamatan"
             subjek[ent.id] = {"nama": ent.nama, "is_total": is_total}
@@ -151,7 +219,7 @@ def tabel_detail(request, pk):
     edit = request.GET.get("edit") == "1"
 
     def buat_baris(sid):
-        return {"nama": subjek[sid]["nama"], "sel": [fmap.get((sid, k.id)) for k in koloms]}
+        return {"id": sid, "nama": subjek[sid]["nama"], "sel": [fmap.get((sid, k.id)) for k in koloms]}
 
     ids_reg = sorted((s for s, v in subjek.items() if not v["is_total"]),
                      key=lambda i: subjek[i]["nama"])
@@ -166,7 +234,7 @@ def tabel_detail(request, pk):
         {"label": tabel.nama_tampil, "url": ""},
     ]
     ctx = {
-        "tabel": tabel, "kolom_judul": kolom_judul, "baris": baris,
+        "tabel": tabel, "kolom_judul": kolom_judul, "koloms": koloms, "baris": baris,
         "baris_total": baris_total,
         "label_baris": "Rincian" if is_kategori else "Kecamatan",
         "edit": edit, "breadcrumb": crumb,

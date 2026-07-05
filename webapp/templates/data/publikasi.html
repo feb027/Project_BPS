@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ pub.tahun_terbit }}{% endblock %}
+{% block title %}{{ pub.tahun_terbit|stringformat:"s" }}{% endblock %}
 {% block eyebrow %}Pilih Bab{% endblock %}
 {% block heading %}{{ pub.judul }}{% endblock %}
 
