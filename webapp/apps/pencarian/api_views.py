@@ -69,6 +69,39 @@ def _quick_wilayah_matches(query, wilayah, limit=12):
         indicator = fakta.kolom.indikator
         grouped.setdefault(indicator.id, {"indicator": indicator, "rows": []})["rows"].append(fakta)
 
+    # Natural query: "jumlah penduduk <wilayah>" should return one total-population
+    # series. Legacy publications use different raw labels across years, e.g.
+    # "Jumlah Penduduk Menurut Kecamatan" and "[Penduduk] Jumlah". Merge those
+    # labels for the direct answer, while excluding sex-specific/poverty variants.
+    if "jumlah" in terms and "penduduk" in terms:
+        total_rows_qs = (
+            Fakta.objects.filter(wilayah=wilayah, nilai_num__isnull=False, tabel__nomor_tabel="3.1.1")
+            .filter(kolom__indikator__nama__icontains="Penduduk")
+            .filter(kolom__indikator__nama__icontains="Jumlah")
+            .filter(tabel__judul__icontains="Kecamatan")
+            .exclude(kolom__indikator__nama__icontains="Laki")
+            .exclude(kolom__indikator__nama__icontains="Perempuan")
+            .exclude(kolom__indikator__nama__icontains="Miskin")
+            .exclude(tabel__judul__icontains="Agama")
+            .select_related('kolom__indikator', 'tabel', 'wilayah')
+            .order_by('tahun', 'id')
+        )
+        total_rows_by_year = {}
+        for fakta in total_rows_qs:
+            year = fakta.tahun_lengkap
+            if year is None:
+                continue
+            current = total_rows_by_year.get(year)
+            if current is None or fakta.tabel_id > current.tabel_id:
+                total_rows_by_year[year] = fakta
+        total_rows = [total_rows_by_year[year] for year in sorted(total_rows_by_year)]
+        if total_rows:
+            primary_indicator = next(
+                (fakta.kolom.indikator for fakta in total_rows if fakta.kolom.indikator.nama == "Jumlah Penduduk Menurut Kecamatan"),
+                total_rows[0].kolom.indikator,
+            )
+            grouped[primary_indicator.id] = {"indicator": primary_indicator, "rows": total_rows}
+
     def score(group):
         name = normalize_text(group["indicator"].nama)
         points = 0
