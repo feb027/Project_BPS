@@ -3,6 +3,7 @@ from decimal import Decimal
 from django.test import SimpleTestCase, TestCase
 
 from apps.data.harmonization import has_conflicting_label_tokens, score_cross_table_column_match, table_title_similarity, title_pattern
+from apps.data.management.commands.report_harmonization_coverage import Command as CoverageReportCommand
 from apps.data.models import CanonicalIndicator, CanonicalUnit, Fakta, IndicatorAlias, UnitAlias
 from apps.data.timeseries import get_canonical_time_series
 from apps.data.utils import normalize_numeric, normalize_text
@@ -163,7 +164,7 @@ class CanonicalTimeSeriesTests(TestCase):
         self.assertLess(score, 0.70)
         self.assertIn("table_context:0.20", reasons)
 
-    def test_alias_matches_normalized_indicator_name_variants(self):
+    def _create_normalized_variant_column(self):
         variant_indicator = Indikator.objects.create(nama="Laki  Laki", satuan="jiwa")
         variant_table = Tabel.objects.create(
             bab=self.penduduk_col.tabel.bab,
@@ -185,12 +186,24 @@ class CanonicalTimeSeriesTests(TestCase):
             nilai_num=90,
             nilai_teks="90",
         )
+        return variant_col
+
+    def test_alias_matches_normalized_indicator_name_variants(self):
+        self._create_normalized_variant_column()
 
         payload = get_canonical_time_series(indicator_code="jumlah_penduduk_laki_laki")
 
         self.assertEqual(payload["meta"]["row_count"], 2)
         self.assertEqual([item["tahun"] for item in payload["observations"]], [2023, 2024])
         self.assertEqual([item["nilai"] for item in payload["observations"]], [90.0, 100.0])
+
+    def test_coverage_report_counts_normalized_indicator_name_variants(self):
+        variant_col = self._create_normalized_variant_column()
+
+        covered_ids, by_canonical = CoverageReportCommand()._current_approved_coverage([self.penduduk_col, variant_col])
+
+        self.assertEqual(covered_ids, {self.penduduk_col.id, variant_col.id})
+        self.assertEqual(by_canonical["jumlah_penduduk_laki_laki"], {self.penduduk_col.id, variant_col.id})
 
     def test_duplicate_canonical_grain_prefers_latest_publication_source(self):
         newer_pub = Publikasi.objects.create(judul="Kabupaten Dalam Angka Revisi", tahun_terbit=2026)

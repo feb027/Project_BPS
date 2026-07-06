@@ -95,31 +95,56 @@ sha256sum "$BACKUP" | tee "$BACKUP.sha256"
 ls -lh "$BACKUP"
 ```
 
-## Current DB State After Batch 5AD
+## Current DB State After Global Master-Year Harmonization
 
 As of the last validated checkpoint:
 
 ```text
-canonical indicators: 236
-approved aliases: 284
-aliases total: 284
+canonical indicators: 325
+approved aliases: 395
+aliases total: 395
 ```
 
 Coverage:
 
 ```text
 Current approved aliases:
-columns=2761/4913 (56.2%)
-facts=98721/162114 (60.9%)
+columns=3517/4913 (71.6%)
+facts=119205/162114 (73.5%)
+
+Master year 2026 current coverage:
+columns=589/589 (100.0%)
+facts=19162/19162 (100.0%)
 
 Combined AUTO + master:
-columns=3157/4913 (64.3%)
-facts=109182/162114 (67.3%)
+columns=3525/4913 (71.7%)
+facts=119411/162114 (73.7%)
 
 Combined REVIEW-inclusive:
-columns=3626/4913 (73.8%)
-facts=123462/162114 (76.2%)
+columns=3650/4913 (74.3%)
+facts=123990/162114 (76.5%)
 ```
+
+Master runtime coverage by chapter:
+
+```text
+Bab 1: DONE=2
+Bab 2: DONE=6
+Bab 3: DONE=5
+Bab 4: DONE=19
+Bab 5: DONE=30
+Bab 6: DONE=5
+Bab 7: DONE=4
+Bab 8: DONE=4
+Bab 9: DONE=3
+Bab 10: DONE=2
+Bab 11: DONE=2
+Bab 12: DONE=8
+Bab 13: DONE=4
+NOT_DONE=0
+```
+
+Important scope note: this checkpoint completes **master-year 2026 alias coverage** across all chapters. It intentionally does not force every legacy-year candidate, because several older tables have table-number drift, reused generic labels, or source-level anomalies that need separate review before safe legacy expansion.
 
 ## Backup Checkpoints Created
 
@@ -202,9 +227,57 @@ bps_publikasi_before_batch5e_515_luas_panen_palawija_apply_no_repair_20260706-03
 bps_publikasi_after_batch5e_515_luas_panen_palawija_partial_validated_20260706-035121.dump
 bps_publikasi_before_batch5f_516_produksi_palawija_repair_apply_20260706-035317.dump
 bps_publikasi_after_batch5f_516_produksi_palawija_partial_validated_20260706-035453.dump
+bps_publikasi_before_bab3_leftovers_safe_20260706-064907.dump
+bps_publikasi_before_bab4_safe_self_alias_20260706-065119.dump
+bps_publikasi_before_bab6_13_master_self_alias_20260706-065241.dump
+bps_publikasi_after_global_master_self_harmonization_20260706-065537.dump
 ```
 
 Each has a `.sha256` beside it.
+
+## Completed Global Master-Year Pass — Bab 1–13
+
+Purpose: finish safe current-publication harmonization for every 2026 master table without forcing risky legacy mappings.
+
+Actions:
+
+```text
+Bab 3 leftovers:
+- 3.2.2: applied master self-aliases only; same-table legacy auto intentionally skipped because 2026 distinguishes Februari/Agustus but older columns reuse one `Tingkat Ketenagakerjaan` raw indicator.
+- 3.2.3: repaired three 2020 worker-count rows (`494.230`, `319.181`, `813.411`) from decimal-misparsed values to integer Jiwa counts, then applied master self-aliases only; same-table legacy auto intentionally skipped because older same-number tables mix `Status Pekerjaan Utama` with 2026 `Lapangan Pekerjaan Utama`.
+
+Bab 4 partials:
+- Applied master self-aliases only for remaining partial master columns in 4.1.1, 4.1.2, 4.1.3, 4.1.5, 4.1.6, 4.1.9, 4.2.2, 4.3.1, 4.3.2, 4.3.3.
+- Did not force older source-anomalous legacy indicators into clean time-series.
+
+Bab 6–13:
+- Applied master self-aliases only for all not-started 2026 master tables.
+```
+
+Results:
+
+```text
+Master runtime coverage: Bab 1–13 all DONE; NOT_DONE=0.
+Coverage report: 2026 current=589/589 columns, 19162/19162 facts.
+Canonical indicators: 325.
+Approved aliases: 395.
+```
+
+Coverage-report fix:
+
+```text
+report_harmonization_coverage now counts normalized raw-indicator siblings the same way the runtime time-series resolver does. This fixed a false missing column for `Produksi Jagung` vs `Produksi  Jagung`.
+Regression test: test_coverage_report_counts_normalized_indicator_name_variants.
+```
+
+Verification:
+
+```text
+python manage.py test apps.data.tests.CanonicalTimeSeriesTests.test_coverage_report_counts_normalized_indicator_name_variants --verbosity 1 -> OK
+python manage.py test apps.data --verbosity 1 -> 18 tests OK
+python manage.py check -> OK
+/tmp/hermes-verify-02thhtg5.py ad-hoc verifier -> AD_HOC_VERIFICATION_OK; cleaned; no leftovers
+```
 
 ## Completed Batch 1
 

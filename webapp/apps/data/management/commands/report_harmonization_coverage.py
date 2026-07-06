@@ -86,10 +86,15 @@ class Command(BaseCommand):
         covered: set[int] = set()
         by_canonical: dict[str, set[int]] = defaultdict(set)
         for col in columns:
+            col_alias = normalize_text(col.indikator.nama)
             for alias in aliases:
-                if alias.raw_indicator_id and alias.raw_indicator_id != col.indikator_id:
+                # A stored alias points at one raw Indikator row, but extracted
+                # publications can contain normalized siblings that differ only
+                # by whitespace/punctuation. Count those siblings the same way
+                # the runtime time-series resolver does.
+                if alias.raw_indicator_id and alias.raw_indicator_id != col.indikator_id and alias.normalized_alias != col_alias:
                     continue
-                if not alias.raw_indicator_id and normalize_text(alias.alias_text) != normalize_text(col.indikator.nama):
+                if not alias.raw_indicator_id and normalize_text(alias.alias_text) != col_alias:
                     continue
                 title = normalize_text(col.tabel.judul)
                 if alias.table_title_pattern and not all(token in title for token in alias.table_title_pattern.split()):
