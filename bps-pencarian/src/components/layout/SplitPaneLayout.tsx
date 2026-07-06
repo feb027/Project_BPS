@@ -7,7 +7,7 @@ export function SplitPaneLayout() {
   // Vercel Best Practice: useDeferredValue for input responsiveness during heavy renders
   const deferredQuery = useDeferredValue(query)
   
-  const [selectedItem, setSelectedItem] = useState<{id: number, type: 'tabel' | 'indikator', title: string} | null>(null)
+  const [selectedItem, setSelectedItem] = useState<{id: number, type: 'tabel' | 'indikator', title: string, initialFilter?: string} | null>(null)
 
   return (
     <div className="flex h-screen w-full bg-background overflow-hidden text-foreground">

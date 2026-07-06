@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react"
+import { useMemo, useRef, useState } from "react"
 import { X, Download, FileText, Loader2 } from "lucide-react"
 import {
   ResponsiveContainer, LineChart, CartesianGrid, XAxis, YAxis, Tooltip, Line, Legend
@@ -9,18 +9,44 @@ import html2canvas from "html2canvas"
 import jsPDF from "jspdf"
 
 interface ChartModalProps {
-  item: {id: number, type: 'tabel' | 'indikator', title: string}
+  item: {id: number, type: 'tabel' | 'indikator', title: string, initialFilter?: string}
   onClose: () => void
+}
+
+function getSubjectName(row: any) {
+  const wilayah = row.wilayah_nama || row.wilayah?.nama
+  const rincian = row.rincian_nama
+  if (wilayah && wilayah !== "-") return wilayah
+  if (rincian && rincian !== "-") return rincian
+  return row.subject?.name || "Indonesia"
 }
 
 export function ChartModal({ item, onClose }: ChartModalProps) {
   const { data, isLoading, error } = useTimeSeries(item.id, item.type)
   const chartRef = useRef<HTMLDivElement>(null)
+  const [subjectFilter, setSubjectFilter] = useState(item.initialFilter ?? "")
 
-  const rows = useMemo(() => {
+  const allRows = useMemo(() => {
     if (!data) return []
     return Array.isArray(data) ? data : data.observations ?? []
   }, [data])
+
+  const rows = useMemo(() => {
+    const filter = subjectFilter.trim().toLowerCase()
+    if (!filter) return allRows
+    return allRows.filter((row: any) => {
+      const subject = getSubjectName(row)
+      return String(subject).toLowerCase().includes(filter)
+    })
+  }, [allRows, subjectFilter])
+
+  const allSubjects = useMemo(() => {
+    const result = new Set<string>()
+    allRows.forEach((row: any) => {
+      result.add(getSubjectName(row))
+    })
+    return Array.from(result).sort((a, b) => a.localeCompare(b))
+  }, [allRows])
 
   // Vercel Best Practice: useMemo for expensive data transformations before rendering charts
   const chartData = useMemo(() => {
@@ -28,7 +54,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
       const year = row.tahun
       if (!acc[year]) acc[year] = { tahun: year }
 
-      const subject = row.subject?.name || row.rincian_nama || row.wilayah_nama || row.wilayah?.nama || "Indonesia"
+      const subject = getSubjectName(row)
       acc[year][subject] = Number(row.nilai ?? row.nilai_num)
       return acc
     }, {})
@@ -40,7 +66,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
   const subjects = useMemo(() => {
     const result = new Set<string>()
     rows.forEach((row: any) => {
-      result.add(row.subject?.name || row.rincian_nama || row.wilayah_nama || row.wilayah?.nama || "Indonesia")
+      result.add(getSubjectName(row))
     })
     return Array.from(result)
   }, [rows])
@@ -98,32 +124,62 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
             <div className="flex-1 flex items-center justify-center text-destructive">
               Gagal memuat data.
             </div>
-          ) : rows.length === 0 ? (
+          ) : allRows.length === 0 ? (
             <div className="flex-1 flex items-center justify-center text-muted-foreground">
               Tidak ada data observasi untuk {item.type} ini.
             </div>
           ) : (
             <>
               {/* Toolbar */}
-              <div className="flex items-center justify-end gap-3">
-                <button
-                  onClick={handleExportExcel}
-                  className="h-9 px-4 inline-flex items-center justify-center gap-2 rounded-md bg-secondary/10 text-secondary text-sm font-medium hover:bg-secondary/20 transition-colors"
-                >
-                  <FileText className="h-4 w-4" />
-                  Unduh Excel
-                </button>
-                <button
-                  onClick={handleExportPDF}
-                  className="h-9 px-4 inline-flex items-center justify-center gap-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
-                >
-                  <Download className="h-4 w-4" />
-                  Cetak PDF
-                </button>
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                <div className="w-full lg:max-w-sm">
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide" htmlFor="subject-filter">
+                    Filter kecamatan/rincian
+                  </label>
+                  <input
+                    id="subject-filter"
+                    list="subject-options"
+                    value={subjectFilter}
+                    onChange={(event) => setSubjectFilter(event.target.value)}
+                    placeholder="Contoh: Cisayong"
+                    className="mt-2 w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                  <datalist id="subject-options">
+                    {allSubjects.map((subject) => <option key={subject} value={subject} />)}
+                  </datalist>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Menampilkan {rows.length} dari {allRows.length} observasi{subjectFilter ? ` untuk filter "${subjectFilter}"` : ""}.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-end gap-3">
+                  <button
+                    onClick={handleExportExcel}
+                    disabled={rows.length === 0}
+                    className="h-9 px-4 inline-flex items-center justify-center gap-2 rounded-md bg-secondary/10 text-secondary text-sm font-medium hover:bg-secondary/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <FileText className="h-4 w-4" />
+                    Unduh Excel
+                  </button>
+                  <button
+                    onClick={handleExportPDF}
+                    disabled={rows.length === 0}
+                    className="h-9 px-4 inline-flex items-center justify-center gap-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <Download className="h-4 w-4" />
+                    Cetak PDF
+                  </button>
+                </div>
               </div>
 
+              {rows.length === 0 && (
+                <div className="rounded-md border border-dashed border-border bg-muted/30 p-6 text-sm text-muted-foreground">
+                  Tidak ada baris yang cocok. Coba ketik nama wilayah lain dari daftar, misalnya Cisayong, Singaparna, atau Manonjaya.
+                </div>
+              )}
+
               {/* Chart */}
-              <div className="flex-1 min-h-[400px] border border-border rounded-lg p-4 bg-background" ref={chartRef}>
+              {rows.length > 0 && <div className="flex-1 min-h-[400px] border border-border rounded-lg p-4 bg-background" ref={chartRef}>
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
@@ -163,7 +219,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                     ))}
                   </LineChart>
                 </ResponsiveContainer>
-              </div>
+              </div>}
             </>
           )}
         </div>

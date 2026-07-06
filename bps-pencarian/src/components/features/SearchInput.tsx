@@ -15,7 +15,7 @@ export function SearchInput({ query, setQuery }: SearchInputProps) {
       <input
         type="text"
         className="w-full h-10 pl-10 pr-4 rounded-md border border-input bg-background text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-shadow duration-200"
-        placeholder="Ketik kata kunci (mis: inflasi)…"
+        placeholder="Contoh: jumlah penduduk cisayong"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
