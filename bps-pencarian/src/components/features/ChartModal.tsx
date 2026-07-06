@@ -33,7 +33,10 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
 
   const rows = useMemo(() => {
     const filter = subjectFilter.trim().toLowerCase()
-    if (!filter) return allRows
+    if (!filter) {
+      const subjectCount = new Set(allRows.map((row: any) => getSubjectName(row))).size
+      return subjectCount > 12 ? [] : allRows
+    }
     return allRows.filter((row: any) => {
       const subject = getSubjectName(row)
       return String(subject).toLowerCase().includes(filter)
@@ -47,6 +50,8 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
     })
     return Array.from(result).sort((a, b) => a.localeCompare(b))
   }, [allRows])
+
+  const requiresFilter = !subjectFilter.trim() && allSubjects.length > 12
 
   // Vercel Best Practice: useMemo for expensive data transformations before rendering charts
   const chartData = useMemo(() => {
@@ -148,7 +153,9 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                     {allSubjects.map((subject) => <option key={subject} value={subject} />)}
                   </datalist>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Menampilkan {rows.length} dari {allRows.length} observasi{subjectFilter ? ` untuk filter "${subjectFilter}"` : ""}.
+                    {requiresFilter
+                      ? `Pilih kecamatan/rincian dulu. Dataset ini punya ${allSubjects.length} seri, jadi tidak dirender semua agar grafik tetap ringan.`
+                      : `Menampilkan ${rows.length} dari ${allRows.length} observasi${subjectFilter ? ` untuk filter "${subjectFilter}"` : ""}.`}
                   </p>
                 </div>
 
@@ -174,7 +181,9 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
 
               {rows.length === 0 && (
                 <div className="rounded-md border border-dashed border-border bg-muted/30 p-6 text-sm text-muted-foreground">
-                  Tidak ada baris yang cocok. Coba ketik nama wilayah lain dari daftar, misalnya Cisayong, Singaparna, atau Manonjaya.
+                  {requiresFilter
+                    ? "Data ini punya banyak seri. Ketik/pilih satu kecamatan dulu supaya grafik tidak berat dan tidak berantakan. Contoh: Cisayong."
+                    : "Tidak ada baris yang cocok. Coba ketik nama wilayah lain dari daftar, misalnya Cisayong, Singaparna, atau Manonjaya."}
                 </div>
               )}
 
