@@ -7,7 +7,7 @@ describe('SearchInput Component', () => {
     const setQuery = vi.fn()
     render(<SearchInput query="inflasi" setQuery={setQuery} />)
     
-    const input = screen.getByPlaceholderText(/Ketik kata kunci/i) as HTMLInputElement
+    const input = screen.getByPlaceholderText(/jumlah penduduk cisayong/i) as HTMLInputElement
     expect(input).toBeInTheDocument()
     expect(input.value).toBe('inflasi')
   })
@@ -16,7 +16,7 @@ describe('SearchInput Component', () => {
     const setQuery = vi.fn()
     render(<SearchInput query="" setQuery={setQuery} />)
     
-    const input = screen.getByPlaceholderText(/Ketik kata kunci/i)
+    const input = screen.getByPlaceholderText(/jumlah penduduk cisayong/i)
     fireEvent.change(input, { target: { value: 'kemiskinan' } })
     
     expect(setQuery).toHaveBeenCalledWith('kemiskinan')
