@@ -69,38 +69,58 @@ def _quick_wilayah_matches(query, wilayah, limit=12):
         indicator = fakta.kolom.indikator
         grouped.setdefault(indicator.id, {"indicator": indicator, "rows": []})["rows"].append(fakta)
 
-    # Natural query: "jumlah penduduk <wilayah>" should return one total-population
-    # series. Legacy publications use different raw labels across years, e.g.
-    # "Jumlah Penduduk Menurut Kecamatan" and "[Penduduk] Jumlah". Merge those
-    # labels for the direct answer, while excluding sex-specific/poverty variants.
-    if "jumlah" in terms and "penduduk" in terms:
-        total_rows_qs = (
+    wants_male = "laki" in terms
+    wants_female = "perempuan" in terms
+    wants_total_population = "penduduk" in terms and not wants_male and not wants_female
+
+    def merged_rows_for_indicator(*, include_text: str | None = None, exclude_sex: bool = False):
+        qs = (
             Fakta.objects.filter(wilayah=wilayah, nilai_num__isnull=False, tabel__nomor_tabel="3.1.1")
             .filter(kolom__indikator__nama__icontains="Penduduk")
-            .filter(kolom__indikator__nama__icontains="Jumlah")
             .filter(tabel__judul__icontains="Kecamatan")
-            .exclude(kolom__indikator__nama__icontains="Laki")
-            .exclude(kolom__indikator__nama__icontains="Perempuan")
             .exclude(kolom__indikator__nama__icontains="Miskin")
             .exclude(tabel__judul__icontains="Agama")
             .select_related('kolom__indikator', 'tabel', 'wilayah')
             .order_by('tahun', 'id')
         )
-        total_rows_by_year = {}
-        for fakta in total_rows_qs:
+        if include_text:
+            qs = qs.filter(kolom__indikator__nama__icontains=include_text)
+        else:
+            qs = qs.filter(kolom__indikator__nama__icontains="Jumlah")
+        if exclude_sex:
+            qs = qs.exclude(kolom__indikator__nama__icontains="Laki").exclude(kolom__indikator__nama__icontains="Perempuan")
+
+        rows_by_year = {}
+        for fakta in qs:
             year = fakta.tahun_lengkap
             if year is None:
                 continue
-            current = total_rows_by_year.get(year)
+            current = rows_by_year.get(year)
             if current is None or fakta.tabel_id > current.tabel_id:
-                total_rows_by_year[year] = fakta
-        total_rows = [total_rows_by_year[year] for year in sorted(total_rows_by_year)]
-        if total_rows:
+                rows_by_year[year] = fakta
+        return [rows_by_year[year] for year in sorted(rows_by_year)]
+
+    # Natural query handling:
+    # - "jumlah penduduk <wilayah>" -> merged total series across legacy labels.
+    # - "jumlah penduduk <wilayah> laki laki" -> merged male series, not total.
+    # - "jumlah penduduk <wilayah> perempuan" -> merged female series, not total.
+    if wants_male or wants_female or wants_total_population:
+        if wants_male:
+            merged_rows = merged_rows_for_indicator(include_text="Laki")
+            preferred_name = "Jumlah Penduduk Laki-laki Menurut Kecamatan"
+        elif wants_female:
+            merged_rows = merged_rows_for_indicator(include_text="Perempuan")
+            preferred_name = "Jumlah Penduduk Perempuan Menurut Kecamatan"
+        else:
+            merged_rows = merged_rows_for_indicator(exclude_sex=True)
+            preferred_name = "Jumlah Penduduk Menurut Kecamatan"
+
+        if merged_rows:
             primary_indicator = next(
-                (fakta.kolom.indikator for fakta in total_rows if fakta.kolom.indikator.nama == "Jumlah Penduduk Menurut Kecamatan"),
-                total_rows[0].kolom.indikator,
+                (fakta.kolom.indikator for fakta in merged_rows if fakta.kolom.indikator.nama == preferred_name),
+                merged_rows[0].kolom.indikator,
             )
-            grouped[primary_indicator.id] = {"indicator": primary_indicator, "rows": total_rows}
+            grouped[primary_indicator.id] = {"indicator": primary_indicator, "rows": merged_rows}
 
     def score(group):
         name = normalize_text(group["indicator"].nama)
