@@ -235,6 +235,8 @@ bps_publikasi_before_numeric_safe_decimal_batch_20260706-074009.dump
 bps_publikasi_before_numeric_safe_integer_batch_20260706-074321.dump
 bps_publikasi_before_numeric_safe_counts_rp_batch_20260706-074629.dump
 bps_publikasi_after_numeric_safe_repairs_20260706-074737.dump
+bps_publikasi_before_pdf_backed_5_4_ton_numeric_20260706-080943.dump
+bps_publikasi_after_pdf_backed_5_4_ton_numeric_20260706-081017.dump
 ```
 
 Each has a `.sha256` beside it.
@@ -354,6 +356,81 @@ Post-apply dry-runs for all selected buckets returned Candidate repairs: 0.
 python manage.py test apps.data --verbosity 1 -> 18 tests OK
 python manage.py check -> OK
 Coverage unchanged as expected: aliases unaffected; 2026 current=589/589 facts=19162/19162.
+```
+
+## Completed PDF-Backed Numeric Review Pass — Held Candidates
+
+Purpose: sample high-impact remaining `repair_numeric_values --min-ratio 10` candidates against source PDFs, then either repair exact PDF-backed scopes or document false-positive holds.
+
+PDF/source evidence checked:
+
+```text
+5.3.1 2022 PDF page 353:
+- Title: Luas Areal Tanaman Perkebunan Menurut Kecamatan dan Jenis Tanaman (Ribu ha), 2020 dan 2021.
+- Cipatujah Kelapa values printed `2.603` and `1.788` in Ribu ha.
+- DB stores as base ha (`2603`, `1788`), so normalizer suggestion `2.603 -> 26.03` is false-positive.
+
+5.3.1 2023 PDF page 355:
+- Title: ... (Ribu ha), 2021 dan 2022.
+- Cipatujah Kelapa values printed `1.788` and `1,790` in Ribu ha.
+- DB base-unit storage remains correct (`1788`, `1790`).
+
+5.3.2 2022 PDF page 359 and 2023 PDF page 361:
+- Titles: Produksi Perkebunan ... (Ribu ton).
+- Example Cipatujah/Kelapa 2023 prints `3.645` and `3,602` in Ribu ton.
+- DB base-unit storage (`3645`, `3602`) is correct; broad normalizer suggestions are false-positive.
+
+2.4.1 2020 PDF page 63:
+- Title: Realisasi Pendapatan Pemerintah ... (ribu rupiah), 2018–2019.
+- Example row `1.1 Pajak Daerah`: 2018 `66.943.909,448`, 2019 `74.276.945,180` in ribu rupiah.
+- DB stores Rp-scale values (`66943909448`, `74276945180`), so normalizer suggestion to divide by 1000 is false-positive for the DB unit model.
+
+9.1 2019 PDF page 217:
+- Title: Panjang Jalan ... (km), 2018.
+- Road values such as `215,832` and `226,005` are Indonesian decimal km (`215.832`, `226.005`), not integer `215832`/`226005`.
+- DB storage is correct; held as false-positive.
+```
+
+PDF-backed repairs applied:
+
+```text
+5.4.4 2022 PDF pages 377 and 379:
+- Title: Produksi Daging Ternak Unggas ... (ton), 2020–2021.
+- Vision confirmed US-style separators and decimal ton values:
+  - Cipatujah Ayam Kampung `113,504.29`, Ayam Petelur `10.45`/`5.87`.
+  - Cipatujah Ayam Pedaging `133.27`/`163.34`, Itik `3.82`/`2.89`.
+- Applied `repair_numeric_values --table-number 5.4.4 --unit ton --min-ratio 10 --apply`.
+- Updated rows: 311.
+
+5.4.5 2022 PDF pages 381 and 383:
+- Title: Produksi Telur Unggas dan Susu Sapi ... (ton), 2020–2021.
+- Vision confirmed decimal ton values:
+  - Cipatujah Ayam Kampung `54.42`, Ayam Petelur `290.59`/`163.16`, Itik `45.09`/`34.15`.
+  - Karangnunggal Ayam Petelur `1,090.93`, etc.
+- Applied `repair_numeric_values --table-number 5.4.5 --unit ton --min-ratio 10 --apply`.
+- Updated rows: 245.
+
+Total PDF-backed repaired rows: 556.
+```
+
+Backups:
+
+```text
+pre PDF-backed 5.4 ton repair: bps_publikasi_before_pdf_backed_5_4_ton_numeric_20260706-080943.dump
+sha256=c9160b4692259ad37f3b1be2eb40d20734bcbbed62e380d25613577cc1f4900c
+
+post PDF-backed 5.4 ton repair: bps_publikasi_after_pdf_backed_5_4_ton_numeric_20260706-081017.dump
+sha256=e0647a887cb77e20e68219111a94bd6300c476c97029a874629e9e03c69b8f5d
+```
+
+Verification:
+
+```text
+Post dry-run 5.4.4 unit ton: Candidate repairs 0.
+Post dry-run 5.4.5 unit ton: Candidate repairs 0.
+Remaining global candidates after PDF-backed 5.4 repair: 1261, mostly documented false-positive classes and still-unreviewed Bab 5 ha/production groups.
+python manage.py test apps.data --verbosity 1 -> 18 tests OK
+python manage.py check -> OK
 ```
 
 ## Completed Batch 1
