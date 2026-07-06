@@ -231,6 +231,10 @@ bps_publikasi_before_bab3_leftovers_safe_20260706-064907.dump
 bps_publikasi_before_bab4_safe_self_alias_20260706-065119.dump
 bps_publikasi_before_bab6_13_master_self_alias_20260706-065241.dump
 bps_publikasi_after_global_master_self_harmonization_20260706-065537.dump
+bps_publikasi_before_numeric_safe_decimal_batch_20260706-074009.dump
+bps_publikasi_before_numeric_safe_integer_batch_20260706-074321.dump
+bps_publikasi_before_numeric_safe_counts_rp_batch_20260706-074629.dump
+bps_publikasi_after_numeric_safe_repairs_20260706-074737.dump
 ```
 
 Each has a `.sha256` beside it.
@@ -277,6 +281,79 @@ python manage.py test apps.data.tests.CanonicalTimeSeriesTests.test_coverage_rep
 python manage.py test apps.data --verbosity 1 -> 18 tests OK
 python manage.py check -> OK
 /tmp/hermes-verify-02thhtg5.py ad-hoc verifier -> AD_HOC_VERIFICATION_OK; cleaned; no leftovers
+```
+
+## Completed Numeric Safe-Repair Pass After Global Master Harmonization
+
+Purpose: apply only evidence-backed numeric repairs after 2026 master harmonization, without broad-applying false-positive normalizer suggestions.
+
+Applied repairs:
+
+```text
+Total updated rows: 842
+
+Safe decimal/index classes:
+- 13.2 Laju Pertumbuhan PDRB Kab/Kota: 248 rows (`584 -> 5.84`, etc.)
+- 13.3 Jumlah Penduduk Miskin Kab/Kota: 192 rows (`49080 -> 490.80`, etc.)
+- 13.4 IPM Kab/Kota: 173 rows (`6832 -> 68.32`, etc.)
+- 12.2 PDRB harga konstan/berlaku decimal rows: 91 rows
+- 12.4 one negative growth row: 1 row (`98 -> -0.98`)
+- 4.1.9 Rasio Murid-Guru MA: 2 rows (`986 -> 9.86`, `107 -> 10.7`)
+- 2.3.2 PNS education/sex count rows: 3 rows (`4.433 -> 4433`, etc.)
+
+Safe integer/count/Rp classes:
+- 3.1.2 population by age/sex `jiwa`: 48 rows
+- 3.2.1 population/activity `Jiwa`: 4 rows
+- 6.2.1 water customer count: 3 rows
+- 6.3.1 small industry counts: 8 rows
+- 6.3.2 business-unit/workforce counts: 6 rows
+- 7.3 tourism visitors: 6 rows
+- 5.4.4 poultry production `kg`: 4 rows
+- 5.5.5 fish seed/ornamental fish `ekor`: 7 rows
+- 2.3.1 ASN/PNS/PPPK `jiwa`: 9 rows
+- 9.2 cooperative member counts: 4 rows
+- 11.1 trade facility counts: 6 rows
+- 7.4 attraction visitor rows: 13 rows
+- 7.4 ticket revenue rows: 12 rows
+- 6.2.2 water volume/customer total rows: 2 rows
+```
+
+Backups:
+
+```text
+pre safe decimal batch: bps_publikasi_before_numeric_safe_decimal_batch_20260706-074009.dump
+sha256=5b8056d0c87b3e4bc701de2cfc2c6c40ac589526b2a4e71d738b90c9e0e1dd74
+
+pre safe integer batch: bps_publikasi_before_numeric_safe_integer_batch_20260706-074321.dump
+sha256=31d404b5292bd319621e6c95c90e1483924235fe28acc125b1a9b8f52537206f
+
+pre safe counts/Rp batch: bps_publikasi_before_numeric_safe_counts_rp_batch_20260706-074629.dump
+sha256=cc6146a14f30379dcca5e74309ef7ac339edadaa82287e8a664e7486b9f18dc1
+
+post safe numeric repairs: bps_publikasi_after_numeric_safe_repairs_20260706-074737.dump
+sha256=d75fb8842929ba08c18b2e2ca30008883bd3a13ad836ad1e21d392fd7bcccba8
+```
+
+Held / not applied:
+
+```text
+Remaining dry-run candidates after safe pass: 1817.
+These are intentionally held, not broad-applied. Main classes:
+- Bab 5 `ha` rows such as `4.790 ha`: valid thousands style, not 47.90.
+- Bab 5.3 `Ribu ha/ton` rows: require title/unit-scale policy and PDF-backed review; previous Chapter 5 lessons show broad normalization is unsafe.
+- Road length `km` rows such as `226,005`: comma decimal/Indonesian notation likely valid, not 226005.
+- Revenue `2.4.1` `(ribu rupiah)` rows: stored value may intentionally be rupiah-scale; default normalizer suggestion would divide by 1000 and is unsafe without unit policy.
+- `4.1.5` raw `16 10`: stored `16.10` is likely correct; command suggests `1610` due space stripping, held.
+- `2.3.3` raw `1.1576`: known false-positive pattern; stored `11576` likely intended count.
+```
+
+Verification:
+
+```text
+Post-apply dry-runs for all selected buckets returned Candidate repairs: 0.
+python manage.py test apps.data --verbosity 1 -> 18 tests OK
+python manage.py check -> OK
+Coverage unchanged as expected: aliases unaffected; 2026 current=589/589 facts=19162/19162.
 ```
 
 ## Completed Batch 1
