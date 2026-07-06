@@ -6,7 +6,8 @@ from django.views.decorators.cache import cache_page
 
 from apps.katalog.models import Tabel
 from apps.referensi.models import Indikator
-from apps.data.models import Fakta
+from apps.data.models import CanonicalIndicator, Fakta
+from apps.data.timeseries import get_canonical_time_series
 from .serializers import TabelSerializer, IndikatorSerializer, FaktaTimeSeriesSerializer
 
 from django.db import connection
@@ -69,3 +70,38 @@ class TimeSeriesAPIView(APIView):
 
         serializer = FaktaTimeSeriesSerializer(qs, many=True)
         return Response(serializer.data)
+
+
+class CanonicalTimeSeriesAPIView(APIView):
+    """
+    API time-series harmonized by CanonicalIndicator aliases.
+
+    Accepts either `indicator_code` (preferred) or `canonical_indicator_id`.
+    """
+    @method_decorator(cache_page(60 * 15))
+    def get(self, request):
+        indicator_code = request.GET.get('indicator_code') or request.GET.get('code')
+        canonical_indicator_id = request.GET.get('canonical_indicator_id')
+        wilayah_id = request.GET.get('wilayah_id')
+        start_year = request.GET.get('start_year')
+        end_year = request.GET.get('end_year')
+        limit = request.GET.get('limit')
+
+        if not indicator_code and not canonical_indicator_id:
+            return Response({"error": "indicator_code atau canonical_indicator_id harus disertakan"}, status=400)
+
+        try:
+            payload = get_canonical_time_series(
+                indicator_code=indicator_code,
+                canonical_indicator_id=int(canonical_indicator_id) if canonical_indicator_id else None,
+                wilayah_id=int(wilayah_id) if wilayah_id else None,
+                start_year=int(start_year) if start_year else None,
+                end_year=int(end_year) if end_year else None,
+                limit=min(int(limit), 20000) if limit else 5000,
+            )
+        except CanonicalIndicator.DoesNotExist:
+            return Response({"error": "Canonical indicator tidak ditemukan"}, status=404)
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=400)
+
+        return Response(payload)
