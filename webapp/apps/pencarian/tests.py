@@ -4,7 +4,7 @@ from django.test import TestCase
 
 from apps.data.models import Fakta
 from apps.katalog.models import Bab, KolomTabel, Publikasi, Tabel
-from apps.pencarian.api_views import _quick_wilayah_matches
+from apps.pencarian.api_views import _detect_wilayahs, _quick_wilayah_matches
 from apps.referensi.models import Indikator, Wilayah
 
 
@@ -51,3 +51,28 @@ class NaturalLanguageWilayahSearchTests(TestCase):
         self.assertEqual(payload[0]["indicator_name"], "Jumlah Sekolah Raudatul Athfal (RA)")
         self.assertEqual(payload[0]["observations"][0]["nilai_teks"], "20")
         self.assertIn("Raudatul Athfal", payload[0]["observations"][0]["tabel"]["judul"])
+
+    def test_multi_wilayah_query_reports_all_detected_wilayahs(self):
+        cisayong = Wilayah.objects.create(nama="Cisayong", jenis="kecamatan")
+        ciawi = Wilayah.objects.create(nama="Ciawi", jenis="kecamatan")
+        publikasi = Publikasi.objects.create(judul="Kabupaten Tasikmalaya Angka 2026", tahun_terbit=2026)
+        bab = Bab.objects.create(publikasi=publikasi, nomor=1, nama="Geografi")
+        indikator = Indikator.objects.create(nama="Luas Wilayah")
+        table = Tabel.objects.create(
+            bab=bab,
+            nomor_tabel="1.1.1",
+            judul="Luas Wilayah Menurut Kecamatan, 2025",
+        )
+        column = KolomTabel.objects.create(tabel=table, urutan=1, indikator=indikator, tahun=2025)
+        Fakta.objects.create(tabel=table, kolom=column, wilayah=cisayong, nilai_num=Decimal("59.4"), nilai_teks="59,4")
+        Fakta.objects.create(tabel=table, kolom=column, wilayah=ciawi, nilai_num=Decimal("45.2"), nilai_teks="45,2")
+
+        detected = _detect_wilayahs("luas wilayah cisayong dan ciawi")
+        self.assertEqual([wilayah.nama for wilayah in detected], ["Cisayong", "Ciawi"])
+
+        response = self.client.get("/pencarian/api/search/", {"q": "luas wilayah cisayong dan ciawi"})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual([wilayah["nama"] for wilayah in payload["detected_wilayahs"]], ["Cisayong", "Ciawi"])
+        self.assertEqual(payload["interpreted_query"], "luas wilayah dan")
+        self.assertEqual(payload["quick_matches"][0]["indicator_name"], "Luas Wilayah")

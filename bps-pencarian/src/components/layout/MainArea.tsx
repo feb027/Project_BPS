@@ -5,7 +5,7 @@ import { InlineTimeSeriesAnswer } from "../features/InlineTimeSeriesAnswer"
 
 const ChartModal = lazy(() => import("../features/ChartModal").then(module => ({ default: module.ChartModal })))
 
-type SelectedItem = {id: number, type: 'tabel' | 'indikator', title: string, initialFilter?: string}
+type SelectedItem = {id: number, type: 'tabel' | 'indikator', title: string, initialFilter?: string, initialFilters?: string[]}
 
 interface MainAreaProps {
   query: string
@@ -17,6 +17,10 @@ export function MainArea({ query, selectedItem, setSelectedItem }: MainAreaProps
   const { data, isLoading, error } = useSearch(query)
 
   const detectedWilayah = data?.detected_wilayah?.nama as string | undefined
+  const detectedWilayahs = (data?.detected_wilayahs ?? [])
+    .map((wilayah: any) => wilayah?.nama)
+    .filter(Boolean) as string[]
+  const initialSubjectFilters = detectedWilayahs.length > 0 ? detectedWilayahs : (detectedWilayah ? [detectedWilayah] : [])
   const quickMatches = data?.quick_matches ?? []
   const primaryQuickMatch = quickMatches[0]
   const directAnswerSubject = primaryQuickMatch?.subject_name || detectedWilayah
@@ -67,6 +71,7 @@ export function MainArea({ query, selectedItem, setSelectedItem }: MainAreaProps
                   type: 'indikator',
                   title: primaryQuickMatch.indicator_name,
                   initialFilter: directAnswerFilter,
+                  initialFilters: initialSubjectFilters,
                 })}
               />
             )}
@@ -83,7 +88,7 @@ export function MainArea({ query, selectedItem, setSelectedItem }: MainAreaProps
                   <div className="mt-4 grid grid-cols-1 gap-4">
                     {data.indikator?.map((ind: any) => (
                       <div key={`ind-${ind.id}`}
-                           onClick={() => setSelectedItem({id: ind.id, type: 'indikator', title: ind.nama, initialFilter: detectedWilayah})}
+                           onClick={() => setSelectedItem({id: ind.id, type: 'indikator', title: ind.nama, initialFilter: detectedWilayah, initialFilters: initialSubjectFilters})}
                            className="group bg-background border border-border rounded-lg p-5 hover:border-primary/50 hover:shadow-md transition-all duration-200 cursor-pointer flex flex-col gap-4 relative overflow-hidden">
                         <div className="absolute top-0 left-0 w-1 h-full bg-primary/80 scale-y-0 group-hover:scale-y-100 transition-transform origin-bottom"></div>
                         <div className="flex items-start justify-between">
@@ -105,7 +110,7 @@ export function MainArea({ query, selectedItem, setSelectedItem }: MainAreaProps
 
                     {data.tabel?.map((tab: any) => (
                       <div key={`tab-${tab.id}`}
-                           onClick={() => setSelectedItem({id: tab.id, type: 'tabel', title: tab.judul, initialFilter: detectedWilayah})}
+                           onClick={() => setSelectedItem({id: tab.id, type: 'tabel', title: tab.judul, initialFilter: detectedWilayah, initialFilters: initialSubjectFilters})}
                            className="group bg-background border border-border rounded-lg p-5 hover:border-primary/50 hover:shadow-md transition-all duration-200 cursor-pointer flex flex-col gap-4 relative overflow-hidden">
                         <div className="absolute top-0 left-0 w-1 h-full bg-accent/80 scale-y-0 group-hover:scale-y-100 transition-transform origin-bottom"></div>
                         <div className="flex items-start justify-between">
@@ -133,7 +138,7 @@ export function MainArea({ query, selectedItem, setSelectedItem }: MainAreaProps
                   <div className="grid grid-cols-1 gap-4">
                     {data.indikator?.map((ind: any) => (
                       <div key={`ind-${ind.id}`}
-                           onClick={() => setSelectedItem({id: ind.id, type: 'indikator', title: ind.nama, initialFilter: detectedWilayah})}
+                           onClick={() => setSelectedItem({id: ind.id, type: 'indikator', title: ind.nama, initialFilter: detectedWilayah, initialFilters: initialSubjectFilters})}
                            className="group bg-card border border-border rounded-lg p-5 hover:border-primary/50 hover:shadow-md transition-all duration-200 cursor-pointer flex flex-col gap-4 relative overflow-hidden">
                         <div className="absolute top-0 left-0 w-1 h-full bg-primary/80 scale-y-0 group-hover:scale-y-100 transition-transform origin-bottom"></div>
                         <div className="flex items-start justify-between">
@@ -155,7 +160,7 @@ export function MainArea({ query, selectedItem, setSelectedItem }: MainAreaProps
 
                     {data.tabel?.map((tab: any) => (
                       <div key={`tab-${tab.id}`}
-                           onClick={() => setSelectedItem({id: tab.id, type: 'tabel', title: tab.judul, initialFilter: detectedWilayah})}
+                           onClick={() => setSelectedItem({id: tab.id, type: 'tabel', title: tab.judul, initialFilter: detectedWilayah, initialFilters: initialSubjectFilters})}
                            className="group bg-card border border-border rounded-lg p-5 hover:border-primary/50 hover:shadow-md transition-all duration-200 cursor-pointer flex flex-col gap-4 relative overflow-hidden">
                         <div className="absolute top-0 left-0 w-1 h-full bg-accent/80 scale-y-0 group-hover:scale-y-100 transition-transform origin-bottom"></div>
                         <div className="flex items-start justify-between">

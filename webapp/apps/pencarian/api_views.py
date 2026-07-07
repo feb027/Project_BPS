@@ -16,23 +16,37 @@ from apps.data.utils import normalize_text
 from .serializers import TabelSerializer, IndikatorSerializer, FaktaTimeSeriesSerializer
 
 
-def _detect_wilayah(query):
-    """Return a wilayah mentioned in the free-text query, e.g. 'penduduk cisayong'."""
+def _detect_wilayahs(query):
+    """Return all wilayah mentioned in a free-text query, preserving query order."""
     query_norm = f" {normalize_text(query)} "
+    matches = []
     candidates = Wilayah.objects.only('id', 'nama', 'jenis').order_by('-nama')
     for wilayah in candidates:
         name_norm = normalize_text(wilayah.nama)
-        if name_norm and f" {name_norm} " in query_norm:
-            return wilayah
-    return None
+        token = f" {name_norm} "
+        if name_norm and token in query_norm:
+            matches.append((query_norm.index(token), wilayah))
+    return [wilayah for _, wilayah in sorted(matches, key=lambda item: item[0])]
+
+
+def _detect_wilayah(query):
+    """Return the first wilayah mentioned in the free-text query."""
+    wilayahs = _detect_wilayahs(query)
+    return wilayahs[0] if wilayahs else None
+
+
+def _query_without_wilayahs(query, wilayahs):
+    if not wilayahs:
+        return query
+    wilayah_terms = set()
+    for wilayah in wilayahs:
+        wilayah_terms.update(normalize_text(wilayah.nama).split())
+    remaining = [token for token in normalize_text(query).split() if token not in wilayah_terms]
+    return " ".join(remaining).strip() or query
 
 
 def _query_without_wilayah(query, wilayah):
-    if not wilayah:
-        return query
-    terms = normalize_text(wilayah.nama).split()
-    remaining = [token for token in normalize_text(query).split() if token not in terms]
-    return " ".join(remaining).strip() or query
+    return _query_without_wilayahs(query, [wilayah] if wilayah else [])
 
 
 def _merge_by_id(primary, extra):
@@ -333,10 +347,11 @@ class FacetedSearchAPIView(APIView):
         if len(query) < 2:
             return Response({"tabel": [], "indikator": []})
 
-        detected_wilayah = _detect_wilayah(query)
-        search_query = _query_without_wilayah(query, detected_wilayah)
+        detected_wilayahs = _detect_wilayahs(query)
+        detected_wilayah = detected_wilayahs[0] if detected_wilayahs else None
+        search_query = _query_without_wilayahs(query, detected_wilayahs)
         quick_matches = (
-            _quick_wilayah_matches(query, detected_wilayah)
+            _quick_wilayah_matches(search_query, detected_wilayah)
             if detected_wilayah
             else _quick_topic_matches(search_query)
         )
@@ -373,6 +388,10 @@ class FacetedSearchAPIView(APIView):
                 "nama": detected_wilayah.nama,
                 "jenis": detected_wilayah.jenis,
             } if detected_wilayah else None,
+            "detected_wilayahs": [
+                {"id": wilayah.id, "nama": wilayah.nama, "jenis": wilayah.jenis}
+                for wilayah in detected_wilayahs
+            ],
             "interpreted_query": search_query,
             "quick_matches": quick_matches,
         })

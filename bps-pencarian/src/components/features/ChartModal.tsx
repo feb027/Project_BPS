@@ -9,7 +9,7 @@ import html2canvas from "html2canvas"
 import jsPDF from "jspdf"
 
 interface ChartModalProps {
-  item: {id: number, type: 'tabel' | 'indikator', title: string, initialFilter?: string}
+  item: {id: number, type: 'tabel' | 'indikator', title: string, initialFilter?: string, initialFilters?: string[]}
   onClose: () => void
 }
 
@@ -24,7 +24,9 @@ function getSubjectName(row: any) {
 export function ChartModal({ item, onClose }: ChartModalProps) {
   const { data, isLoading, error } = useTimeSeries(item.id, item.type)
   const chartRef = useRef<HTMLDivElement>(null)
-  const [subjectFilter, setSubjectFilter] = useState(item.initialFilter ?? "")
+  const initialSubjects = item.initialFilters?.length ? item.initialFilters : (item.initialFilter ? [item.initialFilter] : [])
+  const [subjectFilter, setSubjectFilter] = useState("")
+  const [selectedSubjects, setSelectedSubjects] = useState<string[]>(initialSubjects)
 
   const allRows = useMemo(() => {
     if (!data) return []
@@ -32,16 +34,19 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
   }, [data])
 
   const rows = useMemo(() => {
-    const filter = subjectFilter.trim().toLowerCase()
-    if (!filter) {
-      const subjectCount = new Set(allRows.map((row: any) => getSubjectName(row))).size
-      return subjectCount > 12 ? [] : allRows
+    const selected = new Set(selectedSubjects.map((subject) => subject.toLowerCase()))
+    if (selected.size > 0) {
+      return allRows.filter((row: any) => selected.has(String(getSubjectName(row)).toLowerCase()))
     }
-    return allRows.filter((row: any) => {
-      const subject = getSubjectName(row)
-      return String(subject).toLowerCase().includes(filter)
-    })
-  }, [allRows, subjectFilter])
+
+    const filter = subjectFilter.trim().toLowerCase()
+    if (filter) {
+      return allRows.filter((row: any) => String(getSubjectName(row)).toLowerCase().includes(filter))
+    }
+
+    const subjectCount = new Set(allRows.map((row: any) => getSubjectName(row))).size
+    return subjectCount > 12 ? [] : allRows
+  }, [allRows, selectedSubjects, subjectFilter])
 
   const allSubjects = useMemo(() => {
     const result = new Set<string>()
@@ -51,7 +56,28 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
     return Array.from(result).sort((a, b) => a.localeCompare(b))
   }, [allRows])
 
-  const requiresFilter = !subjectFilter.trim() && allSubjects.length > 12
+  const requiresFilter = selectedSubjects.length === 0 && !subjectFilter.trim() && allSubjects.length > 12
+  const matchingSubjects = useMemo(() => {
+    const filter = subjectFilter.trim().toLowerCase()
+    if (!filter) return allSubjects.slice(0, 40)
+    return allSubjects.filter((subject) => subject.toLowerCase().includes(filter)).slice(0, 40)
+  }, [allSubjects, subjectFilter])
+
+  const toggleSubject = (subject: string) => {
+    setSelectedSubjects((current) =>
+      current.includes(subject)
+        ? current.filter((item) => item !== subject)
+        : [...current, subject]
+    )
+  }
+
+  const addFirstMatchingSubject = () => {
+    const subject = matchingSubjects[0]
+    if (subject && !selectedSubjects.includes(subject)) {
+      setSelectedSubjects((current) => [...current, subject])
+      setSubjectFilter("")
+    }
+  }
 
   // Vercel Best Practice: useMemo for expensive data transformations before rendering charts
   const chartData = useMemo(() => {
@@ -137,25 +163,81 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
             <>
               {/* Toolbar */}
               <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-                <div className="w-full lg:max-w-sm">
+                <div className="w-full lg:max-w-xl">
                   <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide" htmlFor="subject-filter">
-                    Filter kecamatan/rincian
+                    Pilih seri grafik
                   </label>
-                  <input
-                    id="subject-filter"
-                    list="subject-options"
-                    value={subjectFilter}
-                    onChange={(event) => setSubjectFilter(event.target.value)}
-                    placeholder="Contoh: Cisayong"
-                    className="mt-2 w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  />
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      id="subject-filter"
+                      list="subject-options"
+                      value={subjectFilter}
+                      onChange={(event) => setSubjectFilter(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault()
+                          addFirstMatchingSubject()
+                        }
+                      }}
+                      placeholder="Cari lalu tambah: Cisayong, Ciawi"
+                      className="min-w-0 flex-1 h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    />
+                    <button
+                      type="button"
+                      onClick={addFirstMatchingSubject}
+                      disabled={!matchingSubjects[0] || selectedSubjects.includes(matchingSubjects[0])}
+                      className="h-9 px-3 rounded-md border border-border bg-background text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Tambah
+                    </button>
+                  </div>
                   <datalist id="subject-options">
                     {allSubjects.map((subject) => <option key={subject} value={subject} />)}
                   </datalist>
-                  <p className="mt-1 text-xs text-muted-foreground">
+
+                  {selectedSubjects.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {selectedSubjects.map((subject) => (
+                        <button
+                          key={subject}
+                          type="button"
+                          onClick={() => toggleSubject(subject)}
+                          className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary hover:bg-primary/15"
+                          title="Klik untuk hapus dari grafik"
+                        >
+                          {subject}
+                          <span aria-hidden="true">×</span>
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSubjects([])}
+                        className="rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-muted"
+                      >
+                        Bersihkan
+                      </button>
+                    </div>
+                  )}
+
+                  {subjectFilter && matchingSubjects.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {matchingSubjects.slice(0, 8).map((subject) => (
+                        <button
+                          key={subject}
+                          type="button"
+                          onClick={() => toggleSubject(subject)}
+                          className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${selectedSubjects.includes(subject) ? "border-primary bg-primary/10 text-primary" : "border-border bg-background text-muted-foreground hover:bg-muted"}`}
+                        >
+                          {selectedSubjects.includes(subject) ? "✓ " : "+ "}{subject}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  <p className="mt-2 text-xs text-muted-foreground">
                     {requiresFilter
-                      ? `Pilih kecamatan/rincian dulu. Dataset ini punya ${allSubjects.length} seri, jadi tidak dirender semua agar grafik tetap ringan.`
-                      : `Menampilkan ${rows.length} dari ${allRows.length} observasi${subjectFilter ? ` untuk filter "${subjectFilter}"` : ""}.`}
+                      ? `Pilih satu atau beberapa kecamatan/rincian dulu. Dataset ini punya ${allSubjects.length} seri, jadi tidak dirender semua agar grafik tetap ringan.`
+                      : `Menampilkan ${subjects.length} seri / ${rows.length} observasi dari ${allRows.length} observasi.`}
                   </p>
                 </div>
 
@@ -182,8 +264,8 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
               {rows.length === 0 && (
                 <div className="rounded-md border border-dashed border-border bg-muted/30 p-6 text-sm text-muted-foreground">
                   {requiresFilter
-                    ? "Data ini punya banyak seri. Ketik/pilih satu kecamatan dulu supaya grafik tidak berat dan tidak berantakan. Contoh: Cisayong."
-                    : "Tidak ada baris yang cocok. Coba ketik nama wilayah lain dari daftar, misalnya Cisayong, Singaparna, atau Manonjaya."}
+                    ? "Data ini punya banyak seri. Pilih satu atau beberapa kecamatan/rincian dulu supaya grafik tidak berat dan tidak berantakan. Contoh: Cisayong dan Ciawi."
+                    : "Tidak ada baris yang cocok. Coba cari lalu tambah nama wilayah lain dari daftar, misalnya Cisayong, Ciawi, atau Singaparna."}
                 </div>
               )}
 
