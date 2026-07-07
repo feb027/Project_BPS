@@ -4,7 +4,7 @@ from django.test import TestCase
 
 from apps.data.models import Fakta
 from apps.katalog.models import Bab, KolomTabel, Publikasi, Tabel
-from apps.pencarian.api_views import _detect_wilayahs, _quick_wilayah_matches
+from apps.pencarian.api_views import _detect_wilayahs, _quick_wilayah_matches, _quick_wilayah_matches_for_wilayahs
 from apps.referensi.models import Indikator, Wilayah
 
 
@@ -64,11 +64,21 @@ class NaturalLanguageWilayahSearchTests(TestCase):
             judul="Luas Wilayah Menurut Kecamatan, 2025",
         )
         column = KolomTabel.objects.create(tabel=table, urutan=1, indikator=indikator, tahun=2025)
-        Fakta.objects.create(tabel=table, kolom=column, wilayah=cisayong, nilai_num=Decimal("59.4"), nilai_teks="59,4")
-        Fakta.objects.create(tabel=table, kolom=column, wilayah=ciawi, nilai_num=Decimal("45.2"), nilai_teks="45,2")
+        Fakta.objects.create(tabel=table, kolom=column, wilayah=cisayong, tahun=2024, nilai_num=Decimal("50.1"), nilai_teks="50,1")
+        Fakta.objects.create(tabel=table, kolom=column, wilayah=cisayong, tahun=2025, nilai_num=Decimal("59.4"), nilai_teks="59,4")
+        Fakta.objects.create(tabel=table, kolom=column, wilayah=ciawi, tahun=2024, nilai_num=Decimal("44.9"), nilai_teks="44,9")
+        Fakta.objects.create(tabel=table, kolom=column, wilayah=ciawi, tahun=2025, nilai_num=Decimal("45.2"), nilai_teks="45,2")
 
         detected = _detect_wilayahs("luas wilayah cisayong + ciaw")
         self.assertEqual([wilayah.nama for wilayah in detected], ["Cisayong", "Ciawi"])
+
+        merged = _quick_wilayah_matches_for_wilayahs("luas wilayah", detected)
+        self.assertEqual(merged[0]["subject_name"], "Cisayong + Ciawi")
+        self.assertEqual(
+            sorted({observation["wilayah_nama"] for observation in merged[0]["observations"]}),
+            ["Ciawi", "Cisayong"],
+        )
+        self.assertEqual(len(merged[0]["observations"]), 4)
 
         response = self.client.get("/pencarian/api/search/", {"q": "luas wilayah cisayong + ciaw"})
         self.assertEqual(response.status_code, 200)
@@ -76,3 +86,8 @@ class NaturalLanguageWilayahSearchTests(TestCase):
         self.assertEqual([wilayah["nama"] for wilayah in payload["detected_wilayahs"]], ["Cisayong", "Ciawi"])
         self.assertEqual(payload["interpreted_query"], "luas wilayah")
         self.assertEqual(payload["quick_matches"][0]["indicator_name"], "Luas Wilayah")
+        self.assertEqual(payload["quick_matches"][0]["subject_name"], "Cisayong + Ciawi")
+        self.assertEqual(
+            sorted({observation["wilayah_nama"] for observation in payload["quick_matches"][0]["observations"]}),
+            ["Ciawi", "Cisayong"],
+        )

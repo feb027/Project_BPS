@@ -1,3 +1,4 @@
+from copy import deepcopy
 from decimal import Decimal
 
 from django.db import connection
@@ -368,6 +369,61 @@ def _quick_wilayah_matches(query, wilayah, limit=12):
     best = sorted(grouped.values(), key=score)[:3]
     return _wilayah_payload(best, wilayah, limit)
 
+
+def _quick_wilayah_matches_for_wilayahs(query, wilayahs, limit=12):
+    """Return quick answer cards whose observations include every detected wilayah.
+
+    The first wilayah still controls ranking, but observations from the same
+    indicator in the other detected wilayahs are merged into the same card so
+    the inline search result can immediately draw a comparison chart.
+    """
+    wilayahs = list(wilayahs or [])
+    if not wilayahs:
+        return []
+    if len(wilayahs) == 1:
+        return _quick_wilayah_matches(query, wilayahs[0], limit)
+
+    matches_by_wilayah = [
+        (wilayah, _quick_wilayah_matches(query, wilayah, limit))
+        for wilayah in wilayahs
+    ]
+    primary_matches = matches_by_wilayah[0][1]
+    merged_payload = []
+
+    for primary_match in primary_matches:
+        merged_match = deepcopy(primary_match)
+        merged_match["comparison_subjects"] = [
+            {"id": wilayah.id, "nama": wilayah.nama, "jenis": wilayah.jenis}
+            for wilayah in wilayahs
+        ]
+        merged_match["subject_name"] = " + ".join(wilayah.nama for wilayah in wilayahs)
+        merged_observations = list(merged_match.get("observations") or [])
+
+        for wilayah, wilayah_matches in matches_by_wilayah[1:]:
+            comparable = next(
+                (
+                    match for match in wilayah_matches
+                    if match.get("indicator_id") == primary_match.get("indicator_id")
+                    or match.get("indicator_name") == primary_match.get("indicator_name")
+                ),
+                None,
+            )
+            if comparable:
+                merged_observations.extend(comparable.get("observations") or [])
+
+        selected_names = {wilayah.nama for wilayah in wilayahs}
+        merged_match["observations"] = sorted(
+            (
+                observation for observation in merged_observations
+                if observation.get("wilayah_nama") in selected_names
+            ),
+            key=lambda observation: (observation.get("wilayah_nama") or "", observation.get("tahun") or 0, observation.get("id") or 0),
+        )
+        merged_payload.append(merged_match)
+
+    return merged_payload
+
+
 class FacetedSearchAPIView(APIView):
     """
     API untuk mencari Tabel dan Indikator.
@@ -382,7 +438,7 @@ class FacetedSearchAPIView(APIView):
         detected_wilayah = detected_wilayahs[0] if detected_wilayahs else None
         search_query = _query_without_wilayahs(query, detected_wilayahs)
         quick_matches = (
-            _quick_wilayah_matches(search_query, detected_wilayah)
+            _quick_wilayah_matches_for_wilayahs(search_query, detected_wilayahs)
             if detected_wilayah
             else _quick_topic_matches(search_query)
         )

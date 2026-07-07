@@ -7,6 +7,7 @@ import {
   YAxis,
   Tooltip,
   Line,
+  Legend,
 } from "recharts"
 
 type Observation = {
@@ -38,6 +39,8 @@ interface InlineTimeSeriesAnswerProps {
   onOpenChart: () => void
 }
 
+const chartColors = ["#2563eb", "#ea580c", "#16a34a", "#ca8a04", "#9333ea"]
+
 function formatIndonesianNumber(value: number | string | null | undefined) {
   if (value === null || value === undefined || value === "") return "-"
   const numeric = Number(value)
@@ -49,19 +52,39 @@ function cleanUnit(unit?: string) {
   return unit && unit !== "-" ? unit : ""
 }
 
+function getRowSubject(row: Observation) {
+  return row.wilayah_nama && row.wilayah_nama !== "-" ? row.wilayah_nama : "Indonesia"
+}
+
 export function InlineTimeSeriesAnswer({ match, subjectName, onOpenChart }: InlineTimeSeriesAnswerProps) {
   const rows = [...(match.observations ?? [])]
     .filter((row) => row.tahun !== null && row.tahun !== undefined)
-    .sort((a, b) => Number(a.tahun) - Number(b.tahun))
+    .sort((a, b) => {
+      const yearDiff = Number(a.tahun) - Number(b.tahun)
+      return yearDiff !== 0 ? yearDiff : getRowSubject(a).localeCompare(getRowSubject(b))
+    })
 
-  const latest = rows.at(-1)
+  const subjects = Array.from(new Set(rows.map(getRowSubject)))
+  const isComparison = subjects.length > 1
   const first = rows[0]
+  const latest = rows.at(-1)
   const unit = cleanUnit(latest?.satuan || first?.satuan)
-  const chartData = rows.map((row) => ({
-    tahun: row.tahun,
-    nilai: Number(row.nilai),
-    nilaiLabel: row.nilai_teks || formatIndonesianNumber(row.nilai),
-  }))
+
+  const latestBySubject = subjects.map((subject) => {
+    const subjectRows = rows.filter((row) => getRowSubject(row) === subject)
+    return { subject, row: subjectRows.at(-1) }
+  })
+
+  const chartData = Object.values(
+    rows.reduce((acc: Record<string, Record<string, number | null>>, row) => {
+      const year = String(row.tahun)
+      if (!acc[year]) acc[year] = { tahun: Number(row.tahun) }
+      acc[year][getRowSubject(row)] = Number(row.nilai)
+      return acc
+    }, {})
+  ).sort((a, b) => Number(a.tahun) - Number(b.tahun))
+
+  const yearRange = first && latest ? `${first.tahun}–${latest.tahun}` : ""
 
   return (
     <section className="rounded-lg border border-primary/25 bg-card p-5 shadow-sm space-y-5">
@@ -76,26 +99,43 @@ export function InlineTimeSeriesAnswer({ match, subjectName, onOpenChart }: Inli
               {match.indicator_name} — {subjectName}
             </h3>
             <p className="mt-1 text-sm text-muted-foreground">
-              {match.summary_kind === "aggregate"
-                ? "Ringkasan otomatis dari tabel paling relevan per tahun. Hasil mentah tetap disimpan di bagian detail."
-                : `Time series otomatis dari hasil pencarian. Hanya menampilkan ${subjectName}, bukan semua kecamatan.`}
+              {isComparison
+                ? `Grafik ringkas langsung membandingkan ${subjects.join(" dan ")}. Buka detail hanya kalau ingin tambah seri, unduh Excel, atau cetak PDF.`
+                : match.summary_kind === "aggregate"
+                  ? "Ringkasan otomatis dari tabel paling relevan per tahun. Hasil mentah tetap disimpan di bagian detail."
+                  : `Time series otomatis dari hasil pencarian. Hanya menampilkan ${subjectName}, bukan semua kecamatan.`}
             </p>
           </div>
         </div>
 
-        {latest && (
-          <div className="rounded-md border border-border bg-muted/30 px-4 py-3 min-w-44">
+        {latestBySubject.length > 0 && (
+          <div className="rounded-md border border-border bg-muted/30 px-4 py-3 min-w-48">
             <p className="text-xs text-muted-foreground">Data terbaru</p>
-            <p className="mt-1 text-2xl font-semibold text-foreground">{formatIndonesianNumber(latest.nilai)}</p>
-            <p className="text-xs text-muted-foreground">{latest.tahun}{unit ? ` • ${unit}` : ""}</p>
+            {isComparison ? (
+              <div className="mt-2 space-y-2">
+                {latestBySubject.map(({ subject, row }) => row && (
+                  <div key={subject} className="flex items-baseline justify-between gap-4">
+                    <span className="text-xs font-medium text-muted-foreground">{subject}</span>
+                    <span className="text-sm font-semibold text-foreground whitespace-nowrap">
+                      {formatIndonesianNumber(row.nilai)}{unit ? ` ${unit}` : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : latest ? (
+              <>
+                <p className="mt-1 text-2xl font-semibold text-foreground">{formatIndonesianNumber(latest.nilai)}</p>
+                <p className="text-xs text-muted-foreground">{latest.tahun}{unit ? ` • ${unit}` : ""}</p>
+              </>
+            ) : null}
           </div>
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-5">
         <div className="h-[320px] rounded-md border border-border bg-background p-4">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData} margin={{ top: 12, right: 16, left: 0, bottom: 8 }}>
+            <LineChart data={chartData} margin={{ top: 12, right: 16, left: 0, bottom: isComparison ? 28 : 8 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
               <XAxis
                 dataKey="tahun"
@@ -111,7 +151,7 @@ export function InlineTimeSeriesAnswer({ match, subjectName, onOpenChart }: Inli
                 tickFormatter={(value) => formatIndonesianNumber(value)}
               />
               <Tooltip
-                formatter={(value) => [`${formatIndonesianNumber(value as number)}${unit ? ` ${unit}` : ""}`, subjectName]}
+                formatter={(value, name) => [`${formatIndonesianNumber(value as number)}${unit ? ` ${unit}` : ""}`, String(name)]}
                 labelFormatter={(label) => `Tahun ${label}`}
                 contentStyle={{
                   backgroundColor: "hsl(var(--card))",
@@ -120,15 +160,20 @@ export function InlineTimeSeriesAnswer({ match, subjectName, onOpenChart }: Inli
                   borderRadius: "0.375rem",
                 }}
               />
-              <Line
-                type="monotone"
-                dataKey="nilai"
-                name={subjectName}
-                stroke="#2563eb"
-                strokeWidth={3}
-                activeDot={{ r: 6, strokeWidth: 0 }}
-                dot={{ r: 4, strokeWidth: 0 }}
-              />
+              {isComparison && <Legend wrapperStyle={{ paddingTop: 12 }} />}
+              {subjects.map((subject, index) => (
+                <Line
+                  key={subject}
+                  type="monotone"
+                  dataKey={subject}
+                  name={subject}
+                  stroke={chartColors[index % chartColors.length]}
+                  strokeWidth={isComparison ? 2.5 : 3}
+                  activeDot={{ r: 6, strokeWidth: 0 }}
+                  dot={{ r: 4, strokeWidth: 0 }}
+                  connectNulls
+                />
+              ))}
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -140,11 +185,16 @@ export function InlineTimeSeriesAnswer({ match, subjectName, onOpenChart }: Inli
           <div className="max-h-[280px] overflow-auto">
             <table className="w-full text-sm">
               <thead className="sr-only">
-                <tr><th>Tahun</th><th>Nilai</th></tr>
+                <tr>
+                  {isComparison && <th>Wilayah</th>}
+                  <th>Tahun</th>
+                  <th>Nilai</th>
+                </tr>
               </thead>
               <tbody>
                 {rows.map((row) => (
                   <tr key={row.id} className="border-b border-border last:border-0">
+                    {isComparison && <td className="px-3 py-2 text-muted-foreground">{getRowSubject(row)}</td>}
                     <td className="px-3 py-2 text-muted-foreground">{row.tahun}</td>
                     <td className="px-3 py-2 text-right font-medium text-foreground">
                       {formatIndonesianNumber(row.nilai)}{unit ? ` ${unit}` : ""}
@@ -159,7 +209,7 @@ export function InlineTimeSeriesAnswer({ match, subjectName, onOpenChart }: Inli
 
       <div className="flex flex-col gap-2 border-t border-border pt-4 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
         <div>
-          {rows.length} titik data{first && latest ? ` • ${first.tahun}–${latest.tahun}` : ""}
+          {subjects.length} seri • {rows.length} titik data{yearRange ? ` • ${yearRange}` : ""}
           {latest?.tabel ? ` • sumber tabel ${latest.tabel.nomor_tabel}` : ""}
         </div>
         <button
