@@ -19,7 +19,9 @@ export function MainArea({ query, selectedItem, setSelectedItem }: MainAreaProps
   const detectedWilayah = data?.detected_wilayah?.nama as string | undefined
   const quickMatches = data?.quick_matches ?? []
   const primaryQuickMatch = quickMatches[0]
-  const hasDirectAnswer = Boolean(detectedWilayah && primaryQuickMatch)
+  const directAnswerSubject = primaryQuickMatch?.subject_name || detectedWilayah
+  const directAnswerFilter = detectedWilayah
+  const hasDirectAnswer = Boolean(primaryQuickMatch && directAnswerSubject)
   const hasData = data && (data.tabel?.length > 0 || data.indikator?.length > 0 || quickMatches.length > 0)
 
   return (
@@ -56,15 +58,15 @@ export function MainArea({ query, selectedItem, setSelectedItem }: MainAreaProps
           </div>
         ) : (
           <div className="space-y-8">
-            {detectedWilayah && primaryQuickMatch && (
+            {hasDirectAnswer && primaryQuickMatch && directAnswerSubject && (
               <InlineTimeSeriesAnswer
                 match={primaryQuickMatch}
-                wilayahName={detectedWilayah}
+                subjectName={directAnswerSubject}
                 onOpenChart={() => setSelectedItem({
                   id: primaryQuickMatch.indicator_id,
                   type: 'indikator',
                   title: primaryQuickMatch.indicator_name,
-                  initialFilter: detectedWilayah,
+                  initialFilter: directAnswerFilter,
                 })}
               />
             )}

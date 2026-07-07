@@ -26,13 +26,15 @@ type Observation = {
 type QuickMatch = {
   indicator_id: number
   indicator_name: string
-  wilayah: { id: number; nama: string; jenis: string }
+  wilayah?: { id: number; nama: string; jenis: string }
+  subject_name?: string
+  summary_kind?: string
   observations: Observation[]
 }
 
 interface InlineTimeSeriesAnswerProps {
   match: QuickMatch
-  wilayahName: string
+  subjectName: string
   onOpenChart: () => void
 }
 
@@ -47,7 +49,7 @@ function cleanUnit(unit?: string) {
   return unit && unit !== "-" ? unit : ""
 }
 
-export function InlineTimeSeriesAnswer({ match, wilayahName, onOpenChart }: InlineTimeSeriesAnswerProps) {
+export function InlineTimeSeriesAnswer({ match, subjectName, onOpenChart }: InlineTimeSeriesAnswerProps) {
   const rows = [...(match.observations ?? [])]
     .filter((row) => row.tahun !== null && row.tahun !== undefined)
     .sort((a, b) => Number(a.tahun) - Number(b.tahun))
@@ -71,10 +73,12 @@ export function InlineTimeSeriesAnswer({ match, wilayahName, onOpenChart }: Inli
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-primary">Jawaban langsung</p>
             <h3 className="mt-1 text-xl font-semibold text-foreground">
-              {match.indicator_name} — {wilayahName}
+              {match.indicator_name} — {subjectName}
             </h3>
             <p className="mt-1 text-sm text-muted-foreground">
-              Time series otomatis dari hasil pencarian. Hanya menampilkan wilayah {wilayahName}, bukan semua kecamatan.
+              {match.summary_kind === "aggregate"
+                ? "Ringkasan otomatis dari tabel paling relevan per tahun. Hasil mentah tetap disimpan di bagian detail."
+                : `Time series otomatis dari hasil pencarian. Hanya menampilkan ${subjectName}, bukan semua kecamatan.`}
             </p>
           </div>
         </div>
@@ -107,7 +111,7 @@ export function InlineTimeSeriesAnswer({ match, wilayahName, onOpenChart }: Inli
                 tickFormatter={(value) => formatIndonesianNumber(value)}
               />
               <Tooltip
-                formatter={(value) => [`${formatIndonesianNumber(value as number)}${unit ? ` ${unit}` : ""}`, wilayahName]}
+                formatter={(value) => [`${formatIndonesianNumber(value as number)}${unit ? ` ${unit}` : ""}`, subjectName]}
                 labelFormatter={(label) => `Tahun ${label}`}
                 contentStyle={{
                   backgroundColor: "hsl(var(--card))",
@@ -119,7 +123,7 @@ export function InlineTimeSeriesAnswer({ match, wilayahName, onOpenChart }: Inli
               <Line
                 type="monotone"
                 dataKey="nilai"
-                name={wilayahName}
+                name={subjectName}
                 stroke="#2563eb"
                 strokeWidth={3}
                 activeDot={{ r: 6, strokeWidth: 0 }}

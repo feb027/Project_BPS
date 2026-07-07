@@ -1,3 +1,7 @@
+from decimal import Decimal
+
+from django.db import connection
+from django.db.models import Q
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.contrib.postgres.search import TrigramSimilarity
@@ -39,6 +43,122 @@ def _merge_by_id(primary, extra):
             seen.add(item.id)
             merged.append(item)
     return merged
+
+
+def _quick_topic_matches(query, limit=12):
+    """Small answer card for topic-only queries like 'produksi alpukat'."""
+    terms = [term for term in normalize_text(query).split() if len(term) >= 3]
+    if not terms:
+        return []
+
+    qs = (
+        Fakta.objects.filter(nilai_num__isnull=False)
+        .select_related('kolom__indikator', 'tabel', 'tabel__bab__publikasi', 'wilayah', 'rincian')
+    )
+    for term in terms:
+        qs = qs.filter(
+            Q(kolom__indikator__nama__icontains=term)
+            | Q(tabel__judul__icontains=term)
+            | Q(rincian__nama__icontains=term)
+            | Q(wilayah__nama__icontains=term)
+        )
+
+    rows = list(qs.order_by('kolom__indikator__nama', 'tabel__bab__publikasi__tahun_terbit', 'tahun', 'id')[:6000])
+    if "produksi" in terms:
+        rows = [fakta for fakta in rows if "produktivit" not in normalize_text(fakta.tabel.judul)]
+    if not rows:
+        return []
+
+    grouped = {}
+    for fakta in rows:
+        indicator = fakta.kolom.indikator
+        grouped.setdefault(indicator.id, {"indicator": indicator, "rows": []})["rows"].append(fakta)
+
+    query_norm = normalize_text(query)
+
+    def score(group):
+        indicator_name = normalize_text(group["indicator"].nama)
+        titles = " ".join(normalize_text(f.tabel.judul) for f in group["rows"][:20])
+        subjects = " ".join(
+            normalize_text(getattr(f.wilayah, 'nama', '') or getattr(f.rincian, 'nama', ''))
+            for f in group["rows"][:80]
+        )
+        haystack = f"{indicator_name} {titles} {subjects}"
+        points = 0
+        if indicator_name == query_norm:
+            points += 120
+        if all(term in indicator_name for term in terms):
+            points += 80
+        if all(term in haystack for term in terms):
+            points += 30
+        if any(term in indicator_name for term in terms):
+            points += 10
+        years = {f.tahun_lengkap for f in group["rows"] if f.tahun_lengkap is not None}
+        points += min(len(years), 12)
+        # Penalize very generic indicators when a more specific indicator exists.
+        if len(indicator_name.split()) <= 1:
+            points -= 25
+        return -points, indicator_name
+
+    best = sorted(grouped.values(), key=score)[:3]
+    payload = []
+    for group in best:
+        table_rows_by_year = {}
+        for fakta in group["rows"]:
+            year = fakta.tahun_lengkap
+            if year is None:
+                continue
+            table_rows_by_year.setdefault(year, {}).setdefault(fakta.tabel_id, []).append(fakta)
+
+        rows_by_year = {}
+        for year, by_table in table_rows_by_year.items():
+            ranked_tables = []
+            for table_id, table_rows in by_table.items():
+                sample = table_rows[0]
+                pub_year = sample.tabel.bab.publikasi.tahun_terbit if sample.tabel and sample.tabel.bab_id else 0
+                subjects = {
+                    getattr(f.wilayah, 'nama', None) or getattr(f.rincian, 'nama', None) or 'Kabupaten Tasikmalaya'
+                    for f in table_rows
+                }
+                subject_count = len(subjects)
+                row_count = len(table_rows)
+                reasonable = row_count <= max(subject_count * 2, 80)
+                ranked_tables.append((reasonable, -abs(row_count - subject_count), pub_year, table_id, table_rows))
+            best_reasonable, _, _, best_table_id, best_rows = max(ranked_tables, key=lambda item: item[:4])
+            if not best_reasonable:
+                # Better to omit a suspicious year than present an inflated aggregate.
+                continue
+            rows_by_year[year] = {"table_id": best_table_id, "rows": best_rows}
+
+        observations = []
+        for year in sorted(rows_by_year)[:limit]:
+            year_rows = rows_by_year[year]["rows"]
+            if not year_rows:
+                continue
+            total = sum((f.nilai_num for f in year_rows if f.nilai_num is not None), Decimal('0'))
+            sample = year_rows[0]
+            observations.append({
+                "id": sample.id,
+                "tahun": year,
+                "nilai": float(total),
+                "nilai_teks": str(total.normalize()) if hasattr(total, 'normalize') else str(total),
+                "wilayah_nama": "Kabupaten Tasikmalaya",
+                "satuan": getattr(sample.kolom, 'satuan', '') or getattr(group["indicator"], 'satuan', '') or '',
+                "tabel": {
+                    "id": sample.tabel_id,
+                    "nomor_tabel": sample.tabel.nomor_tabel,
+                    "judul": sample.tabel.judul,
+                },
+            })
+        if observations:
+            payload.append({
+                "indicator_id": group["indicator"].id,
+                "indicator_name": f"Total {group['indicator'].nama}",
+                "subject_name": "Kabupaten Tasikmalaya",
+                "summary_kind": "aggregate",
+                "observations": observations,
+            })
+    return payload
 
 
 def _quick_wilayah_matches(query, wilayah, limit=12):
@@ -160,9 +280,6 @@ def _quick_wilayah_matches(query, wilayah, limit=12):
         })
     return payload
 
-from django.db import connection
-from django.db.models import Q
-
 class FacetedSearchAPIView(APIView):
     """
     API untuk mencari Tabel dan Indikator.
@@ -175,7 +292,11 @@ class FacetedSearchAPIView(APIView):
 
         detected_wilayah = _detect_wilayah(query)
         search_query = _query_without_wilayah(query, detected_wilayah)
-        quick_matches = _quick_wilayah_matches(query, detected_wilayah)
+        quick_matches = (
+            _quick_wilayah_matches(query, detected_wilayah)
+            if detected_wilayah
+            else _quick_topic_matches(search_query)
+        )
 
         if connection.vendor == 'postgresql':
             tabel_qs = Tabel.objects.annotate(
