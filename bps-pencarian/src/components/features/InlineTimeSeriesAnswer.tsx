@@ -180,29 +180,51 @@ export function InlineTimeSeriesAnswer({ match, subjectName, onOpenChart }: Inli
 
         <div className="rounded-md border border-border bg-background overflow-hidden">
           <div className="px-3 py-2 border-b border-border text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Tahun dan nilai
+            {isComparison ? "Perbandingan per tahun" : "Tahun dan nilai"}
           </div>
           <div className="max-h-[280px] overflow-auto">
-            <table className="w-full text-sm">
-              <thead className="sr-only">
-                <tr>
-                  {isComparison && <th>Wilayah</th>}
-                  <th>Tahun</th>
-                  <th>Nilai</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr key={row.id} className="border-b border-border last:border-0">
-                    {isComparison && <td className="px-3 py-2 text-muted-foreground">{getRowSubject(row)}</td>}
-                    <td className="px-3 py-2 text-muted-foreground">{row.tahun}</td>
-                    <td className="px-3 py-2 text-right font-medium text-foreground">
-                      {formatIndonesianNumber(row.nilai)}{unit ? ` ${unit}` : ""}
-                    </td>
+            {isComparison ? (
+              <table className="w-full min-w-[280px] text-sm">
+                <thead className="sticky top-0 bg-background">
+                  <tr className="border-b border-border">
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">Tahun</th>
+                    {subjects.map((subject) => (
+                      <th key={subject} className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">
+                        {subject}
+                      </th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {chartData.map((point) => (
+                    <tr key={String(point.tahun)} className="border-b border-border last:border-0">
+                      <td className="px-3 py-2 text-muted-foreground">{String(point.tahun)}</td>
+                      {subjects.map((subject) => (
+                        <td key={subject} className="px-3 py-2 text-right font-medium text-foreground whitespace-nowrap">
+                          {formatIndonesianNumber(point[subject] as number | null | undefined)}{unit ? ` ${unit}` : ""}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="sr-only">
+                  <tr><th>Tahun</th><th>Nilai</th></tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <tr key={row.id} className="border-b border-border last:border-0">
+                      <td className="px-3 py-2 text-muted-foreground">{row.tahun}</td>
+                      <td className="px-3 py-2 text-right font-medium text-foreground">
+                        {formatIndonesianNumber(row.nilai)}{unit ? ` ${unit}` : ""}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       </div>
