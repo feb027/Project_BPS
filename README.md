@@ -24,10 +24,10 @@ Project BPS mengubah tabel publikasi BPS yang kompleks menjadi basis data **long
 | Area | Status |
 | --- | --- |
 | Publikasi terindeks | 9 tahun publikasi, 2018–2026 |
-| Tabel katalog | 776 tabel |
-| Fakta long/tidy | 162.114 baris fakta, 104.848 bernilai numerik |
+| Tabel katalog | 842 tabel |
+| Fakta long/tidy | 174.745 baris fakta, 115.204 bernilai numerik |
 | Wilayah | 86 wilayah, termasuk 84 kecamatan |
-| Indikator mentah | 1.395 indikator |
+| Indikator mentah | 1.466 indikator |
 | Indikator canonical | 325 indikator, 395 alias harmonisasi |
 | Rentang tahun fakta | 2010–2026 |
 | Pencarian publik | `https://bps-pencarian.aquarise.my.id/` |

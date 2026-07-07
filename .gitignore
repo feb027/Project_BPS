@@ -13,6 +13,8 @@ __pycache__/
 
 # Local data
 output/
+backups/pre_merge_*.dump
+backups/pre_merge_*.dump.sha256
 
 .kiro/
 
