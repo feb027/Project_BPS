@@ -67,12 +67,12 @@ class NaturalLanguageWilayahSearchTests(TestCase):
         Fakta.objects.create(tabel=table, kolom=column, wilayah=cisayong, nilai_num=Decimal("59.4"), nilai_teks="59,4")
         Fakta.objects.create(tabel=table, kolom=column, wilayah=ciawi, nilai_num=Decimal("45.2"), nilai_teks="45,2")
 
-        detected = _detect_wilayahs("luas wilayah cisayong dan ciawi")
+        detected = _detect_wilayahs("luas wilayah cisayong + ciaw")
         self.assertEqual([wilayah.nama for wilayah in detected], ["Cisayong", "Ciawi"])
 
-        response = self.client.get("/pencarian/api/search/", {"q": "luas wilayah cisayong dan ciawi"})
+        response = self.client.get("/pencarian/api/search/", {"q": "luas wilayah cisayong + ciaw"})
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertEqual([wilayah["nama"] for wilayah in payload["detected_wilayahs"]], ["Cisayong", "Ciawi"])
-        self.assertEqual(payload["interpreted_query"], "luas wilayah dan")
+        self.assertEqual(payload["interpreted_query"], "luas wilayah")
         self.assertEqual(payload["quick_matches"][0]["indicator_name"], "Luas Wilayah")

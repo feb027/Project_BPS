@@ -17,15 +17,39 @@ from .serializers import TabelSerializer, IndikatorSerializer, FaktaTimeSeriesSe
 
 
 def _detect_wilayahs(query):
-    """Return all wilayah mentioned in a free-text query, preserving query order."""
+    """Return all wilayah mentioned in a free-text query, preserving query order.
+
+    Exact names are preferred. Unique prefixes of at least 4 characters are accepted
+    so a still-typing query like "cisayong + ciaw" can already compare Cisayong
+    with Ciawi.
+    """
     query_norm = f" {normalize_text(query)} "
+    query_tokens = normalize_text(query).split()
     matches = []
-    candidates = Wilayah.objects.only('id', 'nama', 'jenis').order_by('-nama')
+    candidates = list(Wilayah.objects.only('id', 'nama', 'jenis').order_by('-nama'))
+
     for wilayah in candidates:
         name_norm = normalize_text(wilayah.nama)
         token = f" {name_norm} "
         if name_norm and token in query_norm:
             matches.append((query_norm.index(token), wilayah))
+
+    matched_ids = {wilayah.id for _, wilayah in matches}
+    candidate_names = [(normalize_text(wilayah.nama), wilayah) for wilayah in candidates]
+    for token in query_tokens:
+        if len(token) < 4:
+            continue
+        if any(token in normalize_text(wilayah.nama).split() for _, wilayah in matches):
+            continue
+        prefix_matches = [
+            wilayah for name_norm, wilayah in candidate_names
+            if wilayah.id not in matched_ids and name_norm.startswith(token)
+        ]
+        if len(prefix_matches) == 1:
+            wilayah = prefix_matches[0]
+            matches.append((query_norm.find(token), wilayah))
+            matched_ids.add(wilayah.id)
+
     return [wilayah for _, wilayah in sorted(matches, key=lambda item: item[0])]
 
 
@@ -38,10 +62,17 @@ def _detect_wilayah(query):
 def _query_without_wilayahs(query, wilayahs):
     if not wilayahs:
         return query
+    wilayah_names = [normalize_text(wilayah.nama) for wilayah in wilayahs]
     wilayah_terms = set()
-    for wilayah in wilayahs:
-        wilayah_terms.update(normalize_text(wilayah.nama).split())
-    remaining = [token for token in normalize_text(query).split() if token not in wilayah_terms]
+    for name in wilayah_names:
+        wilayah_terms.update(name.split())
+
+    remaining = []
+    for token in normalize_text(query).split():
+        is_exact_wilayah_token = token in wilayah_terms
+        is_detected_prefix = len(token) >= 4 and any(name.startswith(token) for name in wilayah_names)
+        if not is_exact_wilayah_token and not is_detected_prefix:
+            remaining.append(token)
     return " ".join(remaining).strip() or query
 
 
