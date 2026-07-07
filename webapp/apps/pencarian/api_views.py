@@ -45,6 +45,45 @@ def _merge_by_id(primary, extra):
     return merged
 
 
+SHORT_INTENT_TERMS = {"ra", "tk", "sd", "mi", "ma"}
+QUERY_STOPWORDS = {"di", "ke", "dan", "yang", "untuk", "dari"}
+
+
+def _query_terms(query):
+    tokens = normalize_text(query).split()
+    return [
+        token for token in tokens
+        if token not in QUERY_STOPWORDS and (len(token) >= 3 or token in SHORT_INTENT_TERMS)
+    ]
+
+
+def _wilayah_payload(groups, wilayah, limit=12):
+    payload = []
+    for group in groups:
+        observations = []
+        for fakta in sorted(group["rows"], key=lambda f: (f.tahun_lengkap or 0, f.id))[:limit]:
+            observations.append({
+                "id": fakta.id,
+                "tahun": fakta.tahun_lengkap,
+                "nilai": float(fakta.nilai_num),
+                "nilai_teks": fakta.nilai_teks,
+                "wilayah_nama": wilayah.nama,
+                "satuan": getattr(fakta.kolom, 'satuan', '') or getattr(group["indicator"], 'satuan', '') or '',
+                "tabel": {
+                    "id": fakta.tabel_id,
+                    "nomor_tabel": fakta.tabel.nomor_tabel,
+                    "judul": fakta.tabel.judul,
+                },
+            })
+        payload.append({
+            "indicator_id": group["indicator"].id,
+            "indicator_name": group.get("display_name") or group["indicator"].nama,
+            "wilayah": {"id": wilayah.id, "nama": wilayah.nama, "jenis": wilayah.jenis},
+            "observations": observations,
+        })
+    return payload
+
+
 def _quick_topic_matches(query, limit=12):
     """Small answer card for topic-only queries like 'produksi alpukat'."""
     terms = [term for term in normalize_text(query).split() if len(term) >= 3]
@@ -167,9 +206,36 @@ def _quick_wilayah_matches(query, wilayah, limit=12):
         return []
 
     cleaned_query = _query_without_wilayah(query, wilayah)
-    terms = [term for term in normalize_text(cleaned_query).split() if len(term) >= 3]
+    terms = _query_terms(cleaned_query)
     if not terms:
         return []
+
+    wants_ra_school = "ra" in terms and "sekolah" in terms
+    if wants_ra_school:
+        ra_qs = (
+            Fakta.objects.filter(wilayah=wilayah, nilai_num__isnull=False)
+            .filter(tabel__judul__icontains="Raudatul Athfal")
+            .filter(kolom__indikator__nama__icontains="Sekolah")
+            .select_related('kolom__indikator', 'tabel', 'tabel__bab__publikasi', 'wilayah')
+            .order_by('tabel__bab__publikasi__tahun_terbit', 'tahun', 'id')
+        )
+        rows_by_year = {}
+        for fakta in ra_qs:
+            year = fakta.tahun_lengkap
+            if year is None:
+                continue
+            current = rows_by_year.get(year)
+            current_pub_year = current.tabel.bab.publikasi.tahun_terbit if current else -1
+            fakta_pub_year = fakta.tabel.bab.publikasi.tahun_terbit
+            if current is None or fakta_pub_year > current_pub_year:
+                rows_by_year[year] = fakta
+        ra_rows = [rows_by_year[year] for year in sorted(rows_by_year)]
+        if ra_rows:
+            return _wilayah_payload([{
+                "indicator": ra_rows[0].kolom.indikator,
+                "display_name": "Jumlah Sekolah Raudatul Athfal (RA)",
+                "rows": ra_rows,
+            }], wilayah, limit)
 
     qs = (
         Fakta.objects.filter(wilayah=wilayah, nilai_num__isnull=False)
@@ -255,30 +321,7 @@ def _quick_wilayah_matches(query, wilayah, limit=12):
         return -points, name
 
     best = sorted(grouped.values(), key=score)[:3]
-    payload = []
-    for group in best:
-        observations = []
-        for fakta in sorted(group["rows"], key=lambda f: (f.tahun_lengkap or 0, f.id))[:limit]:
-            observations.append({
-                "id": fakta.id,
-                "tahun": fakta.tahun_lengkap,
-                "nilai": float(fakta.nilai_num),
-                "nilai_teks": fakta.nilai_teks,
-                "wilayah_nama": wilayah.nama,
-                "satuan": getattr(fakta.kolom, 'satuan', '') or getattr(group["indicator"], 'satuan', '') or '',
-                "tabel": {
-                    "id": fakta.tabel_id,
-                    "nomor_tabel": fakta.tabel.nomor_tabel,
-                    "judul": fakta.tabel.judul,
-                },
-            })
-        payload.append({
-            "indicator_id": group["indicator"].id,
-            "indicator_name": group["indicator"].nama,
-            "wilayah": {"id": wilayah.id, "nama": wilayah.nama, "jenis": wilayah.jenis},
-            "observations": observations,
-        })
-    return payload
+    return _wilayah_payload(best, wilayah, limit)
 
 class FacetedSearchAPIView(APIView):
     """
