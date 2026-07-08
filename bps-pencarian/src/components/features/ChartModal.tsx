@@ -38,6 +38,34 @@ function metricKey(row: CatalogSeriesRow) {
   return `${row.subject_name}${unit ? ` (${unit})` : ""}`
 }
 
+// Persist chart selection per table (nomor_tabel) so the user's last choice
+// (indicator + kecamatan) is remembered next time they open the same table.
+function storageKeyFor(item: ChartModalProps["item"]) {
+  return item.nomor_tabel ? `bps_chart_sel_${item.nomor_tabel}` : `bps_chart_sel_id_${item.id ?? "x"}`
+}
+
+function loadSavedSelection(item: ChartModalProps["item"]): { metric?: string; wilayah?: string[] } | null {
+  try {
+    const raw = typeof localStorage !== "undefined" ? localStorage.getItem(storageKeyFor(item)) : null
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed === "object") return parsed
+  } catch {
+    /* ignore corrupt storage */
+  }
+  return null
+}
+
+function saveSelection(item: ChartModalProps["item"], metric: string, wilayah: string[]) {
+  try {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(storageKeyFor(item), JSON.stringify({ metric, wilayah }))
+    }
+  } catch {
+    /* ignore quota / private mode errors */
+  }
+}
+
 export function ChartModal({ item, onClose }: ChartModalProps) {
   const merged = useCatalogSeries(item.nomor_tabel ?? null)
   const single = useTimeSeries(item.id ?? null, item.nomor_tabel ? null : item.type)
@@ -71,23 +99,30 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
     return Array.from(s).sort()
   }, [allRows])
 
-  // --- Selection state ---
-  const [selectedMetric, setSelectedMetric] = useState(() => metrics[0] ?? "")
-  const [selectedWilayah, setSelectedWilayah] = useState<Set<string>>(new Set())
+  // --- Selection state (initialized from saved localStorage if present) ---
+  const savedRef = useMemo(() => loadSavedSelection(item), [item])
+  const [selectedMetric, setSelectedMetric] = useState<string>(() => savedRef?.metric && metrics.includes(savedRef.metric) ? savedRef.metric : (metrics[0] ?? ""))
+  const [selectedWilayah, setSelectedWilayah] = useState<Set<string>>(() => {
+    const saved = savedRef?.wilayah
+    if (Array.isArray(saved) && saved.length > 0) {
+      return new Set(saved.filter((w) => allWilayah.includes(w)))
+    }
+    return new Set()
+  })
   const [wilayahDropdownOpen, setWilayahDropdownOpen] = useState(false)
+  // Tracks whether a real saved selection existed, so we don't auto-overwrite it.
+  const [hasSaved] = useState<boolean>(() => Boolean(savedRef && (savedRef.metric || (Array.isArray(savedRef.wilayah) && savedRef.wilayah.length > 0))))
 
-  // Auto-select defaults on first meaningful data load (Luas + top 5 kecamatan + kab total)
+  // Auto-select defaults only when there is NO saved selection.
   const [hasAutoSelected, setHasAutoSelected] = useState(false)
   useMemo(() => {
-    if (hasAutoSelected || metrics.length === 0) return
-    // pick the metric with the most rows
+    if (hasAutoSelected || hasSaved || metrics.length === 0) return
     const best = metrics.reduce((a, b) => {
       const countA = allRows.filter((r) => metricKey(r) === a).length
       const countB = allRows.filter((r) => metricKey(r) === b).length
       return countA >= countB ? a : b
     }, metrics[0])
     setSelectedMetric(best)
-    // auto-select top wilayah (up to 5) + kabupaten total
     const metricRows = allRows.filter((r) => metricKey(r) === best)
     const wilCounts = new Map<string, number>()
     metricRows.forEach((r) => {
@@ -98,36 +133,42 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
       .map(([w]) => w)
-    // add "Kabupaten Tasikmalaya" if present and not already in top
     if (wilCounts.has("Kabupaten Tasikmalaya") && !top.includes("Kabupaten Tasikmalaya")) {
       top.push("Kabupaten Tasikmalaya")
     }
     setSelectedWilayah(new Set(top))
     setHasAutoSelected(true)
-  }, [metrics, allRows, hasAutoSelected])
+  }, [metrics, allRows, hasAutoSelected, hasSaved])
 
-  // Reset selection when metric changes and no wilayah selected for new metric
+  const persist = useCallback((metric: string, wilayah: Set<string>) => {
+    saveSelection(item, metric, Array.from(wilayah).sort())
+  }, [item])
+
   const metricChanged = useCallback((newMetric: string) => {
     setSelectedMetric(newMetric)
     setWilayahDropdownOpen(false)
-  }, [])
+    persist(newMetric, selectedWilayah)
+  }, [persist, selectedWilayah])
 
   const toggleWilayah = useCallback((w: string) => {
     setSelectedWilayah((prev) => {
       const next = new Set(prev)
       if (next.has(w)) next.delete(w)
       else next.add(w)
+      persist(selectedMetric, next)
       return next
     })
-  }, [])
+  }, [persist, selectedMetric])
 
   const selectAllWilayah = useCallback(() => {
     setSelectedWilayah(new Set(allWilayah))
-  }, [allWilayah])
+    persist(selectedMetric, new Set(allWilayah))
+  }, [persist, selectedMetric, allWilayah])
 
   const clearAllWilayah = useCallback(() => {
     setSelectedWilayah(new Set())
-  }, [])
+    persist(selectedMetric, new Set())
+  }, [persist, selectedMetric])
 
   // --- Chart data: pivot by (year × kecamatan) ---
   const chartData = useMemo(() => {
@@ -240,7 +281,10 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                   <div className="relative">
                     <button
                       type="button"
-                      onClick={() => setWilayahDropdownOpen(!wilayahDropdownOpen)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setWilayahDropdownOpen(!wilayahDropdownOpen)
+                      }}
                       className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition-colors"
                     >
                       Kecamatan ({selectedWilayah.size}/{allWilayah.length})
@@ -248,8 +292,19 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                     </button>
                     {wilayahDropdownOpen && (
                       <>
-                        <div className="fixed inset-0 z-40" onClick={() => setWilayahDropdownOpen(false)} />
-                        <div className="absolute z-50 mt-1 w-72 max-h-80 rounded-md border border-border bg-card shadow-lg overflow-hidden">
+                        {/* Backdrop closes the dropdown when clicking outside the panel.
+                            It sits first so a click on the panel never reaches it. */}
+                        <div
+                          className="fixed inset-0 z-40"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setWilayahDropdownOpen(false)
+                          }}
+                        />
+                        <div
+                          className="absolute z-50 mt-1 w-72 max-h-80 rounded-md border border-border bg-card shadow-lg overflow-hidden"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <div className="flex items-center justify-between border-b border-border px-3 py-2">
                             <span className="text-xs font-semibold text-foreground">Pilih Kecamatan</span>
                             <div className="flex gap-2">
@@ -258,23 +313,27 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                             </div>
                           </div>
                           <div className="overflow-auto max-h-[240px] p-2">
-                            {allWilayah.map((w) => (
-                              <label
-                                key={w}
-                                className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50 cursor-pointer text-xs"
-                              >
-                                <span className={`h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors ${selectedWilayah.has(w) ? "bg-primary border-primary" : "border-border bg-background"}`}>
-                                  {selectedWilayah.has(w) && <Check className="h-3 w-3 text-primary-foreground" />}
-                                </span>
-                                <input
-                                  type="checkbox"
-                                  className="sr-only"
-                                  checked={selectedWilayah.has(w)}
-                                  onChange={() => toggleWilayah(w)}
-                                />
-                                <span className="text-foreground">{w}</span>
-                              </label>
-                            ))}
+                            {allWilayah.map((w) => {
+                              const checked = selectedWilayah.has(w)
+                              return (
+                                <label
+                                  key={w}
+                                  className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50 cursor-pointer text-xs"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <span className={`h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors ${checked ? "bg-primary border-primary" : "border-border bg-background"}`}>
+                                    {checked && <Check className="h-3 w-3 text-primary-foreground" />}
+                                  </span>
+                                  <input
+                                    type="checkbox"
+                                    className="sr-only"
+                                    checked={checked}
+                                    onChange={() => toggleWilayah(w)}
+                                  />
+                                  <span className="text-foreground">{w}</span>
+                                </label>
+                              )
+                            })}
                           </div>
                         </div>
                       </>
