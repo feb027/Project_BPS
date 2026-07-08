@@ -8,6 +8,47 @@ from apps.pencarian.api_views import _detect_wilayahs, _quick_rincian_matches, _
 from apps.referensi.models import Indikator, Rincian, Wilayah
 
 
+class CatalogBrowseAPITests(TestCase):
+    def test_catalog_returns_bab_tabel_tree_with_counts(self):
+        publikasi = Publikasi.objects.create(judul="Kabupaten Tasikmalaya Angka 2026", tahun_terbit=2026)
+        bab = Bab.objects.create(publikasi=publikasi, nomor=1, nama="Geografi")
+        tabel = Tabel.objects.create(
+            bab=bab,
+            nomor_tabel="1.1.1",
+            judul="Luas Wilayah Menurut Kecamatan, 2025",
+            tahun_data=2025,
+        )
+        kolom = KolomTabel.objects.create(tabel=tabel, urutan=1, indikator=Indikator.objects.create(nama="Luas Wilayah"))
+        for i, tahun in enumerate((2023, 2024, 2025)):
+            Fakta.objects.create(tabel=tabel, kolom=kolom, wilayah=Wilayah.objects.create(nama=f"Kec{i}", jenis="kecamatan"), tahun=tahun, nilai_num=Decimal("1"), nilai_teks="1")
+
+        response = self.client.get("/pencarian/api/catalog/")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["publikasi"]["tahun_terbit"], 2026)
+        self.assertEqual(len(data["babs"]), 1)
+        self.assertEqual(data["babs"][0]["nama"], "Geografi")
+        self.assertEqual(len(data["babs"][0]["tabel"]), 1)
+        tabel_json = data["babs"][0]["tabel"][0]
+        self.assertEqual(tabel_json["jumlah_baris"], 3)
+        self.assertEqual(tabel_json["rentang_tahun"], [2023, 2025])
+        # Read-only surface: no write endpoints, only counts are exposed.
+        self.assertNotIn("edit_url", tabel_json)
+        self.assertNotIn("hapus_url", tabel_json)
+
+    def test_catalog_scoped_by_publikasi_id(self):
+        lama = Publikasi.objects.create(judul="Tahun 2024", tahun_terbit=2024)
+        baru = Publikasi.objects.create(judul="Tahun 2026", tahun_terbit=2026)
+        Bab.objects.create(publikasi=lama, nomor=1, nama="Lama Bab")
+        Bab.objects.create(publikasi=baru, nomor=1, nama="Baru Bab")
+
+        response = self.client.get(f"/pencarian/api/catalog/?publikasi_id={baru.id}")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["publikasi"]["id"], baru.id)
+        self.assertEqual(data["babs"][0]["nama"], "Baru Bab")
+
+
 class NaturalLanguageWilayahSearchTests(TestCase):
     def test_ra_query_routes_to_raudatul_athfal_school_series(self):
         wilayah = Wilayah.objects.create(nama="Singaparna", jenis="kecamatan")

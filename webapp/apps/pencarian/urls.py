@@ -11,4 +11,5 @@ urlpatterns = [
     path("api/search/", api_views.FacetedSearchAPIView.as_view(), name="api_search"),
     path("api/timeseries/", api_views.TimeSeriesAPIView.as_view(), name="api_timeseries"),
     path("api/canonical-timeseries/", api_views.CanonicalTimeSeriesAPIView.as_view(), name="api_canonical_timeseries"),
+    path("api/catalog/", api_views.CatalogAPIView.as_view(), name="api_catalog"),
 ]

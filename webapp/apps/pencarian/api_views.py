@@ -773,6 +773,85 @@ class TimeSeriesAPIView(APIView):
         return Response(serializer.data)
 
 
+class CatalogAPIView(APIView):
+    """Read-only catalog browser: Publikasi -> Bab -> Tabel.
+
+    This endpoint powers the browse panel in bps-pencarian. It exposes the
+    publication hierarchy with no write actions, so the public-facing tool
+    stays read-only (no CRUD). Pass ?publikasi_id= to scope to one
+    publication, otherwise the latest publication is used.
+    """
+
+    def get(self, request):
+        from apps.katalog.models import Bab, Publikasi, Tabel
+
+        publikasi_id = request.GET.get("publikasi_id")
+        if publikasi_id:
+            publikasi = Publikasi.objects.filter(id=publikasi_id).first()
+            if not publikasi:
+                return Response({"error": "Publikasi tidak ditemukan"}, status=404)
+        else:
+            publikasi = Publikasi.objects.order_by("-tahun_terbit", "-id").first()
+            if not publikasi:
+                return Response({"publikasi": None, "publikasi_list": [], "babs": []})
+
+        publikasi_list = list(
+            Publikasi.objects.order_by("-tahun_terbit", "-id").values("id", "judul", "tahun_terbit")
+        )
+
+        babs = (
+            Bab.objects.filter(publikasi=publikasi)
+            .select_related("publikasi")
+            .prefetch_related("tabel_set")
+            .order_by("nomor")
+        )
+
+        bab_data = []
+        for bab in babs:
+            tabel_data = []
+            for tabel in bab.tabel_set.all().order_by("nomor_tabel"):
+                factas = tabel.fakta_set.exclude(nilai_num__isnull=True)
+                years = sorted(
+                    {y for y in factas.values_list("tahun", flat=True) if y is not None}
+                )
+                # Single-year tables often store year on the tabel, not per row.
+                if not years and tabel.tahun_data:
+                    years = [tabel.tahun_data]
+                tabel_data.append(
+                    {
+                        "id": tabel.id,
+                        "nomor_tabel": tabel.nomor_tabel,
+                        "nama_ringkas": tabel.nama_ringkas,
+                        "judul": tabel.judul,
+                        "tipe_baris": tabel.tipe_baris,
+                        "tahun_data": tabel.tahun_data,
+                        "jumlah_baris": factas.count(),
+                        "rentang_tahun": [years[0], years[-1]] if years else None,
+                    }
+                )
+            bab_data.append(
+                {
+                    "id": bab.id,
+                    "nomor": bab.nomor,
+                    "nama": bab.nama,
+                    "jumlah_tabel": len(tabel_data),
+                    "tabel": tabel_data,
+                }
+            )
+
+        return Response(
+            {
+                "publikasi": {
+                    "id": publikasi.id,
+                    "judul": publikasi.judul,
+                    "tahun_terbit": publikasi.tahun_terbit,
+                },
+                "publikasi_list": publikasi_list,
+                "babs": bab_data,
+            }
+        )
+
+
 class CanonicalTimeSeriesAPIView(APIView):
     """
     API time-series harmonized by CanonicalIndicator aliases.

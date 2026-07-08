@@ -24,3 +24,36 @@ export function useTimeSeries(id: number | null, type: 'tabel' | 'indikator' | n
 
   return { data, error, isLoading }
 }
+
+export interface CatalogTable {
+  id: number
+  nomor_tabel: string
+  nama_ringkas: string
+  judul: string
+  tipe_baris: string
+  tahun_data: number | null
+  jumlah_baris: number
+  rentang_tahun: [number, number] | null
+}
+
+export interface CatalogBab {
+  id: number
+  nomor: number
+  nama: string
+  jumlah_tabel: number
+  tabel: CatalogTable[]
+}
+
+export interface CatalogResponse {
+  publikasi: { id: number; judul: string; tahun_terbit: number } | null
+  publikasi_list: { id: number; judul: string; tahun_terbit: number }[]
+  babs: CatalogBab[]
+}
+
+export function useCatalog(publikasiId: number | null) {
+  const key = publikasiId
+    ? `/pencarian/api/catalog/?publikasi_id=${publikasiId}`
+    : `/pencarian/api/catalog/`
+  const { data, error, isLoading } = useSWR<CatalogResponse>(key, fetcher)
+  return { data, error, isLoading }
+}
