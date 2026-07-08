@@ -107,6 +107,26 @@ def _query_terms(query):
 SCHOOL_LEVELS = {"SD", "MI", "RA", "TK", "SMP", "MTS", "SMA", "SMK", "MA", "SLB"}
 
 
+# Indicators whose values are point observations (a level, not a count) and so
+# must never be summed across regions. Summing elevations/percentages/indices
+# across kecamatan produces a meaningless "Total" (e.g. 39 district elevations
+# adding to ~17,000 mdpl). For these we return per-region lines instead.
+NON_ADDITIVE_INDICATOR_KEYWORDS = (
+    "tinggi wilayah", "ketinggian", "elevasi", "mdpl",
+    "jarak",
+    "persentase", "presentase", "%",
+    "angka partisipasi", "apk", "angka melek huruf", "amh", "aps",
+    "rasio", "indeks", "ipm", "gini", "laju pertumbuhan",
+    "rata-rata", "rata rata", "kepadatan", "intensitas", "prevalensi",
+    "pertumbuhan", "inflasi", "pdrb", "produk domestik",
+)
+
+
+def _is_non_additive(indicator_name):
+    name = normalize_text(indicator_name)
+    return any(keyword in name for keyword in NON_ADDITIVE_INDICATOR_KEYWORDS)
+
+
 def _extract_school_level(title):
     """Pull the formal school-level tag (SD/SMP/SMA/TK/SMK/MA/...) from a
     BPS table title such as 'Jumlah Sekolah ... Sekolah Dasar (SD) ...'.
@@ -231,6 +251,13 @@ def _quick_topic_matches(query, limit=12):
         return -points, indicator_name
 
     best = sorted(grouped.values(), key=score)[:3]
+    # No-wilayah topic queries cannot pick a single sensible region for
+    # point-level indicators (elevation, %, index, density, ...). Summing them
+    # is meaningless and picking one kecamatan arbitrarily is misleading, so we
+    # drop those indicators here and let the UI surface them as per-region
+    # candidates the user can open (the chart modal already plots per-region
+    # lines). Count-style indicators still get a proper total card.
+    best = [group for group in best if not _is_non_additive(group["indicator"].nama)][:3]
     payload = []
     for group in best:
         table_rows_by_year = {}
@@ -265,15 +292,15 @@ def _quick_topic_matches(query, limit=12):
             year_rows = rows_by_year[year]["rows"]
             if not year_rows:
                 continue
-            total = sum((f.nilai_num for f in year_rows if f.nilai_num is not None), Decimal('0'))
+            total = sum((f.nilai_num for f in year_rows if f.nilai_num is not None), Decimal("0"))
             sample = year_rows[0]
             observations.append({
                 "id": sample.id,
                 "tahun": year,
                 "nilai": float(total),
-                "nilai_teks": str(total.normalize()) if hasattr(total, 'normalize') else str(total),
+                "nilai_teks": str(total.normalize()) if hasattr(total, "normalize") else str(total),
                 "wilayah_nama": "Kabupaten Tasikmalaya",
-                "satuan": getattr(sample.kolom, 'satuan', '') or getattr(group["indicator"], 'satuan', '') or '',
+                "satuan": getattr(sample.kolom, "satuan", "") or getattr(group["indicator"], "satuan", "") or "",
                 "tabel": {
                     "id": sample.tabel_id,
                     "nomor_tabel": sample.tabel.nomor_tabel,
@@ -283,7 +310,7 @@ def _quick_topic_matches(query, limit=12):
         if observations:
             payload.append({
                 "indicator_id": group["indicator"].id,
-                "indicator_name": f"Total {group['indicator'].nama}",
+                "indicator_name": group["indicator"].nama,
                 "subject_name": "Kabupaten Tasikmalaya",
                 "summary_kind": "aggregate",
                 "observations": observations,
