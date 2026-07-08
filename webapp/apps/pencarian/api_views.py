@@ -515,20 +515,37 @@ def _quick_rincian_matches(query, limit=12):
 
 
 def _quick_school_matches(query, wilayah=None, limit=12):
-    """Resolve school-count queries (e.g. 'jumlah sekolah RA', 'jumlah sekolah SD
-    di singaparna') to the correct 'Jumlah Sekolah ... (LEVEL)' table.
+    """Resolve school queries (e.g. 'jumlah sekolah RA', 'murid SMK swasta',
+    'guru SMP di singaparna') to the correct indicator in the matching
+    'Jumlah Sekolah, Murid, Guru ... (LEVEL)' table.
 
     This bypasses the generic rincian/indicator matchers, which wrongly match
     'sekolah' to the *rincian* named 'Sekolah' inside the population table
     (3.2.1: people whose weekly activity is schooling), returning population
-    headcount instead of the school count.
+    headcount instead of the school figure.
+
+    The subject (sekolah/murid/guru) and ownership (swasta/negeri/jumlah) are
+    read from the query and mapped onto the real indicator names used by the
+    publications (e.g. 'Murid Swasta', 'Sekolah Jumlah'), so 'murid SMK swasta'
+    returns private SMK students, not the SMK school count.
     """
     terms = _query_terms(query)
     school_terms = [t for t in terms if t.upper() in SCHOOL_LEVELS]
-    # Must contain 'sekolah' (or 'murid'/'guru') AND a school level to qualify.
-    has_school_word = any(t in {"sekolah", "murid", "guru", "siswa"} for t in terms)
-    if not (school_terms and has_school_word):
+    # Must contain a school subject word AND a school level to qualify.
+    subject_terms = [t for t in terms if t in {"sekolah", "murid", "guru", "siswa"}]
+    if not (school_terms and subject_terms):
         return []
+
+    # Map query subject word -> indicator stem.
+    SUBJECT_STEMS = {"sekolah": "Sekolah", "murid": "Murid", "siswa": "Murid", "guru": "Guru"}
+    subject_stem = SUBJECT_STEMS[subject_terms[0]]
+    # Ownership: swasta/negeri override the default 'Jumlah'.
+    if "swasta" in terms:
+        ownership = "Swasta"
+    elif "negeri" in terms:
+        ownership = "Negeri"
+    else:
+        ownership = "Jumlah"
 
     qs = (
         Fakta.objects.filter(nilai_num__isnull=False)
@@ -536,34 +553,62 @@ def _quick_school_matches(query, wilayah=None, limit=12):
     )
     if wilayah is not None:
         qs = qs.filter(wilayah=wilayah)
-    # School counts live in tables titled 'Jumlah Sekolah ... (LEVEL) Menurut
-    # Kecamatan'. Match on the formal level tag inside parentheses (e.g. "(SD)",
-    # "(RA)") rather than a bare icontains, because bare "ra" would also hit
-    # "Rasio"/"Rakyat" in other titles. Build one OR-filter over the exact tags.
+    # School tables are titled 'Jumlah Sekolah, Murid, Guru ... (LEVEL) Menurut
+    # Kecamatan'. Match the formal level tag inside parentheses (e.g. "(SMK)")
+    # rather than a bare icontains, because bare "smk"/"ra" would hit other words.
     from django.db.models import Q  # noqa: F401 (already imported at module top)
     level_filters = Q()
     for level in school_terms:
         level_filters |= Q(tabel__judul__icontains=f"({level.upper()})")
     qs = qs.filter(level_filters)
-    # Prefer the 'Jumlah Sekolah' indicator over Murid/Guru splits.
-    qs = qs.filter(kolom__indikator__nama__icontains="sekolah")
+    # Match the subject indicator. Indicator naming differs across publications:
+    # 4.1.2 (RA) uses bare 'Sekolah'/'Murid', while 4.1.3+ use 'Sekolah Jumlah'/
+    # 'Murid Swasta'. So we match on the stem and, for an explicit ownership,
+    # require that word; for the default 'Jumlah' we exclude the Swasta/Negeri
+    # variants so the bare stem does not also pull 'Sekolah Swasta'.
+    qs = qs.filter(kolom__indikator__nama__icontains=subject_stem)
+    if ownership == "Swasta":
+        qs = qs.filter(kolom__indikator__nama__icontains="Swasta")
+    elif ownership == "Negeri":
+        qs = qs.filter(kolom__indikator__nama__icontains="Negeri")
+    else:
+        qs = qs.exclude(kolom__indikator__nama__icontains="Swasta").exclude(
+            kolom__indikator__nama__icontains="Negeri"
+        )
 
-    rows = list(qs.order_by("tabel__bab__publikasi__tahun_terbit", "tahun", "id")[:6000])
+    rows = list(qs.order_by("tabel__bab__publikasi__tahun_terbit", "tahun", "id")[:8000])
     if not rows:
         return []
 
-    # Aggregate one row per (year, school-level) keeping the latest publication.
-    by_key = {}
+    regency_name = "Kabupaten Tasikmalaya"
+    # Aggregate per year. With a specific wilayah we take that row; otherwise we
+    # prefer the regency-total row if present, else sum ALL kecamatan rows to
+    # produce the kabupaten total (not an arbitrary single-kecamatan value).
+    rows_by_year = {}
     for fakta in rows:
         year = fakta.tahun_lengkap
         if year is None:
             continue
-        level = _extract_school_level(fakta.tabel.judul)
-        key = (year, level or "-")
-        current = by_key.get(key)
-        cur_pub = current.tabel.bab.publikasi.tahun_terbit if current else -1
-        if current is None or fakta.tabel.bab.publikasi.tahun_terbit > cur_pub:
-            by_key[key] = fakta
+        rows_by_year.setdefault(year, []).append(fakta)
+
+    by_year = {}
+    for year, fakta_rows in rows_by_year.items():
+        if wilayah is not None:
+            chosen = next((f for f in fakta_rows if f.wilayah_id == wilayah.id), fakta_rows[0])
+            by_year[year] = chosen
+            continue
+        regency_fakta = next((f for f in fakta_rows if f.wilayah and f.wilayah.nama == regency_name), None)
+        if regency_fakta is not None:
+            by_year[year] = regency_fakta
+        else:
+            # No pre-computed regency total: sum every kecamatan row for the year.
+            total = sum((f.nilai_num for f in fakta_rows if f.nilai_num is not None), Decimal("0"))
+            # Clone the first row and stamp the summed value so the payload keeps
+            # a consistent shape (table/satuan identifiers stay intact).
+            repr_fakta = fakta_rows[0]
+            repr_fakta.nilai_num = total
+            repr_fakta.wilayah = None
+            by_year[year] = repr_fakta
 
     observations = sorted(
         (
@@ -572,21 +617,20 @@ def _quick_school_matches(query, wilayah=None, limit=12):
                 "tahun": year,
                 "nilai": float(f.nilai_num),
                 "nilai_teks": f.nilai_teks,
-                "wilayah_nama": f.wilayah.nama if f.wilayah else "Kabupaten Tasikmalaya",
-                "subject_name": level if level else None,
+                "wilayah_nama": f.wilayah.nama if f.wilayah else regency_name,
+                "subject_name": None,
                 "satuan": getattr(f.kolom, "satuan", "") or getattr(f.kolom.indikator, "satuan", "") or "",
                 "tabel": {"id": f.tabel_id, "nomor_tabel": f.tabel.nomor_tabel, "judul": f.tabel.judul},
             }
-            for (year, level), f in by_key.items()
+            for year, f in by_year.items()
         ),
-        key=lambda o: (o["tahun"] or 0, o["subject_name"] or ""),
+        key=lambda o: (o["tahun"] or 0),
     )
     if not observations:
         return []
 
     # Map a school level tag to a friendly, human-readable label so the card
-    # title says which kind of school the user asked for (e.g. "RA", not the
-    # bare "Jumlah Sekolah").
+    # title says which kind of school the user asked for.
     _SCHOOL_LEVEL_NAMES = {
         "RA": "Raudatul Athfal (RA)",
         "SD": "SD",
@@ -601,15 +645,14 @@ def _quick_school_matches(query, wilayah=None, limit=12):
     }
     upper_levels = sorted({t.upper() for t in school_terms})
     friendly_levels = [_SCHOOL_LEVEL_NAMES.get(lvl, lvl) for lvl in upper_levels]
-    display_name = (
-        "Jumlah Sekolah Raudatul Athfal (RA)"
-        if "RA" in upper_levels
-        else f"Jumlah Sekolah ({friendly_levels[0]})" if len(friendly_levels) == 1 else "Jumlah Sekolah"
-    )
-    wilayah_nama = wilayah.nama if wilayah else "Kabupaten Tasikmalaya"
+    level_label = friendly_levels[0] if len(friendly_levels) == 1 else "Sekolah"
+    subject_label = {"Sekolah": "Jumlah Sekolah", "Murid": "Jumlah Murid", "Guru": "Jumlah Guru"}[subject_stem]
+    ownership_label = "" if ownership == "Jumlah" else f" {ownership}"
+    display_name = f"{subject_label}{ownership_label} ({level_label})"
+    wilayah_nama = wilayah.nama if wilayah else regency_name
     # When a wilayah is named (e.g. 'di singaparna'), append the level so the
-    # card subject reads 'Singaparna (Raudatul Athfal (RA))'. For the no-wilayah
-    # case the level is already in the indicator_name, so keep the subject plain.
+    # card subject reads 'Singaparna (SMK)'. For the no-wilayah case the level
+    # is already in the indicator_name, so keep the subject plain.
     card_subject = (
         f"{wilayah_nama} ({friendly_levels[0]})" if (wilayah and len(friendly_levels) == 1) else wilayah_nama
     )
