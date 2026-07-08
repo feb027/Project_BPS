@@ -546,7 +546,7 @@ def _quick_school_matches(query, wilayah=None, limit=12):
                 "nilai": float(f.nilai_num),
                 "nilai_teks": f.nilai_teks,
                 "wilayah_nama": f.wilayah.nama if f.wilayah else "Kabupaten Tasikmalaya",
-                "subject_name": level if level and len(school_terms) > 1 else None,
+                "subject_name": level if level else None,
                 "satuan": getattr(f.kolom, "satuan", "") or getattr(f.kolom.indikator, "satuan", "") or "",
                 "tabel": {"id": f.tabel_id, "nomor_tabel": f.tabel.nomor_tabel, "judul": f.tabel.judul},
             }
@@ -557,19 +557,41 @@ def _quick_school_matches(query, wilayah=None, limit=12):
     if not observations:
         return []
 
-    levels = sorted({o["subject_name"] for o in observations if o.get("subject_name")})
+    # Map a school level tag to a friendly, human-readable label so the card
+    # title says which kind of school the user asked for (e.g. "RA", not the
+    # bare "Jumlah Sekolah").
+    _SCHOOL_LEVEL_NAMES = {
+        "RA": "Raudatul Athfal (RA)",
+        "SD": "SD",
+        "MI": "Madrasah Ibtidaiyah (MI)",
+        "TK": "TK",
+        "SMP": "SMP",
+        "MTS": "Madrasah Tsanawiyah (MTs)",
+        "SMA": "SMA",
+        "SMK": "SMK",
+        "MA": "Madrasah Aliyah (MA)",
+        "SLB": "SLB",
+    }
+    upper_levels = sorted({t.upper() for t in school_terms})
+    friendly_levels = [_SCHOOL_LEVEL_NAMES.get(lvl, lvl) for lvl in upper_levels]
     display_name = (
-        f"Jumlah Sekolah Raudatul Athfal (RA)"
-        if "RA" in school_terms
-        else f"Jumlah Sekolah ({levels[0]})" if len(levels) == 1 else "Jumlah Sekolah"
+        "Jumlah Sekolah Raudatul Athfal (RA)"
+        if "RA" in upper_levels
+        else f"Jumlah Sekolah ({friendly_levels[0]})" if len(friendly_levels) == 1 else "Jumlah Sekolah"
     )
     wilayah_nama = wilayah.nama if wilayah else "Kabupaten Tasikmalaya"
+    # When a wilayah is named (e.g. 'di singaparna'), append the level so the
+    # card subject reads 'Singaparna (Raudatul Athfal (RA))'. For the no-wilayah
+    # case the level is already in the indicator_name, so keep the subject plain.
+    card_subject = (
+        f"{wilayah_nama} ({friendly_levels[0]})" if (wilayah and len(friendly_levels) == 1) else wilayah_nama
+    )
     return [
         {
             "indicator_id": rows[0].kolom.indikator.id,
             "indicator_name": display_name,
             "wilayah": {"id": wilayah.id, "nama": wilayah.nama, "jenis": wilayah.jenis} if wilayah else None,
-            "subject_name": f"{wilayah_nama} ({levels[0]})" if len(levels) == 1 else wilayah_nama,
+            "subject_name": card_subject,
             "summary_kind": "aggregate",
             "observations": observations,
         }
