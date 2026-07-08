@@ -4,8 +4,8 @@ from django.test import TestCase
 
 from apps.data.models import Fakta
 from apps.katalog.models import Bab, KolomTabel, Publikasi, Tabel
-from apps.pencarian.api_views import _detect_wilayahs, _quick_wilayah_matches, _quick_wilayah_matches_for_wilayahs
-from apps.referensi.models import Indikator, Wilayah
+from apps.pencarian.api_views import _detect_wilayahs, _quick_rincian_matches, _quick_wilayah_matches, _quick_wilayah_matches_for_wilayahs
+from apps.referensi.models import Indikator, Rincian, Wilayah
 
 
 class NaturalLanguageWilayahSearchTests(TestCase):
@@ -91,3 +91,66 @@ class NaturalLanguageWilayahSearchTests(TestCase):
             sorted({observation["wilayah_nama"] for observation in payload["quick_matches"][0]["observations"]}),
             ["Ciawi", "Cisayong"],
         )
+
+    def test_rincian_query_routes_aspal_to_left_column_time_series(self):
+        publikasi_2025 = Publikasi.objects.create(judul="Kabupaten Tasikmalaya Angka 2025", tahun_terbit=2025)
+        publikasi_2026 = Publikasi.objects.create(judul="Kabupaten Tasikmalaya Angka 2026", tahun_terbit=2026)
+        bab_2025 = Bab.objects.create(publikasi=publikasi_2025, nomor=8, nama="Transportasi")
+        bab_2026 = Bab.objects.create(publikasi=publikasi_2026, nomor=8, nama="Transportasi")
+        indikator = Indikator.objects.create(nama="Panjang Jalan")
+        aspal_legacy = Rincian.objects.create(nama="Aspal/Paved")
+        aspal = Rincian.objects.create(nama="Aspal")
+
+        table_2025 = Tabel.objects.create(
+            bab=bab_2025,
+            nomor_tabel="8.1.2",
+            judul="Panjang Jalan Menurut Jenis Permukaan Jalan di Kabupaten Tasikmalaya (km), 2022–2024",
+        )
+        column_2025 = KolomTabel.objects.create(tabel=table_2025, urutan=1, indikator=indikator, satuan="km")
+        Fakta.objects.create(tabel=table_2025, kolom=column_2025, rincian=aspal_legacy, tahun=2022, nilai_num=Decimal("1231.65"), nilai_teks="1231,65")
+
+        table_2026 = Tabel.objects.create(
+            bab=bab_2026,
+            nomor_tabel="8.1.2",
+            judul="Panjang Jalan Menurut Jenis Permukaan Jalan di Kabupaten Tasikmalaya (km), 2023–2025",
+        )
+        column_2026 = KolomTabel.objects.create(tabel=table_2026, urutan=1, indikator=indikator, satuan="km")
+        Fakta.objects.create(tabel=table_2026, kolom=column_2026, rincian=aspal, tahun=2023, nilai_num=Decimal("1221.84"), nilai_teks="1221,84")
+        Fakta.objects.create(tabel=table_2026, kolom=column_2026, rincian=aspal, tahun=2024, nilai_num=Decimal("1062.78"), nilai_teks="1062,78")
+
+        payload = _quick_rincian_matches("aspal")
+
+        self.assertEqual(payload[0]["indicator_name"], "Panjang Jalan")
+        self.assertEqual(payload[0]["subject_name"], "Aspal")
+        self.assertEqual(payload[0]["summary_kind"], "rincian")
+        self.assertEqual([row["rincian_nama"] for row in payload[0]["observations"]], ["Aspal", "Aspal", "Aspal"])
+        self.assertEqual([row["tahun"] for row in payload[0]["observations"]], [2022, 2023, 2024])
+
+        response = self.client.get("/pencarian/api/search/", {"q": "aspal"})
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["quick_matches"][0]["subject_name"], "Aspal")
+        self.assertEqual(data["indikator"][0]["nama"], "Panjang Jalan")
+        self.assertIn("Jenis Permukaan Jalan", data["tabel"][0]["judul"])
+
+    def test_indicator_query_can_compare_rincian_subjects_from_left_column(self):
+        publikasi = Publikasi.objects.create(judul="Kabupaten Tasikmalaya Angka 2026", tahun_terbit=2026)
+        bab = Bab.objects.create(publikasi=publikasi, nomor=8, nama="Transportasi")
+        indikator = Indikator.objects.create(nama="Panjang Jalan")
+        table = Tabel.objects.create(
+            bab=bab,
+            nomor_tabel="8.1.2",
+            judul="Panjang Jalan Menurut Jenis Permukaan Jalan di Kabupaten Tasikmalaya (km), 2023–2025",
+        )
+        column = KolomTabel.objects.create(tabel=table, urutan=1, indikator=indikator, satuan="km")
+        for name, value in [("Aspal", "1221.84"), ("Kerikil", "75.63"), ("Tanah", "0"), ("Lainnya", "5.85"), ("Jumlah", "1303.32")]:
+            rincian = Rincian.objects.create(nama=name)
+            Fakta.objects.create(tabel=table, kolom=column, rincian=rincian, tahun=2023, nilai_num=Decimal(value), nilai_teks=value)
+
+        payload = _quick_rincian_matches("panjang jalan")
+
+        self.assertEqual(payload[0]["indicator_name"], "Panjang Jalan")
+        self.assertEqual(payload[0]["summary_kind"], "rincian")
+        subjects = {row["rincian_nama"] for row in payload[0]["observations"]}
+        self.assertEqual(subjects, {"Aspal", "Kerikil", "Tanah", "Lainnya"})
+        self.assertNotIn("Jumlah", subjects)

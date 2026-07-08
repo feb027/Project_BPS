@@ -16,6 +16,9 @@ type Observation = {
   nilai: number
   nilai_teks: string
   wilayah_nama: string
+  rincian_nama?: string
+  subject_name?: string
+  subject_kind?: string
   satuan?: string
   tabel?: {
     id: number
@@ -53,7 +56,10 @@ function cleanUnit(unit?: string) {
 }
 
 function getRowSubject(row: Observation) {
-  return row.wilayah_nama && row.wilayah_nama !== "-" ? row.wilayah_nama : "Indonesia"
+  if (row.subject_name && row.subject_name !== "-") return row.subject_name
+  if (row.wilayah_nama && row.wilayah_nama !== "-") return row.wilayah_nama
+  if (row.rincian_nama && row.rincian_nama !== "-") return row.rincian_nama
+  return "Indonesia"
 }
 
 export function InlineTimeSeriesAnswer({ match, subjectName, onOpenChart }: InlineTimeSeriesAnswerProps) {
@@ -103,7 +109,7 @@ export function InlineTimeSeriesAnswer({ match, subjectName, onOpenChart }: Inli
                 ? `Grafik ringkas langsung membandingkan ${subjects.join(" dan ")}. Buka detail hanya kalau ingin tambah seri, unduh Excel, atau cetak PDF.`
                 : match.summary_kind === "aggregate"
                   ? "Ringkasan otomatis dari tabel paling relevan per tahun. Hasil mentah tetap disimpan di bagian detail."
-                  : `Time series otomatis dari hasil pencarian. Hanya menampilkan ${subjectName}, bukan semua kecamatan.`}
+                  : `Time series otomatis dari hasil pencarian. Hanya menampilkan ${subjectName}, bukan semua kecamatan/rincian.`}
             </p>
           </div>
         </div>

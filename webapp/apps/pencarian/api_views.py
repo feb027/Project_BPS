@@ -1,5 +1,6 @@
 from copy import deepcopy
 from decimal import Decimal
+import re
 
 from django.db import connection
 from django.db.models import Q
@@ -246,6 +247,202 @@ def _quick_topic_matches(query, limit=12):
     return payload
 
 
+def _rincian_display_name(raw_name):
+    """Normalize noisy left-column labels for chart subjects.
+
+    Publication rows often mix Indonesian/English labels (Aspal/Paved) or carry
+    section prefixes ([I. JENIS PERMUKAAN] a. Diaspal). The search card should
+    show the human concept, not the extraction artifact.
+    """
+    label = (raw_name or "").strip()
+    label = re.sub(r"^\[[^\]]+\]\s*", "", label)
+    label = re.sub(r"^[a-z]\.?\s+", "", label, flags=re.IGNORECASE)
+    label = label.split("/")[0].strip(" \t-–—")
+    normalized = normalize_text(label)
+    if normalized == "diaspal":
+        return "Aspal"
+    return label or (raw_name or "-").strip() or "-"
+
+
+def _rincian_key(raw_name):
+    return normalize_text(_rincian_display_name(raw_name))
+
+
+def _publication_year(fakta):
+    try:
+        return fakta.tabel.bab.publikasi.tahun_terbit
+    except Exception:
+        return 0
+
+
+def _fakta_observation(fakta, subject_name, subject_kind="rincian"):
+    return {
+        "id": fakta.id,
+        "tahun": fakta.tahun_lengkap,
+        "nilai": float(fakta.nilai_num),
+        "nilai_teks": fakta.nilai_teks,
+        "wilayah_nama": getattr(fakta.wilayah, 'nama', None) or "-",
+        "rincian_nama": subject_name if subject_kind == "rincian" else getattr(fakta.rincian, 'nama', None),
+        "subject_name": subject_name,
+        "subject_kind": subject_kind,
+        "satuan": getattr(fakta.kolom, 'satuan', '') or getattr(fakta.kolom.indikator, 'satuan', '') or '',
+        "tabel": {
+            "id": fakta.tabel_id,
+            "nomor_tabel": fakta.tabel.nomor_tabel,
+            "judul": fakta.tabel.judul,
+        },
+    }
+
+
+def _quick_rincian_matches(query, limit=12):
+    """Direct answer cards for left-column/rincian queries like 'aspal'.
+
+    If the user's term hits a `rincian` label, return that rincian as the chart
+    subject. If the term only names the indicator/table (e.g. 'panjang jalan'),
+    return a compact comparison of the most relevant rincian categories.
+    """
+    terms = _query_terms(query)
+    if not terms:
+        return []
+
+    qs = (
+        Fakta.objects.filter(rincian__isnull=False, nilai_num__isnull=False)
+        .select_related('kolom__indikator', 'tabel', 'tabel__bab__publikasi', 'wilayah', 'rincian')
+    )
+    for term in terms:
+        qs = qs.filter(
+            Q(kolom__indikator__nama__icontains=term)
+            | Q(tabel__judul__icontains=term)
+            | Q(rincian__nama__icontains=term)
+        )
+
+    rows = list(qs.order_by('tabel__nomor_tabel', 'kolom__indikator__nama', 'tahun', 'id')[:8000])
+    if not rows:
+        return []
+
+    subject_intent = any(
+        any(term in _rincian_key(fakta.rincian.nama) for term in terms)
+        for fakta in rows
+        if fakta.rincian_id
+    )
+
+    grouped = {}
+    for fakta in rows:
+        indicator = fakta.kolom.indikator
+        table_number = fakta.tabel.nomor_tabel or ""
+        key = (indicator.id, table_number)
+        grouped.setdefault(key, {"indicator": indicator, "table_number": table_number, "rows": []})["rows"].append(fakta)
+
+    surface_terms = {"aspal", "kerikil", "tanah", "lainnya"}
+
+    def group_score(group):
+        indicator_name = normalize_text(group["indicator"].nama)
+        titles = " ".join(normalize_text(fakta.tabel.judul) for fakta in group["rows"][:20])
+        subjects = " ".join(_rincian_key(fakta.rincian.nama) for fakta in group["rows"][:80] if fakta.rincian_id)
+        haystack = f"{indicator_name} {titles} {subjects}"
+        points = 0
+        if all(term in indicator_name for term in terms):
+            points += 90
+        if all(term in titles for term in terms):
+            points += 70
+        if subject_intent and any(term in subjects for term in terms):
+            points += 85
+        if all(term in haystack for term in terms):
+            points += 30
+        if "panjang" in terms and "jalan" in terms and "jenis permukaan" in titles:
+            points += 35
+        subject_keys = {_rincian_key(fakta.rincian.nama) for fakta in group["rows"] if fakta.rincian_id}
+        if subject_keys & surface_terms:
+            points += 15
+        points += min(len({fakta.tahun_lengkap for fakta in group["rows"] if fakta.tahun_lengkap}), 12)
+        points += min(max((_publication_year(fakta) for fakta in group["rows"]), default=0) - 2010, 20)
+        if indicator_name.startswith("status jalan"):
+            points -= 45
+        return -points, indicator_name, group["table_number"]
+
+    def build_payload(group):
+        rows_by_subject = {}
+        for fakta in group["rows"]:
+            if not fakta.rincian_id:
+                continue
+            subject_name = _rincian_display_name(fakta.rincian.nama)
+            subject_key = _rincian_key(fakta.rincian.nama)
+            if not subject_key:
+                continue
+            rows_by_subject.setdefault(subject_key, {"name": subject_name, "rows": []})["rows"].append(fakta)
+
+        if not rows_by_subject:
+            return None
+
+        group_titles = " ".join(normalize_text(fakta.tabel.judul) for fakta in group["rows"][:20])
+        if subject_intent:
+            selected_keys = [
+                key for key in rows_by_subject
+                if any(term in key for term in terms)
+            ]
+        elif "jenis permukaan" in group_titles and (set(rows_by_subject) & surface_terms):
+            selected_keys = [key for key in rows_by_subject if key in surface_terms]
+        else:
+            non_total_keys = [key for key in rows_by_subject if key not in {"jumlah", "total"}]
+            selected_keys = non_total_keys or list(rows_by_subject)
+
+        def subject_rank(key):
+            subject_rows = rows_by_subject[key]["rows"]
+            latest_pub = max((_publication_year(fakta) for fakta in subject_rows), default=0)
+            latest_year = max((fakta.tahun_lengkap or 0 for fakta in subject_rows), default=0)
+            term_hit = any(term in key for term in terms)
+            surface_order = {"aspal": 0, "kerikil": 1, "tanah": 2, "lainnya": 3}.get(key, 9)
+            return (0 if term_hit else 1, surface_order, -latest_pub, -latest_year, key)
+
+        selected_keys = sorted(selected_keys, key=subject_rank)[:6]
+        best_by_subject_year = {}
+        for key in selected_keys:
+            for fakta in rows_by_subject[key]["rows"]:
+                year = fakta.tahun_lengkap
+                if year is None:
+                    continue
+                current = best_by_subject_year.get((key, year))
+                current_rank = (_publication_year(current), current.tabel_id, current.id) if current else (-1, -1, -1)
+                fakta_rank = (_publication_year(fakta), fakta.tabel_id, fakta.id)
+                if current is None or fakta_rank > current_rank:
+                    best_by_subject_year[(key, year)] = fakta
+
+        observations = []
+        for key in selected_keys:
+            subject_rows = [
+                best_by_subject_year[(key, year)]
+                for year in sorted({year for subject_key, year in best_by_subject_year if subject_key == key})[:limit]
+            ]
+            subject_name = rows_by_subject[key]["name"]
+            observations.extend(_fakta_observation(fakta, subject_name) for fakta in subject_rows)
+
+        if not observations:
+            return None
+
+        subject_names = [rows_by_subject[key]["name"] for key in selected_keys]
+        subject_name = subject_names[0] if len(subject_names) == 1 else " + ".join(subject_names)
+        return {
+            "indicator_id": group["indicator"].id,
+            "indicator_name": group["indicator"].nama,
+            "subject_name": subject_name,
+            "summary_kind": "rincian",
+            "comparison_subjects": [{"nama": name, "jenis": "rincian"} for name in subject_names],
+            "observations": sorted(
+                observations,
+                key=lambda observation: (observation.get("subject_name") or "", observation.get("tahun") or 0, observation.get("id") or 0),
+            ),
+        }
+
+    payload = []
+    for group in sorted(grouped.values(), key=group_score):
+        item = build_payload(group)
+        if item:
+            payload.append(item)
+        if len(payload) >= 3:
+            break
+    return payload
+
+
 def _quick_wilayah_matches(query, wilayah, limit=12):
     """Small answer card for queries like 'penduduk cisayong'."""
     if not wilayah:
@@ -440,7 +637,7 @@ class FacetedSearchAPIView(APIView):
         quick_matches = (
             _quick_wilayah_matches_for_wilayahs(search_query, detected_wilayahs)
             if detected_wilayah
-            else _quick_topic_matches(search_query)
+            else (_quick_rincian_matches(search_query) or _quick_topic_matches(search_query))
         )
 
         if connection.vendor == 'postgresql':
@@ -461,11 +658,25 @@ class FacetedSearchAPIView(APIView):
                 nama__icontains=search_query, kolom_set__isnull=False
             ).distinct()[:15]
 
-        if detected_wilayah:
-            wilayah_indicator_ids = [item["indicator_id"] for item in quick_matches]
-            indicator_by_id = Indikator.objects.in_bulk(wilayah_indicator_ids)
-            extra_indikator_qs = [indicator_by_id[indicator_id] for indicator_id in wilayah_indicator_ids if indicator_id in indicator_by_id]
+        if quick_matches:
+            quick_indicator_ids = [item["indicator_id"] for item in quick_matches if item.get("indicator_id")]
+            indicator_by_id = Indikator.objects.in_bulk(quick_indicator_ids)
+            extra_indikator_qs = [
+                indicator_by_id[indicator_id]
+                for indicator_id in quick_indicator_ids
+                if indicator_id in indicator_by_id
+            ]
             indikator_qs = _merge_by_id(extra_indikator_qs, indikator_qs)[:15]
+
+            quick_table_ids = []
+            for item in quick_matches:
+                for observation in item.get("observations") or []:
+                    table_id = (observation.get("tabel") or {}).get("id")
+                    if table_id:
+                        quick_table_ids.append(table_id)
+            table_by_id = Tabel.objects.in_bulk(quick_table_ids)
+            extra_tabel_qs = [table_by_id[table_id] for table_id in quick_table_ids if table_id in table_by_id]
+            tabel_qs = _merge_by_id(extra_tabel_qs, tabel_qs)[:10]
 
         return Response({
             "tabel": TabelSerializer(tabel_qs, many=True).data,

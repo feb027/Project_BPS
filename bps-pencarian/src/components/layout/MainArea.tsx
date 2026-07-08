@@ -20,11 +20,21 @@ export function MainArea({ query, selectedItem, setSelectedItem }: MainAreaProps
   const detectedWilayahs = (data?.detected_wilayahs ?? [])
     .map((wilayah: any) => wilayah?.nama)
     .filter(Boolean) as string[]
-  const initialSubjectFilters = detectedWilayahs.length > 0 ? detectedWilayahs : (detectedWilayah ? [detectedWilayah] : [])
   const quickMatches = data?.quick_matches ?? []
   const primaryQuickMatch = quickMatches[0]
+  const quickObservationSubjects = Array.from(new Set(
+    ((primaryQuickMatch?.observations ?? []) as any[])
+      .map((row: any) => row?.subject_name || (row?.wilayah_nama !== "-" ? row?.wilayah_nama : row?.rincian_nama))
+      .filter(Boolean)
+  )) as string[]
+  const quickComparisonSubjects = ((primaryQuickMatch?.comparison_subjects ?? []) as any[])
+    .map((subject: any) => subject?.nama)
+    .filter(Boolean) as string[]
   const directAnswerSubject = primaryQuickMatch?.subject_name || detectedWilayah
-  const directAnswerFilter = detectedWilayah
+  const directAnswerFilter = detectedWilayah || (quickObservationSubjects.length === 1 ? quickObservationSubjects[0] : undefined)
+  const initialSubjectFilters = detectedWilayahs.length > 0
+    ? detectedWilayahs
+    : (quickObservationSubjects.length > 0 ? quickObservationSubjects : quickComparisonSubjects)
   const hasDirectAnswer = Boolean(primaryQuickMatch && directAnswerSubject)
   const hasData = data && (data.tabel?.length > 0 || data.indikator?.length > 0 || quickMatches.length > 0)
 
