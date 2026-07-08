@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react"
-import { X, Loader2, Table2, LineChart as LineIcon, BarChart3 } from "lucide-react"
-import { ResponsiveContainer, LineChart, CartesianGrid, XAxis, YAxis, Tooltip, Line, Legend } from "recharts"
+import { useMemo, useState, useCallback } from "react"
+import { X, Loader2, Table2, LineChart as LineIcon, BarChart3, ChevronDown, Check } from "lucide-react"
+import { ResponsiveContainer, LineChart, CartesianGrid, XAxis, YAxis, Tooltip, Legend, Line } from "recharts"
 import { useTimeSeries, useCatalogSeries, type CatalogSeriesRow } from "../../lib/api"
 
 interface ChartModalProps {
@@ -15,22 +15,6 @@ interface ChartModalProps {
   onClose: () => void
 }
 
-function cleanSubjectLabel(value: string) {
-  const withoutGroup = value.replace(/^\[[^\]]+\]\s*/, "").replace(/^[a-z]\.?\s+/i, "")
-  const primary = withoutGroup.split("/")[0].trim()
-  return primary.toLowerCase() === "diaspal" ? "Aspal" : (primary || value)
-}
-
-function getSubjectName(row: any) {
-  const subject = row.subject_name
-  const wilayah = row.wilayah_nama || row.wilayah?.nama
-  const rincian = row.rincian_nama
-  if (subject && subject !== "-") return cleanSubjectLabel(String(subject))
-  if (rincian && rincian !== "-") return cleanSubjectLabel(String(rincian))
-  if (wilayah && wilayah !== "-") return cleanSubjectLabel(String(wilayah))
-  return row.subject?.name ? cleanSubjectLabel(String(row.subject.name)) : "Indonesia"
-}
-
 function formatIndonesianNumber(value: number | string | null | undefined) {
   if (value === null || value === undefined || value === "") return "-"
   const numeric = Number(value)
@@ -42,51 +26,142 @@ function getValue(row: any) {
   return row.nilai ?? row.nilai_num
 }
 
-const chartColors = ["#2563eb", "#ea580c", "#16a34a", "#ca8a04", "#9333ea", "#0891b2", "#db2777"]
+const chartColors = [
+  "#2563eb", "#ea580c", "#16a34a", "#ca8a04", "#9333ea",
+  "#0891b2", "#db2777", "#0d9488", "#c2410c", "#7c3aed",
+  "#0369a1", "#b91c1c", "#15803d", "#a16207", "#6d28d9",
+  "#0e7490", "#be185d", "#047857", "#b45309", "#4f46e5",
+]
+
+function metricKey(row: CatalogSeriesRow) {
+  const unit = row.unit && row.unit !== "-" ? row.unit : ""
+  return `${row.subject_name}${unit ? ` (${unit})` : ""}`
+}
 
 export function ChartModal({ item, onClose }: ChartModalProps) {
-  // Browse click passes nomor_tabel (merged multi-year series). Search click
-  // passes id + type (single-table/single-indicator series).
   const merged = useCatalogSeries(item.nomor_tabel ?? null)
   const single = useTimeSeries(item.id ?? null, item.nomor_tabel ? null : item.type)
-
   const isMerged = Boolean(item.nomor_tabel)
   const { data, isLoading, error } = isMerged ? merged : single
 
   const [view, setView] = useState<"chart" | "table">("chart")
 
-  const allRows = useMemo(() => {
+  const allRows: CatalogSeriesRow[] = useMemo(() => {
     if (!data) return []
     if (isMerged) return (data as any).series as CatalogSeriesRow[]
     return Array.isArray(data) ? data : (data as any).observations ?? []
   }, [data, isMerged])
 
-  // Build chart series keyed by (subject + unit) so incompatible units stay
-  // on separate lines (e.g. ha vs km2 never plotted as one false series).
-  const chartData = useMemo(() => {
-    const byYear: Record<string, Record<string, number | null>> = {}
-    const seriesKeys = new Set<string>()
-    allRows.forEach((row: any) => {
-      const year = String(row.tahun ?? "")
-      const subject = getSubjectName(row)
-      const unit = (row.unit && row.unit !== "-") ? ` (${row.unit})` : ""
-      const key = `${subject}${unit}`
-      seriesKeys.add(key)
-      if (!byYear[year]) byYear[year] = { tahun: Number(row.tahun) }
-      byYear[year][key] = Number(getValue(row))
+  // --- Derived facets ---
+  const metrics = useMemo(() => {
+    const s = new Map<string, string>() // key -> display label
+    allRows.forEach((r) => {
+      const k = metricKey(r)
+      if (!s.has(k)) s.set(k, k)
     })
-    return {
-      points: Object.values(byYear).sort((a, b) => Number(a.tahun) - Number(b.tahun)),
-      seriesKeys: Array.from(seriesKeys).sort((a, b) => a.localeCompare(b)),
-    }
+    return Array.from(s.values()).sort()
   }, [allRows])
 
+  const allWilayah = useMemo(() => {
+    const s = new Set<string>()
+    allRows.forEach((r) => {
+      const w = r.wilayah_nama
+      if (w && w !== "-") s.add(w)
+    })
+    return Array.from(s).sort()
+  }, [allRows])
+
+  // --- Selection state ---
+  const [selectedMetric, setSelectedMetric] = useState(() => metrics[0] ?? "")
+  const [selectedWilayah, setSelectedWilayah] = useState<Set<string>>(new Set())
+  const [wilayahDropdownOpen, setWilayahDropdownOpen] = useState(false)
+
+  // Auto-select defaults on first meaningful data load (Luas + top 5 kecamatan + kab total)
+  const [hasAutoSelected, setHasAutoSelected] = useState(false)
+  useMemo(() => {
+    if (hasAutoSelected || metrics.length === 0) return
+    // pick the metric with the most rows
+    const best = metrics.reduce((a, b) => {
+      const countA = allRows.filter((r) => metricKey(r) === a).length
+      const countB = allRows.filter((r) => metricKey(r) === b).length
+      return countA >= countB ? a : b
+    }, metrics[0])
+    setSelectedMetric(best)
+    // auto-select top wilayah (up to 5) + kabupaten total
+    const metricRows = allRows.filter((r) => metricKey(r) === best)
+    const wilCounts = new Map<string, number>()
+    metricRows.forEach((r) => {
+      const w = r.wilayah_nama
+      if (w && w !== "-") wilCounts.set(w, (wilCounts.get(w) ?? 0) + 1)
+    })
+    const top = Array.from(wilCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([w]) => w)
+    // add "Kabupaten Tasikmalaya" if present and not already in top
+    if (wilCounts.has("Kabupaten Tasikmalaya") && !top.includes("Kabupaten Tasikmalaya")) {
+      top.push("Kabupaten Tasikmalaya")
+    }
+    setSelectedWilayah(new Set(top))
+    setHasAutoSelected(true)
+  }, [metrics, allRows, hasAutoSelected])
+
+  // Reset selection when metric changes and no wilayah selected for new metric
+  const metricChanged = useCallback((newMetric: string) => {
+    setSelectedMetric(newMetric)
+    setWilayahDropdownOpen(false)
+  }, [])
+
+  const toggleWilayah = useCallback((w: string) => {
+    setSelectedWilayah((prev) => {
+      const next = new Set(prev)
+      if (next.has(w)) next.delete(w)
+      else next.add(w)
+      return next
+    })
+  }, [])
+
+  const selectAllWilayah = useCallback(() => {
+    setSelectedWilayah(new Set(allWilayah))
+  }, [allWilayah])
+
+  const clearAllWilayah = useCallback(() => {
+    setSelectedWilayah(new Set())
+  }, [])
+
+  // --- Chart data: pivot by (year × kecamatan) ---
+  const chartData = useMemo(() => {
+    const metricRows = allRows.filter((r) => metricKey(r) === selectedMetric)
+    const byYear: Record<string, Record<string, number | null>> = {}
+    const selected = selectedWilayah
+
+    metricRows.forEach((row) => {
+      const wil = row.wilayah_nama || "-"
+      if (selected.size > 0 && !selected.has(wil)) return
+      const year = String(row.tahun ?? "")
+      if (!byYear[year]) byYear[year] = { tahun: Number(row.tahun) }
+      byYear[year][wil] = Number(getValue(row))
+    })
+
+    const lines = selected.size > 0
+      ? Array.from(selected).sort()
+      : // fallback: all wilayah in this metric (limit to 8 for readability)
+        Array.from(new Set(metricRows.map((r) => r.wilayah_nama || "-"))).sort().slice(0, 8)
+
+    return {
+      points: Object.values(byYear).sort((a, b) => Number(a.tahun) - Number(b.tahun)),
+      lines,
+    }
+  }, [allRows, selectedMetric, selectedWilayah])
+
   const hasRows = allRows.length > 0
+  const metricUnit = allRows.find((r) => metricKey(r) === selectedMetric)?.unit
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
       <div className="absolute inset-0 bg-background/80" onClick={onClose}></div>
       <div className="relative bg-card border border-border shadow-lg rounded-md w-full max-w-6xl h-[88vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div className="min-w-0 pr-12">
             <p className="text-xs font-semibold uppercase tracking-wide text-primary">
@@ -105,6 +180,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
           </button>
         </div>
 
+        {/* Content */}
         <div className="flex-1 overflow-auto p-6 flex flex-col gap-5">
           {isLoading ? (
             <div className="flex-1 min-h-[420px] flex flex-col items-center justify-center text-primary rounded-md border border-dashed border-border bg-muted/20">
@@ -123,67 +199,142 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
             </div>
           ) : (
             <>
-              <div className="flex items-center gap-1 rounded-md border border-border bg-background p-1 w-fit self-end">
-                <button
-                  type="button"
-                  onClick={() => setView("chart")}
-                  className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-semibold transition-colors ${view === "chart" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
-                >
-                  <LineIcon className="h-4 w-4" /> Grafik
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setView("table")}
-                  className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-semibold transition-colors ${view === "table" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
-                >
-                  <BarChart3 className="h-4 w-4" /> Tabel
-                </button>
+              {/* Controls row */}
+              <div className="flex flex-wrap items-center gap-3">
+                {/* View toggle */}
+                <div className="flex items-center gap-1 rounded-md border border-border bg-background p-1">
+                  <button
+                    type="button"
+                    onClick={() => setView("chart")}
+                    className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-semibold transition-colors ${view === "chart" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                  >
+                    <LineIcon className="h-4 w-4" /> Grafik
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setView("table")}
+                    className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-semibold transition-colors ${view === "table" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                  >
+                    <BarChart3 className="h-4 w-4" /> Tabel
+                  </button>
+                </div>
+
+                {/* Metric selector */}
+                {metrics.length > 1 && (
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Indikator:</label>
+                    <select
+                      value={selectedMetric}
+                      onChange={(e) => metricChanged(e.target.value)}
+                      className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    >
+                      {metrics.map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Kecamatan multi-select */}
+                {allWilayah.length > 0 && (
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setWilayahDropdownOpen(!wilayahDropdownOpen)}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition-colors"
+                    >
+                      Kecamatan ({selectedWilayah.size}/{allWilayah.length})
+                      <ChevronDown className={`h-3.5 w-3.5 transition-transform ${wilayahDropdownOpen ? "rotate-180" : ""}`} />
+                    </button>
+                    {wilayahDropdownOpen && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setWilayahDropdownOpen(false)} />
+                        <div className="absolute z-50 mt-1 w-72 max-h-80 rounded-md border border-border bg-card shadow-lg overflow-hidden">
+                          <div className="flex items-center justify-between border-b border-border px-3 py-2">
+                            <span className="text-xs font-semibold text-foreground">Pilih Kecamatan</span>
+                            <div className="flex gap-2">
+                              <button onClick={selectAllWilayah} className="text-[10px] font-semibold text-primary hover:underline">Semua</button>
+                              <button onClick={clearAllWilayah} className="text-[10px] font-semibold text-muted-foreground hover:underline">Hapus</button>
+                            </div>
+                          </div>
+                          <div className="overflow-auto max-h-[240px] p-2">
+                            {allWilayah.map((w) => (
+                              <label
+                                key={w}
+                                className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50 cursor-pointer text-xs"
+                              >
+                                <span className={`h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors ${selectedWilayah.has(w) ? "bg-primary border-primary" : "border-border bg-background"}`}>
+                                  {selectedWilayah.has(w) && <Check className="h-3 w-3 text-primary-foreground" />}
+                                </span>
+                                <input
+                                  type="checkbox"
+                                  className="sr-only"
+                                  checked={selectedWilayah.has(w)}
+                                  onChange={() => toggleWilayah(w)}
+                                />
+                                <span className="text-foreground">{w}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
 
+              {/* Chart / Table */}
               {view === "chart" ? (
                 <div className="rounded-md border border-border bg-background p-4 min-h-[440px] flex-1">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={chartData.points} margin={{ top: 12, right: 16, left: 0, bottom: 8 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                      <XAxis
-                        dataKey="tahun"
-                        axisLine={false}
-                        tickLine={false}
-                        tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
-                      />
-                      <YAxis
-                        axisLine={false}
-                        tickLine={false}
-                        width={72}
-                        tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
-                        tickFormatter={(value) => formatIndonesianNumber(value)}
-                      />
-                      <Tooltip
-                        formatter={(value, name) => [formatIndonesianNumber(value as number), String(name)]}
-                        labelFormatter={(label) => `Tahun ${label}`}
-                        contentStyle={{
-                          backgroundColor: "hsl(var(--card))",
-                          borderColor: "hsl(var(--border))",
-                          color: "hsl(var(--foreground))",
-                          borderRadius: "0.375rem",
-                        }}
-                      />
-                      <Legend wrapperStyle={{ paddingTop: 12 }} />
-                      {chartData.seriesKeys.map((key, index) => (
-                        <Line
-                          key={key}
-                          type="monotone"
-                          dataKey={key}
-                          name={key}
-                          stroke={chartColors[index % chartColors.length]}
-                          strokeWidth={2.5}
-                          activeDot={{ r: 6, strokeWidth: 0 }}
-                          dot={{ r: 4, strokeWidth: 0 }}
-                          connectNulls
+                  {chartData.lines.length === 0 ? (
+                    <div className="h-full min-h-[400px] flex items-center justify-center text-muted-foreground text-sm">
+                      Pilih minimal satu kecamatan untuk menampilkan grafik.
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={chartData.points} margin={{ top: 12, right: 16, left: 0, bottom: 8 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                        <XAxis
+                          dataKey="tahun"
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
                         />
-                      ))}
-                    </LineChart>
-                  </ResponsiveContainer>
+                        <YAxis
+                          axisLine={false}
+                          tickLine={false}
+                          width={72}
+                          tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
+                          tickFormatter={(value) => formatIndonesianNumber(value)}
+                        />
+                        <Tooltip
+                          formatter={(value, name) => [`${formatIndonesianNumber(value as number)}${metricUnit && metricUnit !== "-" ? ` ${metricUnit}` : ""}`, String(name)]}
+                          labelFormatter={(label) => `Tahun ${label}`}
+                          contentStyle={{
+                            backgroundColor: "hsl(var(--card))",
+                            borderColor: "hsl(var(--border))",
+                            color: "hsl(var(--foreground))",
+                            borderRadius: "0.375rem",
+                            fontSize: "0.75rem",
+                          }}
+                        />
+                        <Legend wrapperStyle={{ paddingTop: 12 }} />
+                        {chartData.lines.map((key, index) => (
+                          <Line
+                            key={key}
+                            type="monotone"
+                            dataKey={key}
+                            name={key}
+                            stroke={chartColors[index % chartColors.length]}
+                            strokeWidth={2}
+                            activeDot={{ r: 5, strokeWidth: 0 }}
+                            dot={{ r: 3, strokeWidth: 0 }}
+                            connectNulls
+                          />
+                        ))}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
                 </div>
               ) : (
                 <div className="rounded-md border border-border bg-background overflow-hidden flex-1">
@@ -192,24 +343,30 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                       <thead className="sticky top-0 bg-background z-10 shadow-[0_1px_0_hsl(var(--border))]">
                         <tr>
                           <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tahun</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Seri</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Wilayah</th>
                           <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Nilai</th>
                           <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Rincian</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Wilayah</th>
                           <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {allRows.map((row: any) => (
-                          <tr key={row.id} className="border-b border-border last:border-0 hover:bg-muted/30">
-                            <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.tahun ?? "-"}</td>
-                            <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap">{getSubjectName(row)}</td>
-                            <td className="px-4 py-3 text-right font-semibold text-foreground whitespace-nowrap">{formatIndonesianNumber(getValue(row))}{row.unit && row.unit !== "-" ? ` ${row.unit}` : ""}</td>
-                            <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.rincian_nama && row.rincian_nama !== "-" ? row.rincian_nama : "-"}</td>
-                            <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.wilayah_nama && row.wilayah_nama !== "-" ? row.wilayah_nama : "-"}</td>
-                            <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.flag || "ada"}</td>
-                          </tr>
-                        ))}
+                        {allRows
+                          .filter((row: any) => metricKey(row) === selectedMetric)
+                          .filter((row: any) => {
+                            if (selectedWilayah.size === 0) return true
+                            return selectedWilayah.has(row.wilayah_nama)
+                          })
+                          .map((row: any) => (
+                            <tr key={row.id} className="border-b border-border last:border-0 hover:bg-muted/30">
+                              <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.tahun ?? "-"}</td>
+                              <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap">{row.wilayah_nama || "-"}</td>
+                              <td className="px-4 py-3 text-right font-semibold text-foreground whitespace-nowrap">
+                                {formatIndonesianNumber(getValue(row))}{row.unit && row.unit !== "-" ? ` ${row.unit}` : ""}
+                              </td>
+                              <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.rincian_nama && row.rincian_nama !== "-" ? row.rincian_nama : "-"}</td>
+                              <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.flag || "ada"}</td>
+                            </tr>
+                          ))}
                       </tbody>
                     </table>
                   </div>
