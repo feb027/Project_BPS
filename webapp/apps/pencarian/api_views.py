@@ -104,17 +104,53 @@ def _query_terms(query):
     ]
 
 
+SCHOOL_LEVELS = {"SD", "MI", "RA", "TK", "SMP", "MTS", "SMA", "SMK", "MA", "SLB"}
+
+
+def _extract_school_level(title):
+    """Pull the formal school-level tag (SD/SMP/SMA/TK/SMK/MA/...) from a
+    BPS table title such as 'Jumlah Sekolah ... Sekolah Dasar (SD) ...'.
+
+    Returns None for titles without a recognized school level so non-school
+    queries (penduduk, luas wilayah, panjang jalan) are unaffected.
+    """
+    if not title:
+        return None
+    match = re.search(r"\(([^)]+)\)", title)
+    if not match:
+        return None
+    token = match.group(1).strip().upper().split()[0]
+    return token if token in SCHOOL_LEVELS else None
+
+
 def _wilayah_payload(groups, wilayah, limit=12):
     payload = []
     for group in groups:
+        # Cap by number of years (keep every row within the selected years)
+        # instead of a raw row limit, otherwise indicators with several
+        # sub-series per year (e.g. Sekolah Jumlah: SD/SMP/SMA/TK/SMK/MA)
+        # silently lose their later years.
+        years = sorted({f.tahun_lengkap for f in group["rows"] if f.tahun_lengkap is not None})
+        selected_years = set(years[-limit:]) if limit else set(years)
+
+        best = {}
+        for fakta in sorted(group["rows"], key=lambda f: (f.tahun_lengkap or 0, f.tabel_id or 0, f.id or 0)):
+            year = fakta.tahun_lengkap
+            if year is None or year not in selected_years:
+                continue
+            subject = _extract_school_level(fakta.tabel.judul) or wilayah.nama
+            # Later tables (higher id) win when a year has overlapping publications.
+            best[(year, subject)] = fakta
+
         observations = []
-        for fakta in sorted(group["rows"], key=lambda f: (f.tahun_lengkap or 0, f.id))[:limit]:
+        for (year, subject), fakta in sorted(best.items(), key=lambda kv: (kv[0][0], kv[0][1])):
             observations.append({
                 "id": fakta.id,
-                "tahun": fakta.tahun_lengkap,
+                "tahun": year,
                 "nilai": float(fakta.nilai_num),
                 "nilai_teks": fakta.nilai_teks,
                 "wilayah_nama": wilayah.nama,
+                "subject_name": subject if subject != wilayah.nama else None,
                 "satuan": getattr(fakta.kolom, 'satuan', '') or getattr(group["indicator"], 'satuan', '') or '',
                 "tabel": {
                     "id": fakta.tabel_id,
