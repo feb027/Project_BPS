@@ -487,6 +487,95 @@ def _quick_rincian_matches(query, limit=12):
     return payload
 
 
+def _quick_school_matches(query, wilayah=None, limit=12):
+    """Resolve school-count queries (e.g. 'jumlah sekolah RA', 'jumlah sekolah SD
+    di singaparna') to the correct 'Jumlah Sekolah ... (LEVEL)' table.
+
+    This bypasses the generic rincian/indicator matchers, which wrongly match
+    'sekolah' to the *rincian* named 'Sekolah' inside the population table
+    (3.2.1: people whose weekly activity is schooling), returning population
+    headcount instead of the school count.
+    """
+    terms = _query_terms(query)
+    school_terms = [t for t in terms if t.upper() in SCHOOL_LEVELS]
+    # Must contain 'sekolah' (or 'murid'/'guru') AND a school level to qualify.
+    has_school_word = any(t in {"sekolah", "murid", "guru", "siswa"} for t in terms)
+    if not (school_terms and has_school_word):
+        return []
+
+    qs = (
+        Fakta.objects.filter(nilai_num__isnull=False)
+        .select_related("kolom__indikator", "tabel", "tabel__bab__publikasi", "wilayah")
+    )
+    if wilayah is not None:
+        qs = qs.filter(wilayah=wilayah)
+    # School counts live in tables titled 'Jumlah Sekolah ... (LEVEL) Menurut
+    # Kecamatan'. Match on the formal level tag inside parentheses (e.g. "(SD)",
+    # "(RA)") rather than a bare icontains, because bare "ra" would also hit
+    # "Rasio"/"Rakyat" in other titles. Build one OR-filter over the exact tags.
+    from django.db.models import Q  # noqa: F401 (already imported at module top)
+    level_filters = Q()
+    for level in school_terms:
+        level_filters |= Q(tabel__judul__icontains=f"({level.upper()})")
+    qs = qs.filter(level_filters)
+    # Prefer the 'Jumlah Sekolah' indicator over Murid/Guru splits.
+    qs = qs.filter(kolom__indikator__nama__icontains="sekolah")
+
+    rows = list(qs.order_by("tabel__bab__publikasi__tahun_terbit", "tahun", "id")[:6000])
+    if not rows:
+        return []
+
+    # Aggregate one row per (year, school-level) keeping the latest publication.
+    by_key = {}
+    for fakta in rows:
+        year = fakta.tahun_lengkap
+        if year is None:
+            continue
+        level = _extract_school_level(fakta.tabel.judul)
+        key = (year, level or "-")
+        current = by_key.get(key)
+        cur_pub = current.tabel.bab.publikasi.tahun_terbit if current else -1
+        if current is None or fakta.tabel.bab.publikasi.tahun_terbit > cur_pub:
+            by_key[key] = fakta
+
+    observations = sorted(
+        (
+            {
+                "id": f.id,
+                "tahun": year,
+                "nilai": float(f.nilai_num),
+                "nilai_teks": f.nilai_teks,
+                "wilayah_nama": f.wilayah.nama if f.wilayah else "Kabupaten Tasikmalaya",
+                "subject_name": level if level and len(school_terms) > 1 else None,
+                "satuan": getattr(f.kolom, "satuan", "") or getattr(f.kolom.indikator, "satuan", "") or "",
+                "tabel": {"id": f.tabel_id, "nomor_tabel": f.tabel.nomor_tabel, "judul": f.tabel.judul},
+            }
+            for (year, level), f in by_key.items()
+        ),
+        key=lambda o: (o["tahun"] or 0, o["subject_name"] or ""),
+    )
+    if not observations:
+        return []
+
+    levels = sorted({o["subject_name"] for o in observations if o.get("subject_name")})
+    display_name = (
+        f"Jumlah Sekolah Raudatul Athfal (RA)"
+        if "RA" in school_terms
+        else f"Jumlah Sekolah ({levels[0]})" if len(levels) == 1 else "Jumlah Sekolah"
+    )
+    wilayah_nama = wilayah.nama if wilayah else "Kabupaten Tasikmalaya"
+    return [
+        {
+            "indicator_id": rows[0].kolom.indikator.id,
+            "indicator_name": display_name,
+            "wilayah": {"id": wilayah.id, "nama": wilayah.nama, "jenis": wilayah.jenis} if wilayah else None,
+            "subject_name": f"{wilayah_nama} ({levels[0]})" if len(levels) == 1 else wilayah_nama,
+            "summary_kind": "aggregate",
+            "observations": observations,
+        }
+    ]
+
+
 def _quick_wilayah_matches(query, wilayah, limit=12):
     """Small answer card for queries like 'penduduk cisayong'."""
     if not wilayah:
@@ -687,11 +776,17 @@ class FacetedSearchAPIView(APIView):
         detected_wilayahs = _detect_wilayahs(query)
         detected_wilayah = detected_wilayahs[0] if detected_wilayahs else None
         search_query = _query_without_wilayahs(query, detected_wilayahs)
-        quick_matches = (
-            _quick_wilayah_matches_for_wilayahs(search_query, detected_wilayahs)
-            if detected_wilayah
-            else (_quick_rincian_matches(search_query) or _quick_topic_matches(search_query))
-        )
+        # School-count queries ('jumlah sekolah RA', 'jumlah sekolah SD di X')
+        # resolve to the correct 'Jumlah Sekolah (LEVEL)' table and take
+        # priority over the generic rincian/indicator matchers, which would
+        # otherwise collide with the population table's 'Sekolah' rincian.
+        quick_matches = _quick_school_matches(search_query, detected_wilayah)
+        if not quick_matches:
+            quick_matches = (
+                _quick_wilayah_matches_for_wilayahs(search_query, detected_wilayahs)
+                if detected_wilayah
+                else (_quick_rincian_matches(search_query) or _quick_topic_matches(search_query))
+            )
 
         if connection.vendor == 'postgresql':
             tabel_qs = Tabel.objects.annotate(
