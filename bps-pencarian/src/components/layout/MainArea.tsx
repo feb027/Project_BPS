@@ -1,5 +1,5 @@
 import { Suspense, lazy } from "react"
-import { Search, FileText, BarChart3, Loader2 } from "lucide-react"
+import { Search, FileText, BarChart3, Loader2, Table2 } from "lucide-react"
 import { useSearch } from "../../lib/api"
 import { InlineTimeSeriesAnswer } from "../features/InlineTimeSeriesAnswer"
 
@@ -11,6 +11,54 @@ interface MainAreaProps {
   query: string
   selectedItem: SelectedItem | null
   setSelectedItem: (item: SelectedItem | null) => void
+}
+
+type EmptyPanelProps = {
+  title: string
+  description: string
+  icon?: "search" | "table" | "loading" | "error"
+}
+
+function EmptyPanel({ title, description, icon = "table" }: EmptyPanelProps) {
+  const Icon = icon === "search" ? Search : icon === "loading" ? Loader2 : Table2
+  const isLoading = icon === "loading"
+  const tone = icon === "error" ? "text-destructive" : "text-muted-foreground"
+
+  return (
+    <section className="rounded-lg border border-border bg-card min-h-[calc(100vh-10rem)] shadow-sm flex flex-col">
+      <div className="border-b border-border px-5 py-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-primary">Jawaban langsung</p>
+        <h3 className="mt-1 text-xl font-semibold text-foreground">Hasil pencarian</h3>
+      </div>
+      <div className="flex-1 rounded-b-lg bg-background/50 p-6">
+        <div className="h-full min-h-[420px] rounded-md border border-dashed border-border bg-muted/20 flex flex-col items-center justify-center text-center px-6">
+          <Icon className={`h-10 w-10 mb-4 ${tone} ${isLoading ? "animate-spin" : ""}`} />
+          <p className="text-lg font-semibold text-foreground">{title}</p>
+          <p className="mt-2 max-w-md text-sm text-muted-foreground">{description}</p>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function RawResultCard({ children, icon, accent = "primary", onClick }: { children: React.ReactNode, icon: React.ReactNode, accent?: "primary" | "accent", onClick: () => void }) {
+  const accentClass = accent === "primary" ? "bg-primary/80" : "bg-accent/80"
+  const iconClass = accent === "primary" ? "bg-secondary/10 text-secondary" : "bg-accent/10 text-accent"
+
+  return (
+    <div
+      onClick={onClick}
+      className="group bg-background border border-border rounded-lg p-5 hover:border-primary/50 hover:shadow-md transition-all duration-200 cursor-pointer flex flex-col gap-4 relative overflow-hidden"
+    >
+      <div className={`absolute top-0 left-0 w-1 h-full ${accentClass} scale-y-0 group-hover:scale-y-100 transition-transform origin-bottom`}></div>
+      <div className="flex items-start gap-4">
+        <div className={`mt-1 h-10 w-10 rounded-md flex items-center justify-center shrink-0 ${iconClass}`}>
+          {icon}
+        </div>
+        <div className="min-w-0 flex-1">{children}</div>
+      </div>
+    </div>
+  )
 }
 
 export function MainArea({ query, selectedItem, setSelectedItem }: MainAreaProps) {
@@ -36,11 +84,27 @@ export function MainArea({ query, selectedItem, setSelectedItem }: MainAreaProps
     ? detectedWilayahs
     : (quickObservationSubjects.length > 0 ? quickObservationSubjects : quickComparisonSubjects)
   const hasDirectAnswer = Boolean(primaryQuickMatch && directAnswerSubject)
-  const hasData = data && (data.tabel?.length > 0 || data.indikator?.length > 0 || quickMatches.length > 0)
+  const resultCount = (data?.tabel?.length ?? 0) + (data?.indikator?.length ?? 0)
+  const hasData = Boolean(data && (resultCount > 0 || quickMatches.length > 0))
+
+  const openIndikator = (id: number, title: string) => setSelectedItem({
+    id,
+    type: 'indikator',
+    title,
+    initialFilter: directAnswerFilter,
+    initialFilters: initialSubjectFilters,
+  })
+
+  const openTabel = (id: number, title: string) => setSelectedItem({
+    id,
+    type: 'tabel',
+    title,
+    initialFilter: directAnswerFilter,
+    initialFilters: initialSubjectFilters,
+  })
 
   return (
     <main className="flex-1 bg-muted/20 overflow-y-auto w-full relative">
-      {/* Header */}
       <header className="h-16 border-b border-border bg-card flex items-center justify-between px-8 sticky top-0 z-10 shadow-sm">
         <div className="flex items-center gap-4">
           <div className="h-8 w-8 rounded bg-primary/10 flex items-center justify-center text-primary">
@@ -50,29 +114,34 @@ export function MainArea({ query, selectedItem, setSelectedItem }: MainAreaProps
         </div>
       </header>
 
-      {/* Content Body */}
       <div className="p-8 max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        
         {query.length < 2 ? (
-          <div className="text-center p-12 border border-dashed border-border rounded-lg bg-card/50">
-            <Search className="h-8 w-8 text-muted-foreground mx-auto mb-4 opacity-50" />
-            <p className="text-muted-foreground">Ketik minimal 2 karakter untuk mulai mencari data publikasi BPS.</p>
-          </div>
+          <EmptyPanel
+            icon="search"
+            title="Belum ada pencarian"
+            description="Ketik nama indikator, rincian, atau wilayah. Area hasil tetap penuh supaya grafik atau tabel berikutnya tidak mengubah tata letak halaman."
+          />
         ) : isLoading ? (
-          <div className="flex items-center justify-center p-12 text-primary">
-            <Loader2 className="h-8 w-8 animate-spin" />
-          </div>
+          <EmptyPanel
+            icon="loading"
+            title="Memuat data"
+            description="Sistem sedang mencari indikator, rincian, dan tabel yang cocok dari database publikasi."
+          />
         ) : error ? (
-          <div className="text-center p-12 text-destructive border border-destructive/20 bg-destructive/5 rounded-lg">
-            Terjadi kesalahan saat memuat data.
-          </div>
+          <EmptyPanel
+            icon="error"
+            title="Gagal memuat data"
+            description="Terjadi kesalahan saat mengambil hasil dari API pencarian. Coba ulangi beberapa saat lagi."
+          />
         ) : !hasData ? (
-          <div className="text-center p-12 border border-border rounded-lg bg-card">
-            <p className="text-muted-foreground">Tidak ditemukan hasil untuk "{query}"</p>
-          </div>
+          <EmptyPanel
+            icon="table"
+            title="Tidak ada data"
+            description={`Tidak ditemukan data untuk "${query}". Coba gunakan kata kunci lain seperti nama indikator, rincian, atau kecamatan.`}
+          />
         ) : (
-          <div className="space-y-8">
-            {hasDirectAnswer && primaryQuickMatch && directAnswerSubject && (
+          <div className="space-y-8 min-h-[calc(100vh-10rem)]">
+            {hasDirectAnswer && primaryQuickMatch && directAnswerSubject ? (
               <InlineTimeSeriesAnswer
                 match={primaryQuickMatch}
                 subjectName={directAnswerSubject}
@@ -84,119 +153,67 @@ export function MainArea({ query, selectedItem, setSelectedItem }: MainAreaProps
                   initialFilters: initialSubjectFilters,
                 })}
               />
+            ) : (
+              <EmptyPanel
+                icon="table"
+                title="Tidak ada data"
+                description="Hasil indikator atau tabel ditemukan, tetapi belum ada observasi numerik yang dapat langsung divisualkan. Buka kandidat di bawah untuk melihat tabel database."
+              />
             )}
 
-            <div className={hasDirectAnswer ? "rounded-lg border border-border bg-card p-4" : "space-y-4"}>
-              {hasDirectAnswer ? (
-                <details>
-                  <summary className="cursor-pointer text-sm font-semibold text-foreground">
-                    Hasil lain dari database ({data.tabel.length + data.indikator.length})
-                  </summary>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    Ini adalah kandidat indikator/tabel mentah dari publikasi: varian laki-laki/perempuan, total, kemiskinan, atau tabel terkait lain. Dibuka hanya kalau jawaban utama belum sesuai.
-                  </p>
+            <div className="rounded-lg border border-border bg-card p-4">
+              <details open={!hasDirectAnswer}>
+                <summary className="cursor-pointer text-sm font-semibold text-foreground">
+                  Hasil lain dari database ({resultCount})
+                </summary>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Kandidat indikator dan tabel mentah dari publikasi. Buka kalau ingin melihat data database selain jawaban utama.
+                </p>
+
+                {resultCount === 0 ? (
+                  <div className="mt-4 rounded-md border border-dashed border-border bg-muted/20 p-8 text-center">
+                    <p className="font-semibold text-foreground">Tidak ada data</p>
+                    <p className="mt-1 text-sm text-muted-foreground">Tidak ada kandidat indikator atau tabel untuk query ini.</p>
+                  </div>
+                ) : (
                   <div className="mt-4 grid grid-cols-1 gap-4">
                     {data.indikator?.map((ind: any) => (
-                      <div key={`ind-${ind.id}`}
-                           onClick={() => setSelectedItem({id: ind.id, type: 'indikator', title: ind.nama, initialFilter: detectedWilayah, initialFilters: initialSubjectFilters})}
-                           className="group bg-background border border-border rounded-lg p-5 hover:border-primary/50 hover:shadow-md transition-all duration-200 cursor-pointer flex flex-col gap-4 relative overflow-hidden">
-                        <div className="absolute top-0 left-0 w-1 h-full bg-primary/80 scale-y-0 group-hover:scale-y-100 transition-transform origin-bottom"></div>
-                        <div className="flex items-start justify-between">
-                          <div className="flex gap-4">
-                            <div className="mt-1 h-10 w-10 rounded-md bg-secondary/10 flex items-center justify-center text-secondary shrink-0">
-                              <BarChart3 className="h-5 w-5" />
-                            </div>
-                            <div>
-                              <h3 className="text-lg font-semibold text-foreground group-hover:text-primary transition-colors">{ind.nama}</h3>
-                              <div className="flex items-center gap-3 mt-1.5">
-                                <span className="inline-flex items-center rounded-full bg-secondary/10 px-2.5 py-0.5 text-xs font-semibold text-secondary">Indikator Strategis</span>
-                                <span className="text-xs text-muted-foreground">Satu Data BPS</span>
-                              </div>
-                            </div>
-                          </div>
+                      <RawResultCard
+                        key={`ind-${ind.id}`}
+                        icon={<BarChart3 className="h-5 w-5" />}
+                        accent="primary"
+                        onClick={() => openIndikator(ind.id, ind.nama)}
+                      >
+                        <h3 className="text-lg font-semibold text-foreground group-hover:text-primary transition-colors">{ind.nama}</h3>
+                        <div className="flex items-center gap-3 mt-1.5">
+                          <span className="inline-flex items-center rounded-full bg-secondary/10 px-2.5 py-0.5 text-xs font-semibold text-secondary">Indikator</span>
+                          <span className="text-xs text-muted-foreground">Klik untuk tabel detail</span>
                         </div>
-                      </div>
+                      </RawResultCard>
                     ))}
 
                     {data.tabel?.map((tab: any) => (
-                      <div key={`tab-${tab.id}`}
-                           onClick={() => setSelectedItem({id: tab.id, type: 'tabel', title: tab.judul, initialFilter: detectedWilayah, initialFilters: initialSubjectFilters})}
-                           className="group bg-background border border-border rounded-lg p-5 hover:border-primary/50 hover:shadow-md transition-all duration-200 cursor-pointer flex flex-col gap-4 relative overflow-hidden">
-                        <div className="absolute top-0 left-0 w-1 h-full bg-accent/80 scale-y-0 group-hover:scale-y-100 transition-transform origin-bottom"></div>
-                        <div className="flex items-start justify-between">
-                          <div className="flex gap-4">
-                            <div className="mt-1 h-10 w-10 rounded-md bg-accent/10 flex items-center justify-center text-accent shrink-0">
-                              <FileText className="h-5 w-5" />
-                            </div>
-                            <div>
-                              <h3 className="text-lg font-semibold text-foreground group-hover:text-primary transition-colors">{tab.judul}</h3>
-                              <div className="flex items-center gap-3 mt-1.5">
-                                <span className="inline-flex items-center rounded-full bg-accent/10 px-2.5 py-0.5 text-xs font-semibold text-accent">Tabel Data</span>
-                              </div>
-                            </div>
-                          </div>
+                      <RawResultCard
+                        key={`tab-${tab.id}`}
+                        icon={<FileText className="h-5 w-5" />}
+                        accent="accent"
+                        onClick={() => openTabel(tab.id, tab.judul)}
+                      >
+                        <h3 className="text-lg font-semibold text-foreground group-hover:text-primary transition-colors">{tab.judul}</h3>
+                        <div className="flex items-center gap-3 mt-1.5">
+                          <span className="inline-flex items-center rounded-full bg-accent/10 px-2.5 py-0.5 text-xs font-semibold text-accent">Tabel Data</span>
+                          {tab.nomor_tabel && <span className="text-xs text-muted-foreground">Tabel {tab.nomor_tabel}</span>}
                         </div>
-                      </div>
+                      </RawResultCard>
                     ))}
                   </div>
-                </details>
-              ) : (
-                <>
-                  <p className="text-sm text-muted-foreground">
-                    Menampilkan <span className="font-semibold text-foreground">{data.tabel.length + data.indikator.length}</span> hasil untuk <span className="font-semibold text-foreground">"{query}"</span>
-                  </p>
-                  <div className="grid grid-cols-1 gap-4">
-                    {data.indikator?.map((ind: any) => (
-                      <div key={`ind-${ind.id}`}
-                           onClick={() => setSelectedItem({id: ind.id, type: 'indikator', title: ind.nama, initialFilter: detectedWilayah, initialFilters: initialSubjectFilters})}
-                           className="group bg-card border border-border rounded-lg p-5 hover:border-primary/50 hover:shadow-md transition-all duration-200 cursor-pointer flex flex-col gap-4 relative overflow-hidden">
-                        <div className="absolute top-0 left-0 w-1 h-full bg-primary/80 scale-y-0 group-hover:scale-y-100 transition-transform origin-bottom"></div>
-                        <div className="flex items-start justify-between">
-                          <div className="flex gap-4">
-                            <div className="mt-1 h-10 w-10 rounded-md bg-secondary/10 flex items-center justify-center text-secondary shrink-0">
-                              <BarChart3 className="h-5 w-5" />
-                            </div>
-                            <div>
-                              <h3 className="text-lg font-semibold text-foreground group-hover:text-primary transition-colors">{ind.nama}</h3>
-                              <div className="flex items-center gap-3 mt-1.5">
-                                <span className="inline-flex items-center rounded-full bg-secondary/10 px-2.5 py-0.5 text-xs font-semibold text-secondary">Indikator Strategis</span>
-                                <span className="text-xs text-muted-foreground">Satu Data BPS</span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-
-                    {data.tabel?.map((tab: any) => (
-                      <div key={`tab-${tab.id}`}
-                           onClick={() => setSelectedItem({id: tab.id, type: 'tabel', title: tab.judul, initialFilter: detectedWilayah, initialFilters: initialSubjectFilters})}
-                           className="group bg-card border border-border rounded-lg p-5 hover:border-primary/50 hover:shadow-md transition-all duration-200 cursor-pointer flex flex-col gap-4 relative overflow-hidden">
-                        <div className="absolute top-0 left-0 w-1 h-full bg-accent/80 scale-y-0 group-hover:scale-y-100 transition-transform origin-bottom"></div>
-                        <div className="flex items-start justify-between">
-                          <div className="flex gap-4">
-                            <div className="mt-1 h-10 w-10 rounded-md bg-accent/10 flex items-center justify-center text-accent shrink-0">
-                              <FileText className="h-5 w-5" />
-                            </div>
-                            <div>
-                              <h3 className="text-lg font-semibold text-foreground group-hover:text-primary transition-colors">{tab.judul}</h3>
-                              <div className="flex items-center gap-3 mt-1.5">
-                                <span className="inline-flex items-center rounded-full bg-accent/10 px-2.5 py-0.5 text-xs font-semibold text-accent">Tabel Data</span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
+                )}
+              </details>
             </div>
           </div>
         )}
       </div>
 
-      {/* Chart Modal (Lazy Loaded) */}
       {selectedItem && (
         <Suspense fallback={<div className="absolute inset-0 bg-background/50 flex items-center justify-center"><Loader2 className="animate-spin" /></div>}>
           <ChartModal item={selectedItem} onClose={() => setSelectedItem(null)} />

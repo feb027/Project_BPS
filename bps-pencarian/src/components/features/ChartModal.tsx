@@ -1,29 +1,41 @@
-import { useMemo, useRef, useState } from "react"
-import { X, Download, FileText, Loader2 } from "lucide-react"
-import {
-  ResponsiveContainer, LineChart, CartesianGrid, XAxis, YAxis, Tooltip, Line, Legend
-} from "recharts"
+import { useMemo, useState } from "react"
+import { X, Loader2, Table2 } from "lucide-react"
 import { useTimeSeries } from "../../lib/api"
-import * as XLSX from "xlsx"
-import html2canvas from "html2canvas"
-import jsPDF from "jspdf"
 
 interface ChartModalProps {
   item: {id: number, type: 'tabel' | 'indikator', title: string, initialFilter?: string, initialFilters?: string[]}
   onClose: () => void
 }
 
+function cleanSubjectLabel(value: string) {
+  const withoutGroup = value.replace(/^\[[^\]]+\]\s*/, "").replace(/^[a-z]\.?\s+/i, "")
+  const primary = withoutGroup.split("/")[0].trim()
+  return primary.toLowerCase() === "diaspal" ? "Aspal" : (primary || value)
+}
+
 function getSubjectName(row: any) {
+  const subject = row.subject_name
   const wilayah = row.wilayah_nama || row.wilayah?.nama
   const rincian = row.rincian_nama
-  if (wilayah && wilayah !== "-") return wilayah
-  if (rincian && rincian !== "-") return rincian
-  return row.subject?.name || "Indonesia"
+  if (subject && subject !== "-") return cleanSubjectLabel(String(subject))
+  if (rincian && rincian !== "-") return cleanSubjectLabel(String(rincian))
+  if (wilayah && wilayah !== "-") return cleanSubjectLabel(String(wilayah))
+  return row.subject?.name ? cleanSubjectLabel(String(row.subject.name)) : "Indonesia"
+}
+
+function formatIndonesianNumber(value: number | string | null | undefined) {
+  if (value === null || value === undefined || value === "") return "-"
+  const numeric = Number(value)
+  if (Number.isNaN(numeric)) return String(value)
+  return new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(numeric)
+}
+
+function getValue(row: any) {
+  return row.nilai ?? row.nilai_num
 }
 
 export function ChartModal({ item, onClose }: ChartModalProps) {
   const { data, isLoading, error } = useTimeSeries(item.id, item.type)
-  const chartRef = useRef<HTMLDivElement>(null)
   const initialSubjects = item.initialFilters?.length ? item.initialFilters : (item.initialFilter ? [item.initialFilter] : [])
   const [subjectFilter, setSubjectFilter] = useState("")
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>(initialSubjects)
@@ -33,21 +45,6 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
     return Array.isArray(data) ? data : data.observations ?? []
   }, [data])
 
-  const rows = useMemo(() => {
-    const selected = new Set(selectedSubjects.map((subject) => subject.toLowerCase()))
-    if (selected.size > 0) {
-      return allRows.filter((row: any) => selected.has(String(getSubjectName(row)).toLowerCase()))
-    }
-
-    const filter = subjectFilter.trim().toLowerCase()
-    if (filter) {
-      return allRows.filter((row: any) => String(getSubjectName(row)).toLowerCase().includes(filter))
-    }
-
-    const subjectCount = new Set(allRows.map((row: any) => getSubjectName(row))).size
-    return subjectCount > 12 ? [] : allRows
-  }, [allRows, selectedSubjects, subjectFilter])
-
   const allSubjects = useMemo(() => {
     const result = new Set<string>()
     allRows.forEach((row: any) => {
@@ -56,12 +53,31 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
     return Array.from(result).sort((a, b) => a.localeCompare(b))
   }, [allRows])
 
-  const requiresFilter = selectedSubjects.length === 0 && !subjectFilter.trim() && allSubjects.length > 12
   const matchingSubjects = useMemo(() => {
     const filter = subjectFilter.trim().toLowerCase()
     if (!filter) return allSubjects.slice(0, 40)
     return allSubjects.filter((subject) => subject.toLowerCase().includes(filter)).slice(0, 40)
   }, [allSubjects, subjectFilter])
+
+  const rows = useMemo(() => {
+    const selected = new Set(selectedSubjects.map((subject) => subject.toLowerCase()))
+    const sortedRows = [...allRows].sort((a: any, b: any) => {
+      const subjectDiff = getSubjectName(a).localeCompare(getSubjectName(b))
+      if (subjectDiff !== 0) return subjectDiff
+      return Number(a.tahun ?? 0) - Number(b.tahun ?? 0)
+    })
+
+    if (selected.size > 0) {
+      return sortedRows.filter((row: any) => selected.has(String(getSubjectName(row)).toLowerCase()))
+    }
+
+    const filter = subjectFilter.trim().toLowerCase()
+    if (filter) {
+      return sortedRows.filter((row: any) => String(getSubjectName(row)).toLowerCase().includes(filter))
+    }
+
+    return sortedRows
+  }, [allRows, selectedSubjects, subjectFilter])
 
   const toggleSubject = (subject: string) => {
     setSelectedSubjects((current) =>
@@ -79,93 +95,48 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
     }
   }
 
-  // Vercel Best Practice: useMemo for expensive data transformations before rendering charts
-  const chartData = useMemo(() => {
-    const grouped = rows.reduce((acc: any, row: any) => {
-      const year = row.tahun
-      if (!acc[year]) acc[year] = { tahun: year }
-
-      const subject = getSubjectName(row)
-      acc[year][subject] = Number(row.nilai ?? row.nilai_num)
-      return acc
-    }, {})
-
-    return Object.values(grouped).sort((a: any, b: any) => a.tahun - b.tahun)
-  }, [rows])
-
-  // Get unique subjects to plot multiple lines
-  const subjects = useMemo(() => {
-    const result = new Set<string>()
-    rows.forEach((row: any) => {
-      result.add(getSubjectName(row))
-    })
-    return Array.from(result)
-  }, [rows])
-
-  const colors = ["#2563eb", "#ea580c", "#16a34a", "#ca8a04", "#9333ea"] // BPS & nice colors
-
-  const handleExportExcel = () => {
-    if (!rows.length) return
-    const worksheet = XLSX.utils.json_to_sheet(rows)
-    const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Data")
-    XLSX.writeFile(workbook, `Data_${item.title.substring(0, 30)}.xlsx`)
-  }
-
-  const handleExportPDF = async () => {
-    if (!chartRef.current) return
-    const canvas = await html2canvas(chartRef.current, { scale: 2 })
-    const imgData = canvas.toDataURL("image/png")
-    const pdf = new jsPDF("landscape", "mm", "a4")
-    const pdfWidth = pdf.internal.pageSize.getWidth()
-    const pdfHeight = (canvas.height * pdfWidth) / canvas.width
-
-    pdf.setFontSize(16)
-    pdf.text(item.title, 15, 15)
-    pdf.addImage(imgData, "PNG", 15, 25, pdfWidth - 30, pdfHeight - 20)
-    pdf.save(`Grafik_${item.title.substring(0, 30)}.pdf`)
-  }
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
       <div className="absolute inset-0 bg-background/80" onClick={onClose}></div>
-      <div className="relative bg-card border border-border shadow-lg rounded-md w-full max-w-5xl h-[85vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
-
-        {/* Header */}
+      <div className="relative bg-card border border-border shadow-lg rounded-md w-full max-w-6xl h-[88vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-          <h2 className="text-xl font-semibold text-foreground pr-8 truncate" title={item.title}>
-            {item.title}
-          </h2>
+          <div className="min-w-0 pr-12">
+            <p className="text-xs font-semibold uppercase tracking-wide text-primary">Tabel data dari database</p>
+            <h2 className="mt-1 text-xl font-semibold text-foreground truncate" title={item.title}>
+              {item.title}
+            </h2>
+          </div>
           <button
             onClick={onClose}
             className="h-8 w-8 rounded-md flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors absolute right-4"
+            aria-label="Tutup detail"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Body */}
-        <div className="flex-1 overflow-auto p-6 flex flex-col gap-6">
+        <div className="flex-1 overflow-auto p-6 flex flex-col gap-5">
           {isLoading ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-primary">
+            <div className="flex-1 min-h-[420px] flex flex-col items-center justify-center text-primary rounded-md border border-dashed border-border bg-muted/20">
               <Loader2 className="h-10 w-10 animate-spin mb-4" />
-              <p className="text-sm font-medium animate-pulse">Memuat data time-series…</p>
+              <p className="text-sm font-medium animate-pulse">Memuat tabel data…</p>
             </div>
           ) : error ? (
-            <div className="flex-1 flex items-center justify-center text-destructive">
-              Gagal memuat data.
+            <div className="flex-1 min-h-[420px] flex items-center justify-center text-destructive rounded-md border border-destructive/20 bg-destructive/5">
+              Gagal memuat data dari database.
             </div>
           ) : allRows.length === 0 ? (
-            <div className="flex-1 flex items-center justify-center text-muted-foreground">
-              Tidak ada data observasi untuk {item.type} ini.
+            <div className="flex-1 min-h-[420px] flex flex-col items-center justify-center rounded-md border border-dashed border-border bg-muted/20 text-center">
+              <Table2 className="h-9 w-9 text-muted-foreground mb-3" />
+              <p className="text-base font-semibold text-foreground">Tidak ada data</p>
+              <p className="mt-1 text-sm text-muted-foreground">Database belum memiliki observasi untuk pilihan ini.</p>
             </div>
           ) : (
             <>
-              {/* Toolbar */}
               <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                 <div className="w-full lg:max-w-xl">
                   <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide" htmlFor="subject-filter">
-                    Pilih seri grafik
+                    Filter seri tabel
                   </label>
                   <div className="mt-2 flex gap-2">
                     <input
@@ -179,7 +150,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                           addFirstMatchingSubject()
                         }
                       }}
-                      placeholder="Cari lalu tambah: Cisayong, Ciawi"
+                      placeholder="Cari seri: Aspal, Kerikil, Cisayong"
                       className="min-w-0 flex-1 h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     />
                     <button
@@ -203,7 +174,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                           type="button"
                           onClick={() => toggleSubject(subject)}
                           className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary hover:bg-primary/15"
-                          title="Klik untuk hapus dari grafik"
+                          title="Klik untuk hapus dari tabel"
                         >
                           {subject}
                           <span aria-hidden="true">×</span>
@@ -214,7 +185,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                         onClick={() => setSelectedSubjects([])}
                         className="rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-muted"
                       >
-                        Bersihkan
+                        Tampilkan semua
                       </button>
                     </div>
                   )}
@@ -233,84 +204,49 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                       ))}
                     </div>
                   )}
-
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {requiresFilter
-                      ? `Pilih satu atau beberapa kecamatan/rincian dulu. Dataset ini punya ${allSubjects.length} seri, jadi tidak dirender semua agar grafik tetap ringan.`
-                      : `Menampilkan ${subjects.length} seri / ${rows.length} observasi dari ${allRows.length} observasi.`}
-                  </p>
                 </div>
 
-                <div className="flex items-center justify-end gap-3">
-                  <button
-                    onClick={handleExportExcel}
-                    disabled={rows.length === 0}
-                    className="h-9 px-4 inline-flex items-center justify-center gap-2 rounded-md bg-secondary/10 text-secondary text-sm font-medium hover:bg-secondary/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <FileText className="h-4 w-4" />
-                    Unduh Excel
-                  </button>
-                  <button
-                    onClick={handleExportPDF}
-                    disabled={rows.length === 0}
-                    className="h-9 px-4 inline-flex items-center justify-center gap-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <Download className="h-4 w-4" />
-                    Cetak PDF
-                  </button>
+                <div className="rounded-md border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+                  <span className="font-semibold text-foreground">{rows.length}</span> baris ditampilkan dari <span className="font-semibold text-foreground">{allRows.length}</span> baris database
                 </div>
               </div>
 
-              {rows.length === 0 && (
-                <div className="rounded-md border border-dashed border-border bg-muted/30 p-6 text-sm text-muted-foreground">
-                  {requiresFilter
-                    ? "Data ini punya banyak seri. Pilih satu atau beberapa kecamatan/rincian dulu supaya grafik tidak berat dan tidak berantakan. Contoh: Cisayong dan Ciawi."
-                    : "Tidak ada baris yang cocok. Coba cari lalu tambah nama wilayah lain dari daftar, misalnya Cisayong, Ciawi, atau Singaparna."}
+              {rows.length === 0 ? (
+                <div className="flex-1 min-h-[360px] flex flex-col items-center justify-center rounded-md border border-dashed border-border bg-muted/20 text-center">
+                  <Table2 className="h-9 w-9 text-muted-foreground mb-3" />
+                  <p className="text-base font-semibold text-foreground">Tidak ada data</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Tidak ada baris yang cocok dengan filter seri saat ini.</p>
+                </div>
+              ) : (
+                <div className="rounded-md border border-border bg-background overflow-hidden">
+                  <div className="max-h-[58vh] overflow-auto">
+                    <table className="w-full min-w-[760px] text-sm">
+                      <thead className="sticky top-0 bg-background z-10 shadow-[0_1px_0_hsl(var(--border))]">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tahun</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Seri</th>
+                          <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Nilai</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Rincian</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Wilayah</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((row: any) => (
+                          <tr key={row.id} className="border-b border-border last:border-0 hover:bg-muted/30">
+                            <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.tahun ?? "-"}</td>
+                            <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap">{getSubjectName(row)}</td>
+                            <td className="px-4 py-3 text-right font-semibold text-foreground whitespace-nowrap">{formatIndonesianNumber(getValue(row))}</td>
+                            <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.rincian_nama && row.rincian_nama !== "-" ? row.rincian_nama : "-"}</td>
+                            <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.wilayah_nama && row.wilayah_nama !== "-" ? row.wilayah_nama : "-"}</td>
+                            <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.flag || "ada"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
-
-              {/* Chart */}
-              {rows.length > 0 && <div className="flex-1 min-h-[400px] border border-border rounded-lg p-4 bg-background" ref={chartRef}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                    <XAxis
-                      dataKey="tahun"
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
-                      dy={10}
-                    />
-                    <YAxis
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
-                      dx={-10}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "hsl(var(--card))",
-                        borderColor: "hsl(var(--border))",
-                        color: "hsl(var(--foreground))",
-                        borderRadius: "0.5rem",
-                        boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)"
-                      }}
-                    />
-                    <Legend wrapperStyle={{ paddingTop: "20px" }} />
-                    {subjects.map((subject, idx) => (
-                      <Line
-                        key={subject}
-                        type="monotone"
-                        dataKey={subject}
-                        stroke={colors[idx % colors.length]}
-                        strokeWidth={3}
-                        activeDot={{ r: 6, strokeWidth: 0 }}
-                        dot={{ r: 4, strokeWidth: 0 }}
-                      />
-                    ))}
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>}
             </>
           )}
         </div>
