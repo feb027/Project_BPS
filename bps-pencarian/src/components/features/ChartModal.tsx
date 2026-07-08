@@ -1,5 +1,5 @@
 import { useMemo, useState, useCallback } from "react"
-import { X, Loader2, Table2, LineChart as LineIcon, BarChart3, ChevronDown, Check } from "lucide-react"
+import { X, Loader2, Table2, LineChart as LineIcon, BarChart3, ChevronDown, Check, ListTree } from "lucide-react"
 import { ResponsiveContainer, LineChart, CartesianGrid, XAxis, YAxis, Tooltip, Legend, Line } from "recharts"
 import { useTimeSeries, useCatalogSeries, type CatalogSeriesRow } from "../../lib/api"
 
@@ -33,18 +33,47 @@ const chartColors = [
   "#0e7490", "#be185d", "#047857", "#b45309", "#4f46e5",
 ]
 
+// Normalize unit case so "Jiwa" and "jiwa" merge into one indicator.
+function normUnit(unit: string | undefined) {
+  const u = (unit || "").trim().toLowerCase()
+  return u === "none" ? "" : u
+}
+
 function metricKey(row: CatalogSeriesRow) {
-  const unit = row.unit && row.unit !== "-" ? row.unit : ""
+  const unit = normUnit(row.unit)
   return `${row.subject_name}${unit ? ` (${unit})` : ""}`
 }
 
+// The dimension along which rows are split into separate lines.
+type Dimension = "wilayah" | "rincian"
+
+function dimensionValue(row: CatalogSeriesRow, dim: Dimension) {
+  return dim === "wilayah" ? row.wilayah_nama : row.rincian_nama
+}
+
+const TRIVIAL_RINCIAN = new Set(["jumlah", "total"])
+
+function isTrivial(dim: Dimension, value: string) {
+  if (!value || value === "-") return true
+  if (dim === "rincian" && TRIVIAL_RINCIAN.has(value.toLowerCase())) return true
+  return false
+}
+
+const DIM_LABEL: Record<Dimension, string> = { wilayah: "Wilayah", rincian: "Rincian" }
+
 // Persist chart selection per table (nomor_tabel) so the user's last choice
-// (indicator + kecamatan) is remembered next time they open the same table.
+// (indicator + dimension + selected members) is remembered next time.
 function storageKeyFor(item: ChartModalProps["item"]) {
   return item.nomor_tabel ? `bps_chart_sel_${item.nomor_tabel}` : `bps_chart_sel_id_${item.id ?? "x"}`
 }
 
-function loadSavedSelection(item: ChartModalProps["item"]): { metric?: string; wilayah?: string[] } | null {
+interface SavedSelection {
+  dimension?: Dimension
+  metric?: string
+  sel?: { wilayah?: string[]; rincian?: string[] }
+}
+
+function loadSavedSelection(item: ChartModalProps["item"]): SavedSelection | null {
   try {
     const raw = typeof localStorage !== "undefined" ? localStorage.getItem(storageKeyFor(item)) : null
     if (!raw) return null
@@ -56,10 +85,10 @@ function loadSavedSelection(item: ChartModalProps["item"]): { metric?: string; w
   return null
 }
 
-function saveSelection(item: ChartModalProps["item"], metric: string, wilayah: string[]) {
+function saveSelection(item: ChartModalProps["item"], sel: SavedSelection) {
   try {
     if (typeof localStorage !== "undefined") {
-      localStorage.setItem(storageKeyFor(item), JSON.stringify({ metric, wilayah }))
+      localStorage.setItem(storageKeyFor(item), JSON.stringify(sel))
     }
   } catch {
     /* ignore quota / private mode errors */
@@ -82,7 +111,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
 
   // --- Derived facets ---
   const metrics = useMemo(() => {
-    const s = new Map<string, string>() // key -> display label
+    const s = new Map<string, string>()
     allRows.forEach((r) => {
       const k = metricKey(r)
       if (!s.has(k)) s.set(k, k)
@@ -90,113 +119,180 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
     return Array.from(s.values()).sort()
   }, [allRows])
 
-  const allWilayah = useMemo(() => {
-    const s = new Set<string>()
-    allRows.forEach((r) => {
-      const w = r.wilayah_nama
-      if (w && w !== "-") s.add(w)
-    })
-    return Array.from(s).sort()
-  }, [allRows])
+  const wilayahValues = useMemo(
+    () => Array.from(new Set(allRows.map((r) => r.wilayah_nama).filter((v) => v && v !== "-"))).sort(),
+    [allRows]
+  )
+  const rincianValues = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          allRows
+            .map((r) => r.rincian_nama)
+            .filter((v) => v && v !== "-" && !TRIVIAL_RINCIAN.has(v.toLowerCase()))
+        )
+      ).sort(),
+    [allRows]
+  )
+
+  const availableDims: Dimension[] = useMemo(() => {
+    const dims: Dimension[] = []
+    if (wilayahValues.length > 1) dims.push("wilayah")
+    if (rincianValues.length > 1) dims.push("rincian")
+    return dims
+  }, [wilayahValues, rincianValues])
 
   // --- Selection state (initialized from saved localStorage if present) ---
   const savedRef = useMemo(() => loadSavedSelection(item), [item])
-  const [selectedMetric, setSelectedMetric] = useState<string>(() => savedRef?.metric && metrics.includes(savedRef.metric) ? savedRef.metric : (metrics[0] ?? ""))
-  const [selectedWilayah, setSelectedWilayah] = useState<Set<string>>(() => {
-    const saved = savedRef?.wilayah
-    if (Array.isArray(saved) && saved.length > 0) {
-      return new Set(saved.filter((w) => allWilayah.includes(w)))
+  const [selectedMetric, setSelectedMetric] = useState<string>(() => {
+    const saved = savedRef?.metric
+    return saved && metrics.includes(saved) ? saved : metrics[0] ?? ""
+  })
+  const [dimension, setDimension] = useState<Dimension>(() => {
+    const saved = savedRef?.dimension
+    if (saved && availableDims.includes(saved)) return saved
+    // default to the richer dimension
+    if (rincianValues.length >= wilayahValues.length && availableDims.includes("rincian")) return "rincian"
+    return availableDims[0] ?? "wilayah"
+  })
+  const dimValues = dimension === "wilayah" ? wilayahValues : rincianValues
+
+  const [selectedDim, setSelectedDim] = useState<Set<string>>(() => {
+    const savedSel = savedRef?.sel?.[dimension]
+    if (Array.isArray(savedSel) && savedSel.length > 0) {
+      return new Set(savedSel.filter((v) => dimValues.includes(v)))
+    }
+    // legacy: old wilayah-only save (pre-dimension refactor)
+    if (dimension === "wilayah" && Array.isArray((savedRef as any)?.wilayah)) {
+      return new Set((savedRef as any).wilayah.filter((v: string) => dimValues.includes(v)))
     }
     return new Set()
   })
-  const [wilayahDropdownOpen, setWilayahDropdownOpen] = useState(false)
-  // Tracks whether a real saved selection existed, so we don't auto-overwrite it.
-  const [hasSaved] = useState<boolean>(() => Boolean(savedRef && (savedRef.metric || (Array.isArray(savedRef.wilayah) && savedRef.wilayah.length > 0))))
+  const [dimDropdownOpen, setDimDropdownOpen] = useState(false)
+  const [hasSaved] = useState<boolean>(() =>
+    Boolean(savedRef && (savedRef.metric || (savedRef.sel && (savedRef.sel.wilayah?.length || savedRef.sel.rincian?.length))))
+  )
 
   // Auto-select defaults only when there is NO saved selection.
   const [hasAutoSelected, setHasAutoSelected] = useState(false)
   useMemo(() => {
-    if (hasAutoSelected || hasSaved || metrics.length === 0) return
+    if (hasAutoSelected || hasSaved || metrics.length === 0 || dimValues.length === 0) return
     const best = metrics.reduce((a, b) => {
       const countA = allRows.filter((r) => metricKey(r) === a).length
       const countB = allRows.filter((r) => metricKey(r) === b).length
       return countA >= countB ? a : b
     }, metrics[0])
     setSelectedMetric(best)
-    const metricRows = allRows.filter((r) => metricKey(r) === best)
-    const wilCounts = new Map<string, number>()
+    const metricRows = allRows.filter((r) => metricKey(r) === best && !isTrivial(dimension, dimensionValue(r, dimension)))
+    const counts = new Map<string, number>()
     metricRows.forEach((r) => {
-      const w = r.wilayah_nama
-      if (w && w !== "-") wilCounts.set(w, (wilCounts.get(w) ?? 0) + 1)
+      const v = dimensionValue(r, dimension)
+      if (v && v !== "-") counts.set(v, (counts.get(v) ?? 0) + 1)
     })
-    const top = Array.from(wilCounts.entries())
+    const top = Array.from(counts.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
-      .map(([w]) => w)
-    if (wilCounts.has("Kabupaten Tasikmalaya") && !top.includes("Kabupaten Tasikmalaya")) {
+      .map(([v]) => v)
+    if (dimension === "wilayah" && counts.has("Kabupaten Tasikmalaya") && !top.includes("Kabupaten Tasikmalaya")) {
       top.push("Kabupaten Tasikmalaya")
     }
-    setSelectedWilayah(new Set(top))
+    setSelectedDim(new Set(top))
     setHasAutoSelected(true)
-  }, [metrics, allRows, hasAutoSelected, hasSaved])
+  }, [metrics, allRows, hasAutoSelected, hasSaved, dimension, dimValues])
 
-  const persist = useCallback((metric: string, wilayah: Set<string>) => {
-    saveSelection(item, metric, Array.from(wilayah).sort())
-  }, [item])
+  const persist = useCallback(
+    (nextMetric: string, nextDim: Dimension, nextSel: Set<string>) => {
+      saveSelection(item, {
+        dimension: nextDim,
+        metric: nextMetric,
+        sel: { ...(savedRef?.sel ?? {}), [nextDim]: Array.from(nextSel).sort() },
+      })
+    },
+    [item, savedRef]
+  )
 
-  const metricChanged = useCallback((newMetric: string) => {
-    setSelectedMetric(newMetric)
-    setWilayahDropdownOpen(false)
-    persist(newMetric, selectedWilayah)
-  }, [persist, selectedWilayah])
+  const metricChanged = useCallback(
+    (newMetric: string) => {
+      setSelectedMetric(newMetric)
+      setDimDropdownOpen(false)
+      persist(newMetric, dimension, selectedDim)
+    },
+    [persist, dimension, selectedDim]
+  )
 
-  const toggleWilayah = useCallback((w: string) => {
-    setSelectedWilayah((prev) => {
-      const next = new Set(prev)
-      if (next.has(w)) next.delete(w)
-      else next.add(w)
-      persist(selectedMetric, next)
-      return next
-    })
-  }, [persist, selectedMetric])
+  const dimensionChanged = useCallback(
+    (newDim: Dimension) => {
+      setDimension(newDim)
+      const newValues = newDim === "wilayah" ? wilayahValues : rincianValues
+      const savedSel = savedRef?.sel?.[newDim]
+      const initial =
+        Array.isArray(savedSel) && savedSel.length > 0
+          ? new Set(savedSel.filter((v) => newValues.includes(v)))
+          : new Set<string>()
+      setSelectedDim(initial)
+      persist(selectedMetric, newDim, initial)
+    },
+    [persist, savedRef, selectedMetric, wilayahValues, rincianValues]
+  )
 
-  const selectAllWilayah = useCallback(() => {
-    setSelectedWilayah(new Set(allWilayah))
-    persist(selectedMetric, new Set(allWilayah))
-  }, [persist, selectedMetric, allWilayah])
+  const toggleDim = useCallback(
+    (v: string) => {
+      setSelectedDim((prev) => {
+        const next = new Set(prev)
+        if (next.has(v)) next.delete(v)
+        else next.add(v)
+        persist(selectedMetric, dimension, next)
+        return next
+      })
+    },
+    [persist, selectedMetric, dimension]
+  )
 
-  const clearAllWilayah = useCallback(() => {
-    setSelectedWilayah(new Set())
-    persist(selectedMetric, new Set())
-  }, [persist, selectedMetric])
+  const selectAllDim = useCallback(() => {
+    setSelectedDim(new Set(dimValues))
+    persist(selectedMetric, dimension, new Set(dimValues))
+  }, [persist, selectedMetric, dimension, dimValues])
 
-  // --- Chart data: pivot by (year × kecamatan) ---
+  const clearAllDim = useCallback(() => {
+    setSelectedDim(new Set())
+    persist(selectedMetric, dimension, new Set())
+  }, [persist, selectedMetric, dimension])
+
+  // --- Chart data: pivot by (year × dimension value) ---
   const chartData = useMemo(() => {
     const metricRows = allRows.filter((r) => metricKey(r) === selectedMetric)
     const byYear: Record<string, Record<string, number | null>> = {}
-    const selected = selectedWilayah
+    const selected = selectedDim
 
     metricRows.forEach((row) => {
-      const wil = row.wilayah_nama || "-"
-      if (selected.size > 0 && !selected.has(wil)) return
+      const dim = dimensionValue(row, dimension)
+      if (isTrivial(dimension, dim)) return
+      if (selected.size > 0 && !selected.has(dim)) return
       const year = String(row.tahun ?? "")
       if (!byYear[year]) byYear[year] = { tahun: Number(row.tahun) }
-      byYear[year][wil] = Number(getValue(row))
+      byYear[year][dim] = Number(getValue(row))
     })
 
-    const lines = selected.size > 0
-      ? Array.from(selected).sort()
-      : // fallback: all wilayah in this metric (limit to 8 for readability)
-        Array.from(new Set(metricRows.map((r) => r.wilayah_nama || "-"))).sort().slice(0, 8)
+    const lines =
+      selected.size > 0
+        ? Array.from(selected).sort()
+        : // fallback: all dimension values in this metric (limit to 8 for readability)
+          Array.from(
+            new Set(
+              metricRows
+                .map((r) => dimensionValue(r, dimension))
+                .filter((v) => !isTrivial(dimension, v))
+            )
+          ).sort().slice(0, 8)
 
     return {
       points: Object.values(byYear).sort((a, b) => Number(a.tahun) - Number(b.tahun)),
       lines,
     }
-  }, [allRows, selectedMetric, selectedWilayah])
+  }, [allRows, selectedMetric, selectedDim, dimension])
 
   const hasRows = allRows.length > 0
-  const metricUnit = allRows.find((r) => metricKey(r) === selectedMetric)?.unit
+  const metricUnit = normUnit(allRows.find((r) => metricKey(r) === selectedMetric)?.unit)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
@@ -276,29 +372,47 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                   </div>
                 )}
 
-                {/* Kecamatan multi-select */}
-                {allWilayah.length > 0 && (
+                {/* Dimension selector (Wilayah / Rincian) */}
+                {availableDims.length > 1 && (
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Dimensi:</label>
+                    <div className="flex items-center gap-1 rounded-md border border-border bg-background p-1">
+                      {availableDims.map((dim) => (
+                        <button
+                          key={dim}
+                          type="button"
+                          onClick={() => dimensionChanged(dim)}
+                          className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition-colors ${dimension === dim ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                        >
+                          {dim === "rincian" && <ListTree className="h-3.5 w-3.5" />}
+                          {DIM_LABEL[dim]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Dimension member multi-select */}
+                {dimValues.length > 0 && (
                   <div className="relative">
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation()
-                        setWilayahDropdownOpen(!wilayahDropdownOpen)
+                        setDimDropdownOpen(!dimDropdownOpen)
                       }}
                       className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition-colors"
                     >
-                      Kecamatan ({selectedWilayah.size}/{allWilayah.length})
-                      <ChevronDown className={`h-3.5 w-3.5 transition-transform ${wilayahDropdownOpen ? "rotate-180" : ""}`} />
+                      {DIM_LABEL[dimension]} ({selectedDim.size}/{dimValues.length})
+                      <ChevronDown className={`h-3.5 w-3.5 transition-transform ${dimDropdownOpen ? "rotate-180" : ""}`} />
                     </button>
-                    {wilayahDropdownOpen && (
+                    {dimDropdownOpen && (
                       <>
-                        {/* Backdrop closes the dropdown when clicking outside the panel.
-                            It sits first so a click on the panel never reaches it. */}
                         <div
                           className="fixed inset-0 z-40"
                           onClick={(e) => {
                             e.stopPropagation()
-                            setWilayahDropdownOpen(false)
+                            setDimDropdownOpen(false)
                           }}
                         />
                         <div
@@ -307,30 +421,30 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                           onMouseDown={(e) => e.stopPropagation()}
                         >
                           <div className="flex items-center justify-between border-b border-border px-3 py-2">
-                            <span className="text-xs font-semibold text-foreground">Pilih Kecamatan</span>
+                            <span className="text-xs font-semibold text-foreground">Pilih {DIM_LABEL[dimension]}</span>
                             <div className="flex gap-2">
-                              <button onClick={selectAllWilayah} className="text-[10px] font-semibold text-primary hover:underline">Semua</button>
-                              <button onClick={clearAllWilayah} className="text-[10px] font-semibold text-muted-foreground hover:underline">Hapus</button>
+                              <button onClick={selectAllDim} className="text-[10px] font-semibold text-primary hover:underline">Semua</button>
+                              <button onClick={clearAllDim} className="text-[10px] font-semibold text-muted-foreground hover:underline">Hapus</button>
                             </div>
                           </div>
                           <div className="overflow-auto max-h-[240px] p-2">
-                            {allWilayah.map((w) => {
-                              const checked = selectedWilayah.has(w)
+                            {dimValues.map((v) => {
+                              const checked = selectedDim.has(v)
                               return (
                                 <div
-                                  key={w}
+                                  key={v}
                                   role="button"
                                   tabIndex={0}
                                   aria-pressed={checked}
                                   onClick={(e) => {
                                     e.stopPropagation()
-                                    toggleWilayah(w)
+                                    toggleDim(v)
                                   }}
                                   onKeyDown={(e) => {
                                     if (e.key === "Enter" || e.key === " ") {
                                       e.preventDefault()
                                       e.stopPropagation()
-                                      toggleWilayah(w)
+                                      toggleDim(v)
                                     }
                                   }}
                                   className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50 cursor-pointer text-xs select-none"
@@ -338,7 +452,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                                   <span className={`h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors ${checked ? "bg-primary border-primary" : "border-border bg-background"}`}>
                                     {checked && <Check className="h-3 w-3 text-primary-foreground" />}
                                   </span>
-                                  <span className="text-foreground">{w}</span>
+                                  <span className="text-foreground">{v}</span>
                                 </div>
                               )
                             })}
@@ -355,7 +469,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                 <div className="rounded-md border border-border bg-background p-4 min-h-[440px] flex-1">
                   {chartData.lines.length === 0 ? (
                     <div className="h-full min-h-[400px] flex items-center justify-center text-muted-foreground text-sm">
-                      Pilih minimal satu kecamatan untuk menampilkan grafik.
+                      Pilih minimal satu {DIM_LABEL[dimension].toLowerCase()} untuk menampilkan grafik.
                     </div>
                   ) : (
                     <ResponsiveContainer width="100%" height="100%">
@@ -375,7 +489,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                           tickFormatter={(value) => formatIndonesianNumber(value)}
                         />
                         <Tooltip
-                          formatter={(value, name) => [`${formatIndonesianNumber(value as number)}${metricUnit && metricUnit !== "-" ? ` ${metricUnit}` : ""}`, String(name)]}
+                          formatter={(value, name) => [`${formatIndonesianNumber(value as number)}${metricUnit ? ` ${metricUnit}` : ""}`, String(name)]}
                           labelFormatter={(label) => `Tahun ${label}`}
                           contentStyle={{
                             backgroundColor: "hsl(var(--card))",
@@ -410,7 +524,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                       <thead className="sticky top-0 bg-background z-10 shadow-[0_1px_0_hsl(var(--border))]">
                         <tr>
                           <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tahun</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Wilayah</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">{DIM_LABEL[dimension]}</th>
                           <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Nilai</th>
                           <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Rincian</th>
                           <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</th>
@@ -420,15 +534,15 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                         {allRows
                           .filter((row: any) => metricKey(row) === selectedMetric)
                           .filter((row: any) => {
-                            if (selectedWilayah.size === 0) return true
-                            return selectedWilayah.has(row.wilayah_nama)
+                            if (selectedDim.size === 0) return true
+                            return selectedDim.has(dimensionValue(row, dimension))
                           })
                           .map((row: any) => (
                             <tr key={row.id} className="border-b border-border last:border-0 hover:bg-muted/30">
                               <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.tahun ?? "-"}</td>
-                              <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap">{row.wilayah_nama || "-"}</td>
+                              <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap">{dimensionValue(row, dimension) || "-"}</td>
                               <td className="px-4 py-3 text-right font-semibold text-foreground whitespace-nowrap">
-                                {formatIndonesianNumber(getValue(row))}{row.unit && row.unit !== "-" ? ` ${row.unit}` : ""}
+                                {formatIndonesianNumber(getValue(row))}{row.unit && normUnit(row.unit) ? ` ${normUnit(row.unit)}` : ""}
                               </td>
                               <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.rincian_nama && row.rincian_nama !== "-" ? row.rincian_nama : "-"}</td>
                               <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.flag || "ada"}</td>

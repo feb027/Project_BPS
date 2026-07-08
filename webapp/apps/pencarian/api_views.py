@@ -811,6 +811,8 @@ class CatalogAPIView(APIView):
                 if tahun is None:
                     continue
                 unit = (f.kolom.satuan if f.kolom_id else "") or ""
+                # Normalize unit case so "Jiwa" and "jiwa" merge as one indicator.
+                unit = unit.strip().lower() if unit and unit.strip().lower() != "none" else ""
                 series.append(
                     {
                         "id": f.id,
