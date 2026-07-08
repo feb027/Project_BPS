@@ -133,6 +133,43 @@ class NaturalLanguageWilayahSearchTests(TestCase):
         self.assertEqual(data["indikator"][0]["nama"], "Panjang Jalan")
         self.assertIn("Jenis Permukaan Jalan", data["tabel"][0]["judul"])
 
+    def test_school_level_token_resolves_from_table_title(self):
+        wilayah = Wilayah.objects.create(nama="Singaparna", jenis="kecamatan")
+        publikasi_2025 = Publikasi.objects.create(judul="Kabupaten Tasikmalaya Angka 2025", tahun_terbit=2025)
+        publikasi_2026 = Publikasi.objects.create(judul="Kabupaten Tasikmalaya Angka 2026", tahun_terbit=2026)
+        bab_2025 = Bab.objects.create(publikasi=publikasi_2025, nomor=4, nama="Sosial")
+        bab_2026 = Bab.objects.create(publikasi=publikasi_2026, nomor=4, nama="Sosial")
+        indikator = Indikator.objects.create(nama="Sekolah Jumlah")
+
+        sd_table = Tabel.objects.create(
+            bab=bab_2025,
+            nomor_tabel="4.1.3",
+            judul="Jumlah Sekolah Dasar (SD) Menurut Kecamatan, 2018/2019 dan 2019/2020",
+        )
+        sd_column = KolomTabel.objects.create(tabel=sd_table, urutan=1, indikator=indikator, tahun=2025)
+        Fakta.objects.create(tabel=sd_table, kolom=sd_column, wilayah=wilayah, tahun=2018, nilai_num=Decimal("31"), nilai_teks="31")
+        Fakta.objects.create(tabel=sd_table, kolom=sd_column, wilayah=wilayah, tahun=2019, nilai_num=Decimal("31"), nilai_teks="31")
+
+        smp_table = Tabel.objects.create(
+            bab=bab_2026,
+            nomor_tabel="4.1.5",
+            judul="Jumlah Sekolah Menengah Pertama (SMP) Menurut Kecamatan, 2018/2019 dan 2019/2020",
+        )
+        smp_column = KolomTabel.objects.create(tabel=smp_table, urutan=1, indikator=indikator, tahun=2025)
+        Fakta.objects.create(tabel=smp_table, kolom=smp_column, wilayah=wilayah, tahun=2018, nilai_num=Decimal("10"), nilai_teks="10")
+        Fakta.objects.create(tabel=smp_table, kolom=smp_column, wilayah=wilayah, tahun=2019, nilai_num=Decimal("10"), nilai_teks="10")
+
+        # 'SD' lives only in the table title, not the shared indicator name.
+        payload = _quick_wilayah_matches("Jumlah sekolah SD di singaparna", wilayah)
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]["indicator_name"], "Sekolah Jumlah")
+        self.assertEqual([row["tahun"] for row in payload[0]["observations"]], [2018, 2019])
+        self.assertEqual(sorted({row["subject_name"] for row in payload[0]["observations"]}), ["SD"])
+
+        # Without a school-level token, all levels appear.
+        all_payload = _quick_wilayah_matches("Jumlah sekolah di singaparna", wilayah)
+        self.assertIn("SMP", {row["subject_name"] for row in all_payload[0]["observations"]})
+
     def test_indicator_query_can_compare_rincian_subjects_from_left_column(self):
         publikasi = Publikasi.objects.create(judul="Kabupaten Tasikmalaya Angka 2026", tahun_terbit=2026)
         bab = Bab.objects.create(publikasi=publikasi, nomor=8, nama="Transportasi")

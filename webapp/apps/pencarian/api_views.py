@@ -516,12 +516,21 @@ def _quick_wilayah_matches(query, wilayah, limit=12):
                 "rows": ra_rows,
             }], wilayah, limit)
 
+    school_terms = [term for term in terms if term.upper() in SCHOOL_LEVELS]
+    indicator_terms = [term for term in terms if term.upper() not in SCHOOL_LEVELS]
+
     qs = (
         Fakta.objects.filter(wilayah=wilayah, nilai_num__isnull=False)
         .select_related('kolom__indikator', 'tabel', 'wilayah')
     )
-    for term in terms:
+    for term in indicator_terms:
         qs = qs.filter(kolom__indikator__nama__icontains=term)
+    # School-level tokens (SD/SMP/SMA/SMK/TK/MA/...) live in the table title
+    # e.g. 'Jumlah Sekolah Dasar (SD) Menurut Kecamatan', not in the shared
+    # indicator name 'Sekolah Jumlah'. Match them against the title so that a
+    # query like 'jumlah sekolah SD di singaparna' still resolves to the SD series.
+    for term in school_terms:
+        qs = qs.filter(tabel__judul__icontains=term)
 
     # For user intent like 'penduduk cisayong', the 'Menurut Kecamatan' series
     # is the clearest result. Prefer it above generic labels such as '[Penduduk] Jumlah'.
