@@ -1,15 +1,11 @@
-import { Suspense, lazy } from "react"
 import { Search, FileText, BarChart3, Loader2, Table2 } from "lucide-react"
 import { useSearch } from "../../lib/api"
 import { InlineTimeSeriesAnswer } from "../features/InlineTimeSeriesAnswer"
 
-const ChartModal = lazy(() => import("../features/ChartModal").then(module => ({ default: module.ChartModal })))
-
-type SelectedItem = {id: number, type: 'tabel' | 'indikator', title: string, initialFilter?: string, initialFilters?: string[]}
+type SelectedItem = {id?: number, nomor_tabel?: string, type: 'tabel' | 'indikator', title: string, initialFilter?: string, initialFilters?: string[]}
 
 interface MainAreaProps {
   query: string
-  selectedItem: SelectedItem | null
   setSelectedItem: (item: SelectedItem | null) => void
 }
 
@@ -61,7 +57,7 @@ function RawResultCard({ children, icon, accent = "primary", onClick }: { childr
   )
 }
 
-export function MainArea({ query, selectedItem, setSelectedItem }: MainAreaProps) {
+export function MainArea({ query, setSelectedItem }: MainAreaProps) {
   const { data, isLoading, error } = useSearch(query)
 
   const detectedWilayah = data?.detected_wilayah?.nama as string | undefined
@@ -214,11 +210,6 @@ export function MainArea({ query, selectedItem, setSelectedItem }: MainAreaProps
         )}
       </div>
 
-      {selectedItem && (
-        <Suspense fallback={<div className="absolute inset-0 bg-background/50 flex items-center justify-center"><Loader2 className="animate-spin" /></div>}>
-          <ChartModal item={selectedItem} onClose={() => setSelectedItem(null)} />
-        </Suspense>
-      )}
     </main>
   )
 }

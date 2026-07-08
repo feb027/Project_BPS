@@ -774,16 +774,17 @@ class TimeSeriesAPIView(APIView):
 
 
 class CatalogAPIView(APIView):
-    """Read-only catalog browser that groups tables by chapter across all
-    publications.
+    """Read-only catalog browser across all publications.
 
-    Chapters are merged by a *normalized* bab name (case/space-insensitive),
-    so "Geografi" and "GEOGRAFI" from different publications collapse into a
-    single section. Each table keeps its own identity (one publication year)
-    and is listed as a separate card — we do NOT merge fact rows across
-    publications, because the same nomor_tabel can carry different units or
-    indicators between years (e.g. ha vs km²). Clicking a card opens that
-    table's own time-series. No write actions are exposed.
+    Tables are merged by `nomor_tabel` so Table 1.1.1 is ONE item covering
+    every publication year (2018-2025), not N separate cards. Each merged item
+    links to a time-series that spans all years.
+
+    Because the same nomor_tabel can carry different units between years
+    (e.g. ha vs km2) or extra indicator columns, the merged series endpoint
+    tags every row with its derived `tahun` and `unit` so the chart can keep
+    incompatible units as separate series instead of plotting a false crash.
+    No write actions are exposed.
     """
 
     NORMALIZE = lambda self, name: re.sub(r"\s+", " ", (name or "").strip().lower())
@@ -791,27 +792,45 @@ class CatalogAPIView(APIView):
     def get(self, request):
         from apps.katalog.models import Bab, Tabel
 
-        # Per-table series fetch: ?tabel_id=<id> returns the time series for
-        # that single table (one publication year). The browse tree never
-        # embeds series — with 800+ tables that would be a multi-MB payload.
-        tabel_id = request.GET.get("tabel_id")
-        if tabel_id:
-            try:
-                target = Tabel.objects.get(id=tabel_id)
-            except (Tabel.DoesNotExist, ValueError):
-                return Response({"error": "tabel tidak ditemukan"}, status=404)
+        # Merged time-series fetch: ?nomor_tabel=<n> returns the combined
+        # series for that table number across ALL publications (multi-year).
+        nomor = request.GET.get("nomor_tabel")
+        if nomor:
+            tables = list(Tabel.objects.filter(nomor_tabel=nomor))
+            if not tables:
+                return Response({"error": "nomor_tabel tidak ditemukan"}, status=404)
             rows = (
-                Fakta.objects.filter(tabel=target)
+                Fakta.objects.filter(tabel__in=tables)
                 .exclude(nilai_num__isnull=True)
-                .select_related("wilayah", "rincian", "tabel")
-                .order_by("tahun")
+                .select_related("wilayah", "rincian", "kolom", "tabel")
+                .order_by("tabel__bab__publikasi__tahun_terbit")
             )
+            series = []
+            for f in rows:
+                tahun = f.tahun_lengkap
+                if tahun is None:
+                    continue
+                unit = (f.kolom.satuan if f.kolom_id else "") or ""
+                series.append(
+                    {
+                        "id": f.id,
+                        "tahun": tahun,
+                        "nilai": float(f.nilai_num),
+                        "nilai_teks": f.nilai_teks,
+                        "unit": unit,
+                        "wilayah_nama": f.wilayah.nama if f.wilayah else "-",
+                        "rincian_nama": f.rincian.nama if f.rincian else "-",
+                        "subject_name": f.kolom.indikator.nama if f.kolom_id else (f.wilayah.nama if f.wilayah else "-"),
+                        "flag": f.flag or "ada",
+                    }
+                )
+            first = tables[0]
             return Response(
                 {
-                    "nomor_tabel": target.nomor_tabel,
-                    "judul": target.judul,
-                    "nama_ringkas": target.nama_ringkas,
-                    "series": FaktaTimeSeriesSerializer(rows, many=True).data,
+                    "nomor_tabel": nomor,
+                    "judul": first.judul,
+                    "nama_ringkas": first.nama_ringkas,
+                    "series": series,
                 }
             )
 
@@ -831,58 +850,81 @@ class CatalogAPIView(APIView):
             if key not in bab_map:
                 bab_map[key] = (bab.nama, [])
                 bab_order.append(key)
-            # Keep the most "natural" display name (first non-uppercase-prefixed).
             _, existing = bab_map[key]
             bab_map[key] = (bab_map[key][0], existing + tabel_list)
 
         bab_data = []
+        # Collect every tabel in this run once, then do bulk aggregations in
+        # SQL (no per-table Python round-trips — that used to be 800+ queries
+        # and took >60s).
+        all_tables = [t for _, (_, tl) in bab_map.items() for t in tl]
+        tabel_ids = [t.id for t in all_tables]
+
+        # Bulk counts + year range per table (uses the indexed `tahun` column).
+        from django.db.models import Count, Min, Max
+        agg = (
+            Fakta.objects.filter(tabel_id__in=tabel_ids)
+            .exclude(nilai_num__isnull=True)
+            .values("tabel_id")
+            .annotate(
+                jumlah=Count("id"),
+                min_tahun=Min("tahun"),
+                max_tahun=Max("tahun"),
+            )
+        )
+        stats = {row["tabel_id"]: row for row in agg}
+
         for key in bab_order:
             display_name, tables = bab_map[key]
             if not tables:
                 continue
-            # Order tables within a section by nomor_tabel, then year.
-            tables_sorted = sorted(
-                tables,
-                key=lambda t: (
-                    [int(p) if p.isdigit() else p for p in t.nomor_tabel.split(".")],
-                    t.bab.publikasi.tahun_terbit,
-                ),
-            )
-            tabel_nodes = []
-            for tabel in tables_sorted:
-                years_qs = (
-                    Fakta.objects.filter(tabel=tabel)
-                    .exclude(nilai_num__isnull=True)
-                    .values_list("tahun", flat=True)
-                )
-                years = set(y for y in years_qs if y is not None)
-                if tabel.tahun_data:
-                    years.add(tabel.tahun_data)
-                # Prefer the publication's actual data year; fall back to terbit.
-                tahun = (
-                    min(years)
-                    if years
-                    else (tabel.tahun_data or tabel.bab.publikasi.tahun_terbit)
-                )
-                tabel_nodes.append(
-                    {
-                        "id": tabel.id,
-                        "nomor_tabel": tabel.nomor_tabel,
+            # Merge tables by nomor_tabel: one node per table number.
+            merged = {}  # nomor_tabel -> node
+            for tabel in tables:
+                nt = tabel.nomor_tabel
+                s = stats.get(tabel.id, {"jumlah": 0, "min_tahun": None, "max_tahun": None})
+                if nt not in merged:
+                    merged[nt] = {
+                        "nomor_tabel": nt,
                         "nama_ringkas": tabel.nama_ringkas,
                         "judul": tabel.judul,
                         "tipe_baris": tabel.tipe_baris,
-                        "publikasi_tahun": tabel.bab.publikasi.tahun_terbit,
-                        "publikasi_judul": tabel.bab.publikasi.judul,
-                        "jumlah_baris": tabel.fakta_set.exclude(
-                            nilai_num__isnull=True
-                        ).count(),
-                        "rentang_tahun": [min(years), max(years)] if years else None,
+                        "jumlah_publikasi": 0,
+                        "jumlah_baris": 0,
+                        "publikasi_tahun": set(),
+                    }
+                node = merged[nt]
+                node["jumlah_publikasi"] += 1
+                node["jumlah_baris"] += s["jumlah"]
+                node["publikasi_tahun"].add(tabel.bab.publikasi.tahun_terbit)
+                if not node["nama_ringkas"] and tabel.nama_ringkas:
+                    node["nama_ringkas"] = tabel.nama_ringkas
+                if not node["judul"] and tabel.judul:
+                    node["judul"] = tabel.judul
+
+            ordered = sorted(
+                merged.values(),
+                key=lambda n: [int(p) if p.isdigit() else p for p in n["nomor_tabel"].split(".")],
+            )
+            tabel_nodes = []
+            for node in ordered:
+                pub_years = sorted(node["publikasi_tahun"])
+                rentang = [pub_years[0], pub_years[-1]] if pub_years else None
+                tabel_nodes.append(
+                    {
+                        "nomor_tabel": node["nomor_tabel"],
+                        "nama_ringkas": node["nama_ringkas"],
+                        "judul": node["judul"],
+                        "tipe_baris": node["tipe_baris"],
+                        "jumlah_publikasi": node["jumlah_publikasi"],
+                        "jumlah_baris": node["jumlah_baris"],
+                        "rentang_tahun": rentang,
                     }
                 )
             bab_data.append(
                 {
                     "id": key,
-                    "nomor": tables_sorted[0].bab.nomor,
+                    "nomor": tables[0].bab.nomor,
                     "nama": display_name,
                     "jumlah_tabel": len(tabel_nodes),
                     "tabel": tabel_nodes,

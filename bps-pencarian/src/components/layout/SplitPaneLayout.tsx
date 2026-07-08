@@ -1,10 +1,14 @@
-import { useState, useDeferredValue } from "react"
+import { useState, useDeferredValue, Suspense, lazy } from "react"
 import { Sidebar } from "./Sidebar"
 import { MainArea } from "./MainArea"
 import { CatalogBrowser, type CatalogSelection } from "../features/CatalogBrowser"
+import { Loader2 } from "lucide-react"
+
+const ChartModal = lazy(() => import("../features/ChartModal").then((module) => ({ default: module.ChartModal })))
 
 type SelectedItem = {
-  id: number
+  nomor_tabel?: string
+  id?: number
   type: "tabel" | "indikator"
   title: string
   initialFilter?: string
@@ -16,22 +20,45 @@ export function SplitPaneLayout() {
   // Vercel Best Practice: useDeferredValue for input responsiveness during heavy renders
   const deferredQuery = useDeferredValue(query)
 
+  // Modal lives at the layout level so it opens whether the user clicked a
+  // browse card (no query) or a search result (has query).
   const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null)
 
   const openTabel = (selection: CatalogSelection) =>
     setSelectedItem({
-      id: selection.id,
-      type: selection.type,
+      nomor_tabel: selection.nomor_tabel,
+      type: "tabel",
       title: selection.title,
     })
+
+  // When the search box is empty, the browse panel fills the whole main view
+  // and the search-results column is hidden.
+  const hasQuery = deferredQuery.trim().length >= 2
 
   return (
     <div className="flex h-screen w-full bg-background overflow-hidden text-foreground">
       <Sidebar query={query} setQuery={setQuery} />
-      <CatalogBrowser onOpenTabel={openTabel} />
-      <div className="flex-1 overflow-hidden relative flex flex-col">
-        <MainArea query={deferredQuery} selectedItem={selectedItem} setSelectedItem={setSelectedItem} />
-      </div>
+      <CatalogBrowser onOpenTabel={openTabel} fill={!hasQuery} />
+      {hasQuery && (
+        <div className="flex-1 overflow-hidden relative flex flex-col">
+          <MainArea
+            query={deferredQuery}
+            setSelectedItem={setSelectedItem}
+          />
+        </div>
+      )}
+
+      {selectedItem && (
+        <Suspense
+          fallback={
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          }
+        >
+          <ChartModal item={selectedItem} onClose={() => setSelectedItem(null)} />
+        </Suspense>
+      )}
     </div>
   )
 }

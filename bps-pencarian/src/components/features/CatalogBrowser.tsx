@@ -12,13 +12,13 @@ import {
 import { useCatalog, type CatalogTable } from "../../lib/api"
 
 export interface CatalogSelection {
-  id: number
-  type: "tabel"
+  nomor_tabel: string
   title: string
 }
 
 interface CatalogBrowserProps {
   onOpenTabel: (selection: CatalogSelection) => void
+  fill?: boolean
 }
 
 function tipeLabel(tipe: string) {
@@ -48,8 +48,7 @@ function TableCard({
       type="button"
       onClick={() =>
         onOpen({
-          id: tabel.id,
-          type: "tabel",
+          nomor_tabel: tabel.nomor_tabel,
           title: tabel.nama_ringkas || tabel.judul,
         })
       }
@@ -81,16 +80,13 @@ function TableCard({
           <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5">
             {tipeLabel(tabel.tipe_baris)}
           </span>
-          <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-semibold text-primary">
-            Publikasi {tabel.publikasi_tahun}
-          </span>
           {rentang && (
             <span className="inline-flex items-center gap-1">
               <Eye className="h-3 w-3" /> {rentang}
             </span>
           )}
           <span className="inline-flex items-center gap-1">
-            <Table2 className="h-3 w-3" /> {tabel.jumlah_baris} baris
+            <Table2 className="h-3 w-3" /> {tabel.jumlah_publikasi} publikasi · {tabel.jumlah_baris} baris
           </span>
         </div>
       </div>
@@ -103,7 +99,7 @@ function TableCard({
   )
 }
 
-export function CatalogBrowser({ onOpenTabel }: CatalogBrowserProps) {
+export function CatalogBrowser({ onOpenTabel, fill }: CatalogBrowserProps) {
   const { data, error, isLoading } = useCatalog(null)
   const [openBabs, setOpenBabs] = useState<Record<number, boolean>>({})
 
@@ -113,7 +109,7 @@ export function CatalogBrowser({ onOpenTabel }: CatalogBrowserProps) {
   const babs = data?.babs ?? []
 
   return (
-    <aside className="w-96 shrink-0 border-r border-border bg-card/40 flex flex-col h-full overflow-hidden">
+    <aside className={`${fill ? "flex-1" : "w-96 shrink-0"} border-r border-border bg-card/40 flex flex-col h-full overflow-hidden`}>
       <div className="border-b border-border px-5 py-4">
         <div className="flex items-center gap-2">
           <BookOpen className="h-4 w-4 text-primary" />
@@ -182,7 +178,7 @@ export function CatalogBrowser({ onOpenTabel }: CatalogBrowserProps) {
                       ) : (
                         bab.tabel.map((tabel) => (
                           <TableCard
-                            key={tabel.id}
+                            key={tabel.nomor_tabel}
                             tabel={tabel}
                             onOpen={onOpenTabel}
                           />

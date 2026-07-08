@@ -26,16 +26,13 @@ export function useTimeSeries(id: number | null, type: 'tabel' | 'indikator' | n
 }
 
 export interface CatalogTable {
-  id: number
   nomor_tabel: string
   nama_ringkas: string
   judul: string
   tipe_baris: string
-  tahun_data: number | null
+  jumlah_publikasi: number
   jumlah_baris: number
   rentang_tahun: [number, number] | null
-  publikasi_tahun: number
-  publikasi_judul: string
 }
 
 export interface CatalogBab {
@@ -56,6 +53,34 @@ export interface CatalogResponse {
 export function useCatalog(_publikasiId: number | null) {
   const { data, error, isLoading } = useSWR<CatalogResponse>(
     `/pencarian/api/catalog/`,
+    fetcher
+  )
+  return { data, error, isLoading }
+}
+
+export interface CatalogSeriesRow {
+  id: number
+  tahun: number
+  nilai: number
+  nilai_teks: string
+  unit: string
+  wilayah_nama: string
+  rincian_nama: string
+  subject_name: string
+  flag: string
+}
+
+export interface CatalogSeriesResponse {
+  nomor_tabel: string
+  judul: string
+  nama_ringkas: string
+  series: CatalogSeriesRow[]
+}
+
+// Merged multi-year time-series for a single table number (all publications).
+export function useCatalogSeries(nomorTabel: string | null) {
+  const { data, error, isLoading } = useSWR<CatalogSeriesResponse>(
+    nomorTabel ? `/pencarian/api/catalog/?nomor_tabel=${encodeURIComponent(nomorTabel)}` : null,
     fetcher
   )
   return { data, error, isLoading }
