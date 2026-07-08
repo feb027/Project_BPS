@@ -304,6 +304,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                         <div
                           className="absolute z-50 mt-1 w-72 max-h-80 rounded-md border border-border bg-card shadow-lg overflow-hidden"
                           onClick={(e) => e.stopPropagation()}
+                          onMouseDown={(e) => e.stopPropagation()}
                         >
                           <div className="flex items-center justify-between border-b border-border px-3 py-2">
                             <span className="text-xs font-semibold text-foreground">Pilih Kecamatan</span>
@@ -316,22 +317,29 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                             {allWilayah.map((w) => {
                               const checked = selectedWilayah.has(w)
                               return (
-                                <label
+                                <div
                                   key={w}
-                                  className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50 cursor-pointer text-xs"
-                                  onClick={(e) => e.stopPropagation()}
+                                  role="button"
+                                  tabIndex={0}
+                                  aria-pressed={checked}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    toggleWilayah(w)
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                      e.preventDefault()
+                                      e.stopPropagation()
+                                      toggleWilayah(w)
+                                    }
+                                  }}
+                                  className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50 cursor-pointer text-xs select-none"
                                 >
                                   <span className={`h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors ${checked ? "bg-primary border-primary" : "border-border bg-background"}`}>
                                     {checked && <Check className="h-3 w-3 text-primary-foreground" />}
                                   </span>
-                                  <input
-                                    type="checkbox"
-                                    className="sr-only"
-                                    checked={checked}
-                                    onChange={() => toggleWilayah(w)}
-                                  />
                                   <span className="text-foreground">{w}</span>
-                                </label>
+                                </div>
                               )
                             })}
                           </div>
