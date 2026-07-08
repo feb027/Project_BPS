@@ -1,4 +1,4 @@
-import { Search, FileText, BarChart3, Loader2, Table2 } from "lucide-react"
+import { Search, FileText, BarChart3, Loader2, Table2, PanelLeft } from "lucide-react"
 import { useSearch } from "../../lib/api"
 import { InlineTimeSeriesAnswer } from "../features/InlineTimeSeriesAnswer"
 
@@ -7,6 +7,8 @@ type SelectedItem = {id?: number, nomor_tabel?: string, type: 'tabel' | 'indikat
 interface MainAreaProps {
   query: string
   setSelectedItem: (item: SelectedItem | null) => void
+  showBrowseToggle?: boolean
+  onToggleBrowse?: () => void
 }
 
 type EmptyPanelProps = {
@@ -57,7 +59,7 @@ function RawResultCard({ children, icon, accent = "primary", onClick }: { childr
   )
 }
 
-export function MainArea({ query, setSelectedItem }: MainAreaProps) {
+export function MainArea({ query, setSelectedItem, showBrowseToggle, onToggleBrowse }: MainAreaProps) {
   const { data, isLoading, error } = useSearch(query)
 
   const detectedWilayah = data?.detected_wilayah?.nama as string | undefined
@@ -108,6 +110,16 @@ export function MainArea({ query, setSelectedItem }: MainAreaProps) {
           </div>
           <h2 className="text-lg font-semibold text-foreground tracking-tight">Hasil Pencarian</h2>
         </div>
+        {showBrowseToggle && (
+          <button
+            type="button"
+            onClick={onToggleBrowse}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted transition-colors"
+          >
+            <PanelLeft className="h-4 w-4" />
+            Jelajahi Publikasi
+          </button>
+        )}
       </header>
 
       <div className="p-8 max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">

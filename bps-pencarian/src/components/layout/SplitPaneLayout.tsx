@@ -24,6 +24,11 @@ export function SplitPaneLayout() {
   // browse card (no query) or a search result (has query).
   const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null)
 
+  // When the user is searching, hide the browse panel by default so the
+  // results get the full width (important on small screens). They can toggle
+  // it back with the "Jelajahi" button.
+  const [showBrowse, setShowBrowse] = useState(false)
+
   const openTabel = (selection: CatalogSelection) =>
     setSelectedItem({
       nomor_tabel: selection.nomor_tabel,
@@ -31,19 +36,20 @@ export function SplitPaneLayout() {
       title: selection.title,
     })
 
-  // When the search box is empty, the browse panel fills the whole main view
-  // and the search-results column is hidden.
   const hasQuery = deferredQuery.trim().length >= 2
+  const browseVisible = hasQuery ? showBrowse : true
 
   return (
     <div className="flex h-screen w-full bg-background overflow-hidden text-foreground">
       <Sidebar query={query} setQuery={setQuery} />
-      <CatalogBrowser onOpenTabel={openTabel} fill={!hasQuery} />
+      {browseVisible && <CatalogBrowser onOpenTabel={openTabel} fill={!hasQuery} />}
       {hasQuery && (
         <div className="flex-1 overflow-hidden relative flex flex-col">
           <MainArea
             query={deferredQuery}
             setSelectedItem={setSelectedItem}
+            showBrowseToggle={!browseVisible}
+            onToggleBrowse={() => setShowBrowse((v) => !v)}
           />
         </div>
       )}
