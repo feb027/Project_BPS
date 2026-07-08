@@ -774,39 +774,41 @@ class TimeSeriesAPIView(APIView):
 
 
 class CatalogAPIView(APIView):
-    """Read-only catalog browser that merges all publications.
+    """Read-only catalog browser that groups tables by chapter across all
+    publications.
 
-    Unlike a per-publication view, the browse panel groups tables by their
-    `nomor_tabel` and merges every publication's fact rows into one time
-    series. Clicking a table opens the time-series chart spanning all years,
-    not a single publication's snapshot. No write actions are exposed.
+    Chapters are merged by a *normalized* bab name (case/space-insensitive),
+    so "Geografi" and "GEOGRAFI" from different publications collapse into a
+    single section. Each table keeps its own identity (one publication year)
+    and is listed as a separate card — we do NOT merge fact rows across
+    publications, because the same nomor_tabel can carry different units or
+    indicators between years (e.g. ha vs km²). Clicking a card opens that
+    table's own time-series. No write actions are exposed.
     """
+
+    NORMALIZE = lambda self, name: re.sub(r"\s+", " ", (name or "").strip().lower())
 
     def get(self, request):
         from apps.katalog.models import Bab, Tabel
 
-        # Per-table series fetch: ?tabel_id=<id> returns the merged time
-        # series for one nomor_tabel across every publication (multi-year).
-        # The browse tree itself never embeds series — with 800+ tables that
-        # would be a multi-MB payload. The chart fetches series on click.
+        # Per-table series fetch: ?tabel_id=<id> returns the time series for
+        # that single table (one publication year). The browse tree never
+        # embeds series — with 800+ tables that would be a multi-MB payload.
         tabel_id = request.GET.get("tabel_id")
         if tabel_id:
             try:
                 target = Tabel.objects.get(id=tabel_id)
             except (Tabel.DoesNotExist, ValueError):
                 return Response({"error": "tabel tidak ditemukan"}, status=404)
-            # All tables sharing this nomor_tabel across publications.
-            nomor = target.nomor_tabel
-            tables = Tabel.objects.filter(nomor_tabel=nomor)
             rows = (
-                Fakta.objects.filter(tabel__in=tables)
+                Fakta.objects.filter(tabel=target)
                 .exclude(nilai_num__isnull=True)
                 .select_related("wilayah", "rincian", "tabel")
                 .order_by("tahun")
             )
             return Response(
                 {
-                    "nomor_tabel": nomor,
+                    "nomor_tabel": target.nomor_tabel,
                     "judul": target.judul,
                     "nama_ringkas": target.nama_ringkas,
                     "series": FaktaTimeSeriesSerializer(rows, many=True).data,
@@ -817,28 +819,37 @@ class CatalogAPIView(APIView):
             Bab.objects.all()
             .select_related("publikasi")
             .prefetch_related("tabel_set")
-            .order_by("publikasi__tahun_terbit", "publikasi_id", "nomor")
+            .order_by("nomor", "publikasi__tahun_terbit", "publikasi_id")
         )
 
-        seen = {}
+        # Group babs by normalized name; preserve first-seen bab number for order.
+        bab_order = []
+        bab_map = {}  # normalized name -> (display_name, [Tabel,...])
         for bab in babs:
-            for tabel in bab.tabel_set.all().order_by("nomor_tabel"):
-                if tabel.nomor_tabel in seen:
-                    node = seen[tabel.nomor_tabel]
-                    node["publikasi_count"] += 1
-                    node["publikasi_tahun"].add(bab.publikasi.tahun_terbit)
-                    node["jumlah_baris"] += tabel.fakta_set.exclude(
-                        nilai_num__isnull=True
-                    ).count()
-                    node["_years"].update(
-                        y for y in tabel.fakta_set.exclude(
-                            nilai_num__isnull=True
-                        ).values_list("tahun", flat=True) if y is not None
-                    )
-                    if tabel.tahun_data:
-                        node["_years"].add(tabel.tahun_data)
-                    continue
+            key = self.NORMALIZE(bab.nama)
+            tabel_list = list(bab.tabel_set.all().order_by("nomor_tabel"))
+            if key not in bab_map:
+                bab_map[key] = (bab.nama, [])
+                bab_order.append(key)
+            # Keep the most "natural" display name (first non-uppercase-prefixed).
+            _, existing = bab_map[key]
+            bab_map[key] = (bab_map[key][0], existing + tabel_list)
 
+        bab_data = []
+        for key in bab_order:
+            display_name, tables = bab_map[key]
+            if not tables:
+                continue
+            # Order tables within a section by nomor_tabel, then year.
+            tables_sorted = sorted(
+                tables,
+                key=lambda t: (
+                    [int(p) if p.isdigit() else p for p in t.nomor_tabel.split(".")],
+                    t.bab.publikasi.tahun_terbit,
+                ),
+            )
+            tabel_nodes = []
+            for tabel in tables_sorted:
                 years_qs = (
                     Fakta.objects.filter(tabel=tabel)
                     .exclude(nilai_num__isnull=True)
@@ -847,57 +858,34 @@ class CatalogAPIView(APIView):
                 years = set(y for y in years_qs if y is not None)
                 if tabel.tahun_data:
                     years.add(tabel.tahun_data)
-
-                node = {
-                    "id": tabel.id,
-                    "nomor_tabel": tabel.nomor_tabel,
-                    "nama_ringkas": tabel.nama_ringkas,
-                    "judul": tabel.judul,
-                    "tipe_baris": tabel.tipe_baris,
-                    "publikasi_count": 1,
-                    "publikasi_tahun": {bab.publikasi.tahun_terbit},
-                    "jumlah_baris": tabel.fakta_set.exclude(
-                        nilai_num__isnull=True
-                    ).count(),
-                    "rentang_tahun": [min(years), max(years)] if years else None,
-                    "_years": years,
-                }
-                seen[tabel.nomor_tabel] = node
-
-        bab_order = []
-        bab_map = {}
-        seen_tabel = set()
-        for bab in babs:
-            for tabel in bab.tabel_set.all().order_by("nomor_tabel"):
-                if tabel.nomor_tabel in seen_tabel:
-                    continue
-                seen_tabel.add(tabel.nomor_tabel)
-                key = (bab.nomor, bab.nama)
-                if key not in bab_map:
-                    bab_map[key] = []
-                    bab_order.append(key)
-                bab_map[key].append(tabel.nomor_tabel)
-
-        bab_data = []
-        for key in bab_order:
-            nomor, nama = key
-            tabel_list = []
-            for nt in bab_map[key]:
-                node = seen.get(nt)
-                if not node:
-                    continue
-                years = node.pop("_years", set())
-                node["rentang_tahun"] = [min(years), max(years)] if years else None
-                tabel_list.append(node)
-            if not tabel_list:
-                continue
+                # Prefer the publication's actual data year; fall back to terbit.
+                tahun = (
+                    min(years)
+                    if years
+                    else (tabel.tahun_data or tabel.bab.publikasi.tahun_terbit)
+                )
+                tabel_nodes.append(
+                    {
+                        "id": tabel.id,
+                        "nomor_tabel": tabel.nomor_tabel,
+                        "nama_ringkas": tabel.nama_ringkas,
+                        "judul": tabel.judul,
+                        "tipe_baris": tabel.tipe_baris,
+                        "publikasi_tahun": tabel.bab.publikasi.tahun_terbit,
+                        "publikasi_judul": tabel.bab.publikasi.judul,
+                        "jumlah_baris": tabel.fakta_set.exclude(
+                            nilai_num__isnull=True
+                        ).count(),
+                        "rentang_tahun": [min(years), max(years)] if years else None,
+                    }
+                )
             bab_data.append(
                 {
-                    "id": nomor,
-                    "nomor": nomor,
-                    "nama": nama,
-                    "jumlah_tabel": len(tabel_list),
-                    "tabel": tabel_list,
+                    "id": key,
+                    "nomor": tables_sorted[0].bab.nomor,
+                    "nama": display_name,
+                    "jumlah_tabel": len(tabel_nodes),
+                    "tabel": tabel_nodes,
                 }
             )
 

@@ -81,6 +81,9 @@ function TableCard({
           <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5">
             {tipeLabel(tabel.tipe_baris)}
           </span>
+          <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-semibold text-primary">
+            Publikasi {tabel.publikasi_tahun}
+          </span>
           {rentang && (
             <span className="inline-flex items-center gap-1">
               <Eye className="h-3 w-3" /> {rentang}

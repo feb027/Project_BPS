@@ -34,6 +34,8 @@ export interface CatalogTable {
   tahun_data: number | null
   jumlah_baris: number
   rentang_tahun: [number, number] | null
+  publikasi_tahun: number
+  publikasi_judul: string
 }
 
 export interface CatalogBab {
