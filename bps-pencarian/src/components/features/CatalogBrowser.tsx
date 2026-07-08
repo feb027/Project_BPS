@@ -8,14 +8,17 @@ import {
   AlertTriangle,
   FileBarChart,
   Eye,
-  Building2,
 } from "lucide-react"
 import { useCatalog, type CatalogTable } from "../../lib/api"
 
+export interface CatalogSelection {
+  id: number
+  type: "tabel"
+  title: string
+}
+
 interface CatalogBrowserProps {
-  publikasiId: number | null
-  setPublikasiId: (id: number) => void
-  onOpenTabel: (tabel: { id: number; type: "tabel"; title: string }) => void
+  onOpenTabel: (selection: CatalogSelection) => void
 }
 
 function tipeLabel(tipe: string) {
@@ -30,7 +33,7 @@ function TableCard({
   onOpen,
 }: {
   tabel: CatalogTable
-  onOpen: (tabel: CatalogTable) => void
+  onOpen: (selection: CatalogSelection) => void
 }) {
   const punyaData = tabel.jumlah_baris > 0
   const rentang =
@@ -43,7 +46,13 @@ function TableCard({
   return (
     <button
       type="button"
-      onClick={() => onOpen(tabel)}
+      onClick={() =>
+        onOpen({
+          id: tabel.id,
+          type: "tabel",
+          title: tabel.nama_ringkas || tabel.judul,
+        })
+      }
       className="group w-full text-left rounded-md border border-border bg-background p-3 hover:border-primary/50 hover:bg-primary/[0.03] transition-colors duration-150 flex items-start gap-3"
     >
       <div className="mt-0.5 h-8 w-8 shrink-0 rounded-md bg-accent/10 text-accent flex items-center justify-center">
@@ -91,18 +100,13 @@ function TableCard({
   )
 }
 
-export function CatalogBrowser({
-  publikasiId,
-  setPublikasiId,
-  onOpenTabel,
-}: CatalogBrowserProps) {
-  const { data, error, isLoading } = useCatalog(publikasiId)
+export function CatalogBrowser({ onOpenTabel }: CatalogBrowserProps) {
+  const { data, error, isLoading } = useCatalog(null)
   const [openBabs, setOpenBabs] = useState<Record<number, boolean>>({})
 
   const toggleBab = (id: number) =>
     setOpenBabs((current) => ({ ...current, [id]: !current[id] }))
 
-  const publikasiList = data?.publikasi_list ?? []
   const babs = data?.babs ?? []
 
   return (
@@ -115,23 +119,8 @@ export function CatalogBrowser({
           </h2>
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
-          Pilih bab lalu tabel untuk langsung melihat grafik time-series.
+          Pilih bab lalu tabel untuk langsung melihat grafik time-series (gabungan semua tahun terbit).
         </p>
-        <div className="relative mt-3">
-          <Building2 className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <select
-            aria-label="Pilih publikasi"
-            value={data?.publikasi?.id ?? ""}
-            onChange={(event) => setPublikasiId(Number(event.target.value))}
-            className="w-full appearance-none rounded-md border border-input bg-background py-2 pl-8 pr-3 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {publikasiList.map((pub) => (
-              <option key={pub.id} value={pub.id}>
-                {pub.judul}
-              </option>
-            ))}
-          </select>
-        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4">
@@ -148,7 +137,7 @@ export function CatalogBrowser({
         ) : babs.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground px-6">
             <Layers className="h-8 w-8 mb-3" />
-            <p className="text-sm">Publikasi ini belum memiliki bab atau tabel.</p>
+            <p className="text-sm">Katalog belum tersedia.</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -192,13 +181,7 @@ export function CatalogBrowser({
                           <TableCard
                             key={tabel.id}
                             tabel={tabel}
-                            onOpen={() =>
-                              onOpenTabel({
-                                id: tabel.id,
-                                type: "tabel",
-                                title: tabel.nama_ringkas || tabel.judul,
-                              })
-                            }
+                            onOpen={onOpenTabel}
                           />
                         ))
                       )}

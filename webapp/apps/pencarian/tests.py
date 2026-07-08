@@ -9,44 +9,77 @@ from apps.referensi.models import Indikator, Rincian, Wilayah
 
 
 class CatalogBrowseAPITests(TestCase):
-    def test_catalog_returns_bab_tabel_tree_with_counts(self):
-        publikasi = Publikasi.objects.create(judul="Kabupaten Tasikmalaya Angka 2026", tahun_terbit=2026)
-        bab = Bab.objects.create(publikasi=publikasi, nomor=1, nama="Geografi")
-        tabel = Tabel.objects.create(
-            bab=bab,
-            nomor_tabel="1.1.1",
-            judul="Luas Wilayah Menurut Kecamatan, 2025",
-            tahun_data=2025,
-        )
-        kolom = KolomTabel.objects.create(tabel=tabel, urutan=1, indikator=Indikator.objects.create(nama="Luas Wilayah"))
-        for i, tahun in enumerate((2023, 2024, 2025)):
-            Fakta.objects.create(tabel=tabel, kolom=kolom, wilayah=Wilayah.objects.create(nama=f"Kec{i}", jenis="kecamatan"), tahun=tahun, nilai_num=Decimal("1"), nilai_teks="1")
+    def test_catalog_merges_publications_by_nomor_tabel(self):
+        lama = Publikasi.objects.create(judul="Kabupaten Tasikmalaya Angka 2024", tahun_terbit=2024)
+        baru = Publikasi.objects.create(judul="Kabupaten Tasikmalaya Angka 2026", tahun_terbit=2026)
+        bab_lama = Bab.objects.create(publikasi=lama, nomor=1, nama="Geografi")
+        bab_baru = Bab.objects.create(publikasi=baru, nomor=1, nama="Geografi")
+
+        # Same nomor_tabel in two publications must merge into one entry.
+        tabel_lama = Tabel.objects.create(bab=bab_lama, nomor_tabel="1.1.1", judul="Luas, 2024", tahun_data=2024)
+        tabel_baru = Tabel.objects.create(bab=bab_baru, nomor_tabel="1.1.1", judul="Luas, 2026", tahun_data=2026)
+        kolom = KolomTabel.objects.create(tabel=tabel_lama, urutan=1, indikator=Indikator.objects.create(nama="Luas 2024"))
+        KolomTabel.objects.create(tabel=tabel_baru, urutan=1, indikator=Indikator.objects.create(nama="Luas 2026"))
+        w = Wilayah.objects.create(nama="Ciawi", jenis="kecamatan")
+        Fakta.objects.create(tabel=tabel_lama, kolom=kolom, wilayah=w, tahun=2024, nilai_num=Decimal("1"), nilai_teks="1")
+        Fakta.objects.create(tabel=tabel_baru, kolom=kolom, wilayah=w, tahun=2026, nilai_num=Decimal("2"), nilai_teks="2")
 
         response = self.client.get("/pencarian/api/catalog/")
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(data["publikasi"]["tahun_terbit"], 2026)
+
+        # No per-publication selector surface — only merged babs.
+        self.assertNotIn("publikasi", data)
+        self.assertNotIn("publikasi_list", data)
+
         self.assertEqual(len(data["babs"]), 1)
         self.assertEqual(data["babs"][0]["nama"], "Geografi")
         self.assertEqual(len(data["babs"][0]["tabel"]), 1)
+
         tabel_json = data["babs"][0]["tabel"][0]
-        self.assertEqual(tabel_json["jumlah_baris"], 3)
-        self.assertEqual(tabel_json["rentang_tahun"], [2023, 2025])
-        # Read-only surface: no write endpoints, only counts are exposed.
-        self.assertNotIn("edit_url", tabel_json)
-        self.assertNotIn("hapus_url", tabel_json)
+        # Merged across both publications.
+        self.assertEqual(tabel_json["publikasi_count"], 2)
+        self.assertEqual(tabel_json["jumlah_baris"], 2)
+        self.assertEqual(tabel_json["rentang_tahun"], [2024, 2026])
+        # The browse tree must NOT embed series (avoids multi-MB payload).
+        self.assertNotIn("series", tabel_json)
+        self.assertIn("id", tabel_json)
 
-    def test_catalog_scoped_by_publikasi_id(self):
-        lama = Publikasi.objects.create(judul="Tahun 2024", tahun_terbit=2024)
-        baru = Publikasi.objects.create(judul="Tahun 2026", tahun_terbit=2026)
-        Bab.objects.create(publikasi=lama, nomor=1, nama="Lama Bab")
-        Bab.objects.create(publikasi=baru, nomor=1, nama="Baru Bab")
+    def test_catalog_table_series_merges_publications(self):
+        # Clicking a merged table fetches its time series across all pubs.
+        lama = Publikasi.objects.create(judul="2024", tahun_terbit=2024)
+        baru = Publikasi.objects.create(judul="2026", tahun_terbit=2026)
+        bab = Bab.objects.create(publikasi=baru, nomor=1, nama="Geografi")
+        tabel_lama = Tabel.objects.create(bab=Bab.objects.create(publikasi=lama, nomor=1, nama="Geografi"), nomor_tabel="1.1.1", judul="Luas", tahun_data=2024)
+        tabel_baru = Tabel.objects.create(bab=bab, nomor_tabel="1.1.1", judul="Luas", tahun_data=2026)
+        kolom = KolomTabel.objects.create(tabel=tabel_lama, urutan=1, indikator=Indikator.objects.create(nama="Luas X"))
+        KolomTabel.objects.create(tabel=tabel_baru, urutan=1, indikator=Indikator.objects.create(nama="Luas Y"))
+        w = Wilayah.objects.create(nama="Ciawi", jenis="kecamatan")
+        Fakta.objects.create(tabel=tabel_lama, kolom=kolom, wilayah=w, tahun=2024, nilai_num=Decimal("1"), nilai_teks="1")
+        Fakta.objects.create(tabel=tabel_baru, kolom=kolom, wilayah=w, tahun=2026, nilai_num=Decimal("2"), nilai_teks="2")
 
-        response = self.client.get(f"/pencarian/api/catalog/?publikasi_id={baru.id}")
+        # Use one of the merged table ids to fetch the series.
+        tree = self.client.get("/pencarian/api/catalog/").json()
+        tabel_id = tree["babs"][0]["tabel"][0]["id"]
+
+        response = self.client.get(f"/pencarian/api/catalog/?tabel_id={tabel_id}")
+        self.assertEqual(response.status_code, 200)
+        series = response.json()["series"]
+        self.assertEqual(len(series), 2)
+        self.assertEqual(sorted(r["tahun"] for r in series), [2024, 2026])
+
+    def test_catalog_groups_by_table_not_by_publication(self):
+        # Two publications with different bab counts still merge by nomor_tabel.
+        p2024 = Publikasi.objects.create(judul="2024", tahun_terbit=2024)
+        p2026 = Publikasi.objects.create(judul="2026", tahun_terbit=2026)
+        Bab.objects.create(publikasi=p2024, nomor=2, nama="Pemerintahan")
+        bab = Bab.objects.create(publikasi=p2026, nomor=1, nama="Geografi")
+        Tabel.objects.create(bab=bab, nomor_tabel="1.1.1", judul="Luas", tahun_data=2026)
+
+        response = self.client.get("/pencarian/api/catalog/")
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(data["publikasi"]["id"], baru.id)
-        self.assertEqual(data["babs"][0]["nama"], "Baru Bab")
+        self.assertEqual(data["babs"][0]["nama"], "Geografi")
 
 
 class NaturalLanguageWilayahSearchTests(TestCase):

@@ -45,15 +45,16 @@ export interface CatalogBab {
 }
 
 export interface CatalogResponse {
-  publikasi: { id: number; judul: string; tahun_terbit: number } | null
-  publikasi_list: { id: number; judul: string; tahun_terbit: number }[]
   babs: CatalogBab[]
 }
 
-export function useCatalog(publikasiId: number | null) {
-  const key = publikasiId
-    ? `/pencarian/api/catalog/?publikasi_id=${publikasiId}`
-    : `/pencarian/api/catalog/`
-  const { data, error, isLoading } = useSWR<CatalogResponse>(key, fetcher)
+// The browse panel always shows the merged tree across all publications —
+// there is no per-publication selector. The `publikasiId` arg is accepted for
+// call-site compatibility but ignored.
+export function useCatalog(_publikasiId: number | null) {
+  const { data, error, isLoading } = useSWR<CatalogResponse>(
+    `/pencarian/api/catalog/`,
+    fetcher
+  )
   return { data, error, isLoading }
 }
