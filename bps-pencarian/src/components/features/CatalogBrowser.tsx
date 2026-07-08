@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   FileBarChart,
   Eye,
+  X,
 } from "lucide-react"
 import { useCatalog, type CatalogTable } from "../../lib/api"
 
@@ -19,6 +20,7 @@ export interface CatalogSelection {
 interface CatalogBrowserProps {
   onOpenTabel: (selection: CatalogSelection) => void
   fill?: boolean
+  onClose?: () => void
 }
 
 function tipeLabel(tipe: string) {
@@ -99,7 +101,7 @@ function TableCard({
   )
 }
 
-export function CatalogBrowser({ onOpenTabel, fill }: CatalogBrowserProps) {
+export function CatalogBrowser({ onOpenTabel, fill, onClose }: CatalogBrowserProps) {
   const { data, error, isLoading } = useCatalog(null)
   const [openBabs, setOpenBabs] = useState<Record<number, boolean>>({})
 
@@ -111,11 +113,23 @@ export function CatalogBrowser({ onOpenTabel, fill }: CatalogBrowserProps) {
   return (
     <aside className={`${fill ? "flex-1" : "w-96 shrink-0"} border-r border-border bg-card/40 flex flex-col h-full overflow-hidden`}>
       <div className="border-b border-border px-5 py-4">
-        <div className="flex items-center gap-2">
-          <BookOpen className="h-4 w-4 text-primary" />
-          <h2 className="text-sm font-semibold tracking-wide text-foreground">
-            Jelajahi Publikasi
-          </h2>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <BookOpen className="h-4 w-4 text-primary" />
+            <h2 className="text-sm font-semibold tracking-wide text-foreground">
+              Jelajahi Publikasi
+            </h2>
+          </div>
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Tutup panel jelajah"
+              className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
           Pilih bab lalu tabel untuk langsung melihat grafik time-series (gabungan semua tahun terbit).

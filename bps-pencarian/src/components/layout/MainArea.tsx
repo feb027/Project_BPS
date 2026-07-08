@@ -7,7 +7,7 @@ type SelectedItem = {id?: number, nomor_tabel?: string, type: 'tabel' | 'indikat
 interface MainAreaProps {
   query: string
   setSelectedItem: (item: SelectedItem | null) => void
-  showBrowseToggle?: boolean
+  browseOpen?: boolean
   onToggleBrowse?: () => void
 }
 
@@ -59,7 +59,7 @@ function RawResultCard({ children, icon, accent = "primary", onClick }: { childr
   )
 }
 
-export function MainArea({ query, setSelectedItem, showBrowseToggle, onToggleBrowse }: MainAreaProps) {
+export function MainArea({ query, setSelectedItem, browseOpen, onToggleBrowse }: MainAreaProps) {
   const { data, isLoading, error } = useSearch(query)
 
   const detectedWilayah = data?.detected_wilayah?.nama as string | undefined
@@ -110,14 +110,15 @@ export function MainArea({ query, setSelectedItem, showBrowseToggle, onToggleBro
           </div>
           <h2 className="text-lg font-semibold text-foreground tracking-tight">Hasil Pencarian</h2>
         </div>
-        {showBrowseToggle && (
+        {browseOpen !== undefined && onToggleBrowse && (
           <button
             type="button"
             onClick={onToggleBrowse}
+            aria-pressed={browseOpen}
             className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted transition-colors"
           >
             <PanelLeft className="h-4 w-4" />
-            Jelajahi Publikasi
+            {browseOpen ? "Sembunyikan" : "Jelajahi Publikasi"}
           </button>
         )}
       </header>

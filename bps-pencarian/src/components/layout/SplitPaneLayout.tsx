@@ -24,9 +24,9 @@ export function SplitPaneLayout() {
   // browse card (no query) or a search result (has query).
   const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null)
 
-  // When the user is searching, hide the browse panel by default so the
-  // results get the full width (important on small screens). They can toggle
-  // it back with the "Jelajahi" button.
+  // When the user is searching, the browse panel slides out to the left (it is
+  // kept mounted and animated, not unmounted) so the results get the full
+  // width. They can slide it back with the header toggle or the panel's X.
   const [showBrowse, setShowBrowse] = useState(false)
 
   const openTabel = (selection: CatalogSelection) =>
@@ -37,18 +37,35 @@ export function SplitPaneLayout() {
     })
 
   const hasQuery = deferredQuery.trim().length >= 2
-  const browseVisible = hasQuery ? showBrowse : true
+  const browseOpen = hasQuery ? showBrowse : true
+
+  // No query: browse fills the whole main view. Querying: the panel is a
+  // fixed-width rail that animates width + slide.
+  const wrapperClass = hasQuery
+    ? `shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out motion-reduce:transition-none ${browseOpen ? "w-96" : "w-0"}`
+    : "flex-1"
+  const innerClass = hasQuery
+    ? `h-full w-96 transition-transform duration-300 ease-in-out motion-reduce:transition-none ${browseOpen ? "translate-x-0" : "-translate-x-full"}`
+    : "h-full"
 
   return (
     <div className="flex h-screen w-full bg-background overflow-hidden text-foreground">
       <Sidebar query={query} setQuery={setQuery} />
-      {browseVisible && <CatalogBrowser onOpenTabel={openTabel} fill={!hasQuery} />}
+      <div className={wrapperClass}>
+        <div className={innerClass}>
+          <CatalogBrowser
+            onOpenTabel={openTabel}
+            fill={!hasQuery}
+            onClose={hasQuery ? () => setShowBrowse(false) : undefined}
+          />
+        </div>
+      </div>
       {hasQuery && (
         <div className="flex-1 overflow-hidden relative flex flex-col">
           <MainArea
             query={deferredQuery}
             setSelectedItem={setSelectedItem}
-            showBrowseToggle={!browseVisible}
+            browseOpen={showBrowse}
             onToggleBrowse={() => setShowBrowse((v) => !v)}
           />
         </div>
