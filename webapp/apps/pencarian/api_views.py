@@ -158,10 +158,18 @@ def _wilayah_payload(groups, wilayah, limit=12):
                     "judul": fakta.tabel.judul,
                 },
             })
+        # When the query filtered to a single school level (e.g. '... SD ...'),
+        # surface that level in the card subject so the UI header/title shows it
+        # instead of only the wilayah name. Multi-level results (all school types)
+        # stay unlabeled and rely on the SD/SMP/SMA columns/legend.
+        level_subjects = sorted({o["subject_name"] for o in observations if o.get("subject_name")})
+        card_subject = f"{wilayah.nama} ({level_subjects[0]})" if len(level_subjects) == 1 else None
+
         payload.append({
             "indicator_id": group["indicator"].id,
             "indicator_name": group.get("display_name") or group["indicator"].nama,
             "wilayah": {"id": wilayah.id, "nama": wilayah.nama, "jenis": wilayah.jenis},
+            "subject_name": card_subject,
             "observations": observations,
         })
     return payload
