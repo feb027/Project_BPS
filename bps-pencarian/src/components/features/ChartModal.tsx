@@ -173,32 +173,43 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
     Boolean(savedRef && (savedRef.metric || (savedRef.sel && (savedRef.sel.wilayah?.length || savedRef.sel.rincian?.length))))
   )
 
-  // Auto-select defaults only when there is NO saved selection.
+  // Auto-select defaults only when there is NO saved selection. This runs once
+  // data has loaded (allRows populated), so the chosen dimension/members are
+  // computed from the real facets — not from the mount-time empty state that
+  // caused the "first open shows Wilayah, second open shows Rincian" bug.
   const [hasAutoSelected, setHasAutoSelected] = useState(false)
   useMemo(() => {
     if (hasAutoSelected || hasSaved || metrics.length === 0 || dimValues.length === 0) return
+    // Prefer the Rincian dimension when the table has one (richer breakdown),
+    // otherwise fall back to the first available dimension.
+    const richDim: Dimension = availableDims.includes("rincian")
+      ? "rincian"
+      : availableDims[0] ?? "wilayah"
+    setDimension(richDim)
     const best = metrics.reduce((a, b) => {
       const countA = allRows.filter((r) => metricKey(r) === a).length
       const countB = allRows.filter((r) => metricKey(r) === b).length
       return countA >= countB ? a : b
     }, metrics[0])
     setSelectedMetric(best)
-    const metricRows = allRows.filter((r) => metricKey(r) === best && !isTrivial(dimension, dimensionValue(r, dimension)))
+    const metricRows = allRows.filter(
+      (r) => metricKey(r) === best && !isTrivial(richDim, dimensionValue(r, richDim)),
+    )
     const counts = new Map<string, number>()
     metricRows.forEach((r) => {
-      const v = dimensionValue(r, dimension)
+      const v = dimensionValue(r, richDim)
       if (v && v !== "-") counts.set(v, (counts.get(v) ?? 0) + 1)
     })
     const top = Array.from(counts.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
       .map(([v]) => v)
-    if (dimension === "wilayah" && counts.has("Kabupaten Tasikmalaya") && !top.includes("Kabupaten Tasikmalaya")) {
+    if (richDim === "wilayah" && counts.has("Kabupaten Tasikmalaya") && !top.includes("Kabupaten Tasikmalaya")) {
       top.push("Kabupaten Tasikmalaya")
     }
     setSelectedDim(new Set(top))
     setHasAutoSelected(true)
-  }, [metrics, allRows, hasAutoSelected, hasSaved, dimension, dimValues])
+  }, [metrics, allRows, hasAutoSelected, hasSaved, dimension, dimValues, availableDims, wilayahValues, rincianValues])
 
   const persist = useCallback(
     (nextMetric: string, nextDim: Dimension, nextSel: Set<string>) => {
