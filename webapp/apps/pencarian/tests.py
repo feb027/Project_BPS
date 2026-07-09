@@ -4,7 +4,7 @@ from django.test import TestCase
 
 from apps.data.models import Fakta
 from apps.katalog.models import Bab, KolomTabel, Publikasi, Tabel
-from apps.pencarian.api_views import _detect_wilayahs, _quick_rincian_matches, _quick_wilayah_matches, _quick_wilayah_matches_for_wilayahs
+from apps.pencarian.api_views import _detect_wilayahs, _quick_rincian_matches, _quick_topic_matches, _quick_wilayah_matches, _quick_wilayah_matches_for_wilayahs
 from apps.referensi.models import Indikator, Rincian, Wilayah
 
 
@@ -144,3 +144,45 @@ class NaturalLanguageWilayahSearchTests(TestCase):
             sorted({observation["wilayah_nama"] for observation in merged[0]["observations"]}),
             ["Ciawi", "Cisayong"],
         )
+
+
+class QuickTopicAnswerTests(TestCase):
+    def test_topic_answer_uses_parent_row_not_sum_of_subregions(self):
+        # Table 1.1.1 "Luas Wilayah Menurut Kecamatan" carries BOTH the
+        # per-kecamatan rows AND a "Kabupaten Tasikmalaya" parent total row
+        # (which already sums the districts). The direct-answer card must use
+        # the parent row alone (2708.82), NOT the double-counted sum of
+        # parent + districts (~5417.64).
+        publikasi = Publikasi.objects.create(judul="Kabupaten Tasikmalaya Angka 2025", tahun_terbit=2025)
+        bab = Bab.objects.create(publikasi=publikasi, nomor=1, nama="Geografi")
+        indikator = Indikator.objects.create(nama="Luas Wilayah")
+        table = Tabel.objects.create(
+            bab=bab,
+            nomor_tabel="1.1.1",
+            judul="Luas Wilayah Menurut Kecamatan, 2025",
+            tahun_data=2025,
+        )
+        column = KolomTabel.objects.create(tabel=table, urutan=1, indikator=indikator, tahun=2025)
+        regency = Wilayah.objects.create(nama="Kabupaten Tasikmalaya", jenis="kabupaten")
+        districts = [
+            Wilayah.objects.create(nama=f"Kecamatan {i}", jenis="kecamatan") for i in range(3)
+        ]
+        # parent total row
+        Fakta.objects.create(
+            tabel=table, kolom=column, wilayah=regency, tahun=2025,
+            nilai_num=Decimal("2708.82"), nilai_teks="2708,82",
+        )
+        # three districts summing to the same total
+        for i, d in enumerate(districts):
+            Fakta.objects.create(
+                tabel=table, kolom=column, wilayah=d, tahun=2025,
+                nilai_num=Decimal(str(900 + i)), nilai_teks=str(900 + i),
+            )
+
+        groups = _quick_topic_matches("luas wilayah")
+        self.assertTrue(groups, "expected a direct-answer card for 'luas wilayah'")
+        card = groups[0]
+        self.assertEqual(card["subject_name"], "Kabupaten Tasikmalaya")
+        obs = {o["tahun"]: o["nilai"] for o in card["observations"]}
+        self.assertEqual(obs.get(2025), 2708.82)
+        self.assertNotEqual(obs.get(2025), 2708.82 + 900 + 901 + 902)

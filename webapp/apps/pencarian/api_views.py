@@ -292,7 +292,25 @@ def _quick_topic_matches(query, limit=12):
             year_rows = rows_by_year[year]["rows"]
             if not year_rows:
                 continue
-            total = sum((f.nilai_num for f in year_rows if f.nilai_num is not None), Decimal("0"))
+            # If the table carries a parent/regency total row (wilayah ==
+            # "Kabupaten Tasikmalaya"), that row already aggregates the
+            # sub-region rows, so using it ALONE is correct. Summing every
+            # row would double-count (regency total + its districts).
+            # Only fall back to summing the components when no such parent
+            # row exists (purely sub-region tables whose total is the sum).
+            parent_rows = [
+                f
+                for f in year_rows
+                if getattr(f.wilayah, "nama", None) == "Kabupaten Tasikmalaya"
+                and f.nilai_num is not None
+            ]
+            if parent_rows:
+                total = sum((f.nilai_num for f in parent_rows), Decimal("0"))
+            else:
+                total = sum(
+                    (f.nilai_num for f in year_rows if f.nilai_num is not None),
+                    Decimal("0"),
+                )
             sample = year_rows[0]
             observations.append({
                 "id": sample.id,
