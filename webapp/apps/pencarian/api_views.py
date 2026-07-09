@@ -305,6 +305,28 @@ def _quick_topic_matches(query, limit=12):
         # Penalize very generic indicators when a more specific indicator exists.
         if len(indicator_name.split()) <= 1:
             points -= 25
+        # Negation handling for paired indicators like "Irigasi" vs
+        # "Non Irigasi" / "Bukan ...". A bare "irigasi" query must
+        # pick the "Irigasi" indicator, NOT "Non Irigasi" (whose name
+        # merely contains the substring "irigasi"). Conversely
+        # "non irigasi" must pick "Non Irigasi", not "Irigasi".
+        NEG_TOKENS = ("non", "bukan", "tanpa")
+        irigasi_terms = [t for t in terms if "irigasi" in t]
+        if irigasi_terms:
+            has_neg = any(neg in terms for neg in NEG_TOKENS)
+            name_l = indicator_name
+            if has_neg:
+                # "non irigasi": prefer "Non Irigasi"; penalize
+                # the plain "Irigasi" indicator (no neg token in name).
+                if "non" not in name_l and "bukan" not in name_l:
+                    points -= 1000
+            else:
+                # bare "irigasi": prefer "Irigasi"; penalize
+                # "Non Irigasi" and boost the plain indicator.
+                if "non" in name_l or "bukan" in name_l:
+                    points -= 1000
+                else:
+                    points += 30
         return -points, indicator_name
 
     best = sorted(grouped.values(), key=score)[:3]
