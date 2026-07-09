@@ -64,18 +64,27 @@ const COMPACT_UNITS: [number, string][] = [
   [1e6, "Jt"],
   [1e3, "Rb"],
 ]
-function formatCompactNumber(value: number | string | null | undefined) {
+function formatCompactNumber(value: number | string | null | undefined, unit?: string) {
   if (value === null || value === undefined || value === "") return "-"
   const numeric = Number(value)
   if (Number.isNaN(numeric)) return String(value)
   const abs = Math.abs(numeric)
+  let body = ""
+  let matched = false
   for (const [threshold, suffix] of COMPACT_UNITS) {
     if (abs >= threshold) {
       const scaled = numeric / threshold
-      return `${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(scaled)} ${suffix}`
+      body = `${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(scaled)} ${suffix}`
+      matched = true
+      break
     }
   }
-  return new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(numeric)
+  if (!matched) {
+    body = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(numeric)
+  }
+  // Unit leads the value, e.g. "Rp 3,43 T" not "3,43 T Rp".
+  const u = cleanUnit(unit)
+  return u ? `${u} ${body}` : body
 }
 
 function cleanUnit(unit?: string) {
@@ -192,14 +201,14 @@ export function InlineTimeSeriesAnswer({ match, subjectName, onOpenChart }: Inli
                   <div key={subject} className="flex items-baseline justify-between gap-4">
                     <span className="text-xs font-medium text-muted-foreground truncate">{subject}</span>
                     <span className="text-sm font-semibold text-foreground whitespace-nowrap text-right">
-                      {formatCompactNumber(row.nilai)}{unit ? ` ${unit}` : ""}
+                      {formatCompactNumber(row.nilai, unit)}
                     </span>
                   </div>
                 ))}
               </div>
             ) : latest ? (
               <div>
-                <p className="mt-1 text-2xl font-semibold text-foreground">{formatCompactNumber(latest.nilai)}</p>
+                <p className="mt-1 text-2xl font-semibold text-foreground">{formatCompactNumber(latest.nilai, unit)}</p>
                 <p className="text-xs text-muted-foreground">{latest.tahun}{unit ? ` • ${unit}` : ""}</p>
               </div>
             ) : null}
@@ -233,7 +242,7 @@ export function InlineTimeSeriesAnswer({ match, subjectName, onOpenChart }: Inli
                   tickFormatter={(value) => formatCompactNumber(value)}
                 />
                 <Tooltip
-                  formatter={(value, name) => [`${formatCompactNumber(value as number)}${unit ? ` ${unit}` : ""}`, String(name)]}
+                  formatter={(value, name) => [`${formatCompactNumber(value as number, unit)}`, String(name)]}
                   labelFormatter={(label) => `Tahun ${label}`}
                   contentStyle={{
                     backgroundColor: "hsl(var(--card))",
@@ -283,7 +292,7 @@ export function InlineTimeSeriesAnswer({ match, subjectName, onOpenChart }: Inli
                         <td className="px-3 py-2 text-muted-foreground">{String(point.tahun)}</td>
                         {subjects.map((subject) => (
                           <td key={subject} className="px-3 py-2 text-right font-medium text-foreground whitespace-nowrap">
-                            {formatCompactNumber(point[subject] as number | null | undefined)}{unit ? ` ${unit}` : ""}
+                            {formatCompactNumber(point[subject] as number | null | undefined, unit)}
                           </td>
                         ))}
                       </tr>

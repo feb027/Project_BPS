@@ -21,18 +21,27 @@ const COMPACT_UNITS: [number, string][] = [
   [1e6, "Jt"],
   [1e3, "Rb"],
 ]
-function formatCompactNumber(value: number | string | null | undefined) {
+function formatCompactNumber(value: number | string | null | undefined, unit?: string) {
   if (value === null || value === undefined || value === "") return "-"
   const numeric = Number(value)
   if (Number.isNaN(numeric)) return String(value)
   const abs = Math.abs(numeric)
+  let body = ""
+  let matched = false
   for (const [threshold, suffix] of COMPACT_UNITS) {
     if (abs >= threshold) {
       const scaled = numeric / threshold
-      return `${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(scaled)} ${suffix}`
+      body = `${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(scaled)} ${suffix}`
+      matched = true
+      break
     }
   }
-  return new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(numeric)
+  if (!matched) {
+    body = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(numeric)
+  }
+  // Unit leads the value, e.g. "Rp 3,43 T" not "3,43 T Rp".
+  const u = unit && unit !== "-" ? unit : ""
+  return u ? `${u} ${body}` : body
 }
 
 function getValue(row: any) {
@@ -517,7 +526,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                           tickFormatter={(value) => formatCompactNumber(value)}
                         />
                         <Tooltip
-                          formatter={(value, name) => [`${formatCompactNumber(value as number)}${metricUnit ? ` ${metricUnit}` : ""}`, String(name)]}
+                          formatter={(value, name) => [`${formatCompactNumber(value as number, metricUnit)}`, String(name)]}
                           labelFormatter={(label) => `Tahun ${label}`}
                           contentStyle={{
                             backgroundColor: "hsl(var(--card))",
@@ -570,7 +579,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                               <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.tahun ?? "-"}</td>
                               <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap">{dimensionValue(row, dimension) || "-"}</td>
                               <td className="px-4 py-3 text-right font-semibold text-foreground whitespace-nowrap">
-                                {formatCompactNumber(getValue(row))}{row.unit && normUnit(row.unit) ? ` ${normUnit(row.unit)}` : ""}
+                                {formatCompactNumber(getValue(row), row.unit && normUnit(row.unit) ? normUnit(row.unit) : undefined)}
                               </td>
                               <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.rincian_nama && row.rincian_nama !== "-" ? row.rincian_nama : "-"}</td>
                               <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.flag || "ada"}</td>
