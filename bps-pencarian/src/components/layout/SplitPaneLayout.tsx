@@ -43,7 +43,7 @@ export function SplitPaneLayout() {
   // fixed-width rail that animates width + slide.
   const wrapperClass = hasQuery
     ? `shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out motion-reduce:transition-none ${browseOpen ? "w-96" : "w-0"}`
-    : "flex-1"
+    : "flex-1 min-w-0"
   const innerClass = hasQuery
     ? `h-full w-96 transition-transform duration-300 ease-in-out motion-reduce:transition-none ${browseOpen ? "translate-x-0" : "-translate-x-full"}`
     : "h-full"

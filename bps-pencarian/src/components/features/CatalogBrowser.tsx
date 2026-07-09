@@ -114,13 +114,13 @@ export function CatalogBrowser({ onOpenTabel, fill, onClose }: CatalogBrowserPro
   return (
     <aside className={`${fill ? "flex-1 min-w-0" : "w-96 shrink-0"} border-r border-border bg-card/40 flex flex-col h-full overflow-hidden`}>
       <div className="border-b border-border px-5 py-4">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <BookOpen className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold tracking-wide text-foreground">
-              Jelajahi Publikasi
-            </h2>
-          </div>
+        <div className="flex items-center justify-between gap-2 min-w-0">
+        <div className="flex min-w-0 items-center gap-2">
+          <BookOpen className="h-4 w-4 shrink-0 text-primary" />
+          <h2 className="truncate text-sm font-semibold tracking-wide text-foreground">
+            Jelajahi Publikasi
+          </h2>
+        </div>
           {onClose && (
             <button
               type="button"
@@ -167,8 +167,8 @@ export function CatalogBrowser({ onOpenTabel, fill, onClose }: CatalogBrowserPro
                     onClick={() => toggleBab(bab.id)}
                     className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left hover:bg-muted/50 transition-colors"
                   >
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span className="font-mono text-xs font-semibold text-primary">
+                    <span className="flex min-w-0 flex-1 items-center gap-2 truncate">
+                      <span className="font-mono text-xs font-semibold text-primary shrink-0">
                         {bab.nomor}.
                       </span>
                       <span className="truncate text-sm font-semibold text-foreground">
@@ -185,7 +185,7 @@ export function CatalogBrowser({ onOpenTabel, fill, onClose }: CatalogBrowserPro
                     </span>
                   </button>
                   {isOpen && (
-                    <div className="space-y-2 border-t border-border px-3 py-3">
+                    <div className="min-w-0 space-y-2 border-t border-border px-3 py-3">
                       {bab.tabel.length === 0 ? (
                         <p className="px-1 text-xs text-muted-foreground">
                           Belum ada tabel.
