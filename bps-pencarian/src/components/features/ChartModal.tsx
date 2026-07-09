@@ -15,10 +15,23 @@ interface ChartModalProps {
   onClose: () => void
 }
 
-function formatIndonesianNumber(value: number | string | null | undefined) {
+const COMPACT_UNITS: [number, string][] = [
+  [1e12, "T"],
+  [1e9, "M"],
+  [1e6, "Jt"],
+  [1e3, "Rb"],
+]
+function formatCompactNumber(value: number | string | null | undefined) {
   if (value === null || value === undefined || value === "") return "-"
   const numeric = Number(value)
   if (Number.isNaN(numeric)) return String(value)
+  const abs = Math.abs(numeric)
+  for (const [threshold, suffix] of COMPACT_UNITS) {
+    if (abs >= threshold) {
+      const scaled = numeric / threshold
+      return `${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(scaled)} ${suffix}`
+    }
+  }
   return new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(numeric)
 }
 
@@ -501,10 +514,10 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                           tickLine={false}
                           width={72}
                           tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
-                          tickFormatter={(value) => formatIndonesianNumber(value)}
+                          tickFormatter={(value) => formatCompactNumber(value)}
                         />
                         <Tooltip
-                          formatter={(value, name) => [`${formatIndonesianNumber(value as number)}${metricUnit ? ` ${metricUnit}` : ""}`, String(name)]}
+                          formatter={(value, name) => [`${formatCompactNumber(value as number)}${metricUnit ? ` ${metricUnit}` : ""}`, String(name)]}
                           labelFormatter={(label) => `Tahun ${label}`}
                           contentStyle={{
                             backgroundColor: "hsl(var(--card))",
@@ -557,7 +570,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                               <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.tahun ?? "-"}</td>
                               <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap">{dimensionValue(row, dimension) || "-"}</td>
                               <td className="px-4 py-3 text-right font-semibold text-foreground whitespace-nowrap">
-                                {formatIndonesianNumber(getValue(row))}{row.unit && normUnit(row.unit) ? ` ${normUnit(row.unit)}` : ""}
+                                {formatCompactNumber(getValue(row))}{row.unit && normUnit(row.unit) ? ` ${normUnit(row.unit)}` : ""}
                               </td>
                               <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.rincian_nama && row.rincian_nama !== "-" ? row.rincian_nama : "-"}</td>
                               <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.flag || "ada"}</td>

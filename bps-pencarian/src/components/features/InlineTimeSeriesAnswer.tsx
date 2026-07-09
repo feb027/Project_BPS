@@ -56,6 +56,28 @@ function formatIndonesianNumber(value: number | string | null | undefined) {
   return new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(numeric)
 }
 
+// Compact form for axis/tooltip labels so multi-trillion Rupiah values
+// don't overflow the narrow Y-axis gutter. 1.234.567.890 -> "1,23 M".
+const COMPACT_UNITS: [number, string][] = [
+  [1e12, "T"],
+  [1e9, "M"],
+  [1e6, "Jt"],
+  [1e3, "Rb"],
+]
+function formatCompactNumber(value: number | string | null | undefined) {
+  if (value === null || value === undefined || value === "") return "-"
+  const numeric = Number(value)
+  if (Number.isNaN(numeric)) return String(value)
+  const abs = Math.abs(numeric)
+  for (const [threshold, suffix] of COMPACT_UNITS) {
+    if (abs >= threshold) {
+      const scaled = numeric / threshold
+      return `${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(scaled)} ${suffix}`
+    }
+  }
+  return new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(numeric)
+}
+
 function cleanUnit(unit?: string) {
   return unit && unit !== "-" ? unit : ""
 }
@@ -162,24 +184,24 @@ export function InlineTimeSeriesAnswer({ match, subjectName, onOpenChart }: Inli
         </div>
 
         {hasRows && latestBySubject.length > 0 && (
-          <div className="rounded-md border border-border bg-muted/30 px-4 py-3 min-w-48">
+          <div className="rounded-md border border-border bg-muted/30 px-4 py-3 min-w-48 max-w-72">
             <p className="text-xs text-muted-foreground">Data terbaru</p>
             {isComparison ? (
               <div className="mt-2 space-y-2">
                 {latestBySubject.map(({ subject, row }) => row && (
                   <div key={subject} className="flex items-baseline justify-between gap-4">
-                    <span className="text-xs font-medium text-muted-foreground">{subject}</span>
-                    <span className="text-sm font-semibold text-foreground whitespace-nowrap">
-                      {formatIndonesianNumber(row.nilai)}{unit ? ` ${unit}` : ""}
+                    <span className="text-xs font-medium text-muted-foreground truncate">{subject}</span>
+                    <span className="text-sm font-semibold text-foreground whitespace-nowrap text-right">
+                      {formatCompactNumber(row.nilai)}{unit ? ` ${unit}` : ""}
                     </span>
                   </div>
                 ))}
               </div>
             ) : latest ? (
-              <>
-                <p className="mt-1 text-2xl font-semibold text-foreground">{formatIndonesianNumber(latest.nilai)}</p>
+              <div>
+                <p className="mt-1 text-2xl font-semibold text-foreground">{formatCompactNumber(latest.nilai)}</p>
                 <p className="text-xs text-muted-foreground">{latest.tahun}{unit ? ` • ${unit}` : ""}</p>
-              </>
+              </div>
             ) : null}
           </div>
         )}
@@ -206,12 +228,12 @@ export function InlineTimeSeriesAnswer({ match, subjectName, onOpenChart }: Inli
                 <YAxis
                   axisLine={false}
                   tickLine={false}
-                  width={68}
+                  width={72}
                   tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
-                  tickFormatter={(value) => formatIndonesianNumber(value)}
+                  tickFormatter={(value) => formatCompactNumber(value)}
                 />
                 <Tooltip
-                  formatter={(value, name) => [`${formatIndonesianNumber(value as number)}${unit ? ` ${unit}` : ""}`, String(name)]}
+                  formatter={(value, name) => [`${formatCompactNumber(value as number)}${unit ? ` ${unit}` : ""}`, String(name)]}
                   labelFormatter={(label) => `Tahun ${label}`}
                   contentStyle={{
                     backgroundColor: "hsl(var(--card))",
@@ -261,7 +283,7 @@ export function InlineTimeSeriesAnswer({ match, subjectName, onOpenChart }: Inli
                         <td className="px-3 py-2 text-muted-foreground">{String(point.tahun)}</td>
                         {subjects.map((subject) => (
                           <td key={subject} className="px-3 py-2 text-right font-medium text-foreground whitespace-nowrap">
-                            {formatIndonesianNumber(point[subject] as number | null | undefined)}{unit ? ` ${unit}` : ""}
+                            {formatCompactNumber(point[subject] as number | null | undefined)}{unit ? ` ${unit}` : ""}
                           </td>
                         ))}
                       </tr>
