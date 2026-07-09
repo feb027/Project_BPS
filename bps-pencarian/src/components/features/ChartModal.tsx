@@ -169,17 +169,21 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
     return new Set()
   })
   const [dimDropdownOpen, setDimDropdownOpen] = useState(false)
-  const [hasSaved] = useState<boolean>(() =>
-    Boolean(savedRef && (savedRef.metric || (savedRef.sel && (savedRef.sel.wilayah?.length || savedRef.sel.rincian?.length))))
-  )
-
-  // Auto-select defaults only when there is NO saved selection. This runs once
-  // data has loaded (allRows populated), so the chosen dimension/members are
-  // computed from the real facets — not from the mount-time empty state that
-  // caused the "first open shows Wilayah, second open shows Rincian" bug.
+  // Auto-select smart defaults whenever the fetched rows change (always runs
+  // after data has loaded, so the chosen dimension/members come from the real
+  // facets — not from a mount-time empty state, and not from a stale
+  // Wilayah save left by the old buggy version).
+  //
+  // NOTE: we deliberately do NOT skip when a saved selection exists. The old
+  // code guarded on `hasSaved`, which froze stale "wilayah" localStorage
+  // entries written by the previous bug (tables with 1 wilayah + many
+  // rincian, e.g. 9.1 / 2.2.1), so they kept opening on Wilayah
+  // until manually switched. The user's explicit choices still persist via
+  // `persist()` on every toggle/dimension/metric change, so re-defaulting
+  // here only corrects once on load and never fights a live user edit.
   const [hasAutoSelected, setHasAutoSelected] = useState(false)
   useMemo(() => {
-    if (hasAutoSelected || hasSaved || metrics.length === 0 || dimValues.length === 0) return
+    if (hasAutoSelected || metrics.length === 0 || dimValues.length === 0) return
     // Prefer the Rincian dimension when the table has one (richer breakdown),
     // otherwise fall back to the first available dimension.
     const richDim: Dimension = availableDims.includes("rincian")
@@ -209,7 +213,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
     }
     setSelectedDim(new Set(top))
     setHasAutoSelected(true)
-  }, [metrics, allRows, hasAutoSelected, hasSaved, dimension, dimValues, availableDims, wilayahValues, rincianValues])
+  }, [metrics, allRows, hasAutoSelected, dimension, dimValues, availableDims, wilayahValues, rincianValues])
 
   const persist = useCallback(
     (nextMetric: string, nextDim: Dimension, nextSel: Set<string>) => {
