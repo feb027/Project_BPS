@@ -592,6 +592,7 @@ def _quick_rincian_matches(query, limit=12):
             "indicator_id": group["indicator"].id,
             "indicator_name": _indicator_display_name(group["indicator"].nama),
             "subject_name": subject_name,
+            "age_label": age_sig or None,
             "summary_kind": "rincian",
             "comparison_subjects": [{"nama": name, "jenis": "rincian"} for name in subject_names],
             "observations": sorted(

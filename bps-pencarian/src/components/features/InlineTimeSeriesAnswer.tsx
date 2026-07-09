@@ -36,6 +36,7 @@ type QuickMatch = {
   indicator_name: string
   wilayah?: { id: number; nama: string; jenis: string }
   subject_name?: string
+  age_label?: string | null
   summary_kind?: string
   observations: Observation[]
 }
@@ -143,13 +144,18 @@ export function InlineTimeSeriesAnswer({ match, subjectName, onOpenChart }: Inli
             <h3 className="mt-1 text-xl font-semibold text-foreground">
               {match.indicator_name} — {subjectName}
             </h3>
+            {match.age_label ? (
+              <span className="mt-1 inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
+                {match.age_label}
+              </span>
+            ) : null}
             <p className="mt-1 text-sm text-muted-foreground">
               {hasRows
                 ? isComparison
-                  ? `Grafik ringkas langsung membandingkan ${subjects.join(" dan ")}. Buka tabel detail kalau ingin melihat baris database.`
+                  ? `Grafik ringkas langsung membandingkan ${subjects.join(" dan ")}${match.age_label ? ` untuk ${match.age_label}` : ""}. Buka tabel detail kalau ingin melihat baris database.`
                   : match.summary_kind === "aggregate"
                     ? "Ringkasan otomatis dari tabel paling relevan per tahun. Hasil mentah tetap disimpan di bagian detail."
-                    : `Time series otomatis dari hasil pencarian. Hanya menampilkan ${subjectName}, bukan semua kecamatan/rincian.`
+                    : `Time series otomatis dari hasil pencarian. Hanya menampilkan ${subjectName}${match.age_label ? `, ${match.age_label}` : ""}, bukan semua kecamatan/rincian.`
                 : "Tidak ada observasi yang dapat ditampilkan untuk hasil ini."}
             </p>
           </div>
