@@ -55,6 +55,23 @@ def _detect_wilayahs(query):
     return [wilayah for _, wilayah in sorted(matches, key=lambda item: item[0])]
 
 
+def _wilayah_rank(wilayah):
+    """Rank a detected wilayah so the most 'authoritative' one wins as the
+    primary region. Kabupaten/Kota (regency) outranks kecamatan, and longer
+    names outrank short fragments that merely share a token (e.g. a kecamatan
+    named 'Hasil Registrasi' must not hijack a query mentioning 'Hasil
+    Penjualan')."""
+    jenis = (wilayah.jenis or "").lower()
+    if jenis in ("kabupaten", "kota", "kota administratif"):
+        base = 0
+    elif jenis in ("kecamatan",):
+        base = 100
+    else:
+        base = 50
+    # Longer names are more specific; subtract length so bigger == higher priority.
+    return base * 1000 - len(wilayah.nama)
+
+
 def _detect_wilayah(query):
     """Return the first wilayah mentioned in the free-text query."""
     wilayahs = _detect_wilayahs(query)
@@ -963,7 +980,14 @@ class FacetedSearchAPIView(APIView):
             return Response({"tabel": [], "indikator": []})
 
         detected_wilayahs = _detect_wilayahs(query)
-        detected_wilayah = detected_wilayahs[0] if detected_wilayahs else None
+        # Primary wilayah = highest-ranked (regency > kecamatan, longer name
+        # wins), NOT first by query position. This stops a fragment like
+        # kecamatan 'Hasil Registrasi' from hijacking a query that merely
+        # mentions 'Hasil Penjualan'.
+        detected_wilayah = (
+            sorted(detected_wilayahs, key=_wilayah_rank)[0]
+            if detected_wilayahs else None
+        )
         search_query = _query_without_wilayahs(query, detected_wilayahs)
         # School-count queries ('jumlah sekolah RA', 'jumlah sekolah SD di X')
         # resolve to the correct 'Jumlah Sekolah (LEVEL)' table and take
