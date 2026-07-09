@@ -217,10 +217,13 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
   // `persist()` on every toggle/dimension/metric change, so re-defaulting
   // here only corrects once on load and never fights a live user edit.
   const [hasAutoSelected, setHasAutoSelected] = useState(false)
+  // Initialize dimension + metric defaults once data has loaded, but DO NOT
+  // auto-pick any dimension members. The user must choose which
+  // kecamatan/rincian to show — an empty selection yields an empty
+  // chart/table with a "pilih minimal satu ..." prompt, instead of
+  // silently showing all (or a pre-picked subset).
   useMemo(() => {
     if (hasAutoSelected || metrics.length === 0 || dimValues.length === 0) return
-    // Prefer the Rincian dimension when the table has one (richer breakdown),
-    // otherwise fall back to the first available dimension.
     const richDim: Dimension = availableDims.includes("rincian")
       ? "rincian"
       : availableDims[0] ?? "wilayah"
@@ -231,22 +234,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
       return countA >= countB ? a : b
     }, metrics[0])
     setSelectedMetric(best)
-    const metricRows = allRows.filter(
-      (r) => metricKey(r) === best && !isTrivial(richDim, dimensionValue(r, richDim)),
-    )
-    const counts = new Map<string, number>()
-    metricRows.forEach((r) => {
-      const v = dimensionValue(r, richDim)
-      if (v && v !== "-") counts.set(v, (counts.get(v) ?? 0) + 1)
-    })
-    const top = Array.from(counts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([v]) => v)
-    if (richDim === "wilayah" && counts.has("Kabupaten Tasikmalaya") && !top.includes("Kabupaten Tasikmalaya")) {
-      top.push("Kabupaten Tasikmalaya")
-    }
-    setSelectedDim(new Set(top))
+    setSelectedDim(new Set()) // no members pre-selected
     setHasAutoSelected(true)
   }, [metrics, allRows, hasAutoSelected, dimension, dimValues, availableDims, wilayahValues, rincianValues])
 
@@ -309,14 +297,12 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
   }, [persist, selectedMetric, dimension])
 
   // --- Export only the selected dimension members (e.g. chosen kecamatan) ---
-  // Build the filtered rows that reflect the current selection.
+  // If nothing is selected, the export is empty (matches the empty chart/table).
   const exportRows = useMemo(() => {
+    if (selectedDim.size === 0) return []
     return allRows
       .filter((row) => metricKey(row) === selectedMetric)
-      .filter((row) => {
-        if (selectedDim.size === 0) return true
-        return selectedDim.has(dimensionValue(row, dimension))
-      })
+      .filter((row) => selectedDim.has(dimensionValue(row, dimension)))
       .map((row) => ({
         Tahun: row.tahun ?? "-",
         [dimension === "wilayah" ? "Wilayah" : "Rincian"]: dimensionValue(row, dimension) || "-",
@@ -385,14 +371,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
     const lines =
       selected.size > 0
         ? Array.from(selected).sort()
-        : // fallback: all dimension values in this metric (limit to 8 for readability)
-          Array.from(
-            new Set(
-              metricRows
-                .map((r) => dimensionValue(r, dimension))
-                .filter((v) => !isTrivial(dimension, v))
-            )
-          ).sort().slice(0, 8)
+        : [] // no selection -> empty chart/table, prompt user to pick
 
     return {
       points: Object.values(byYear).sort((a, b) => Number(a.tahun) - Number(b.tahun)),
@@ -662,10 +641,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                       <tbody>
                         {allRows
                           .filter((row: any) => metricKey(row) === selectedMetric)
-                          .filter((row: any) => {
-                            if (selectedDim.size === 0) return true
-                            return selectedDim.has(dimensionValue(row, dimension))
-                          })
+                          .filter((row: any) => selectedDim.has(dimensionValue(row, dimension)))
                           .map((row: any) => (
                             <tr key={row.id} className="border-b border-border last:border-0 hover:bg-muted/30">
                               <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.tahun ?? "-"}</td>
@@ -677,6 +653,13 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                               <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.flag || "ada"}</td>
                             </tr>
                           ))}
+                        {selectedDim.size === 0 && (
+                          <tr>
+                            <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                              Pilih minimal satu {DIM_LABEL[dimension].toLowerCase()} untuk menampilkan tabel.
+                            </td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
