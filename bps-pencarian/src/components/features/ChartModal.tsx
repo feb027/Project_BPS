@@ -450,6 +450,57 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
   const hasRows = allRows.length > 0
   const metricUnit = normUnit(allRows.find((r) => metricKey(r) === selectedMetric)?.unit)
 
+  // Stable color lookup so the tooltip, legend, and lines stay in the same
+  // order/colors. chartData.lines is alphabetically sorted and the <Line>
+  // stroke uses chartColors[index]; mirror that here so the hover tooltip
+  // lists series in the exact same sequence as the drawn lines.
+  const colorMap = useMemo(() => {
+    const m: Record<string, string> = {}
+    chartData.lines.forEach((k, i) => {
+      m[k] = chartColors[i % chartColors.length]
+    })
+    return m
+  }, [chartData.lines])
+
+  const renderTooltip = (props: any) => {
+    const { active, payload, label } = props
+    if (!active || !payload || payload.length === 0) return null
+    const ordered = chartData.lines
+      .map((k) => payload.find((p: any) => p.dataKey === k))
+      .filter(Boolean)
+    return (
+      <div
+        style={{
+          backgroundColor: "hsl(var(--card))",
+          border: "1px solid hsl(var(--border))",
+          borderRadius: "0.375rem",
+          padding: "8px 10px",
+          fontSize: "0.75rem",
+          color: "hsl(var(--foreground))",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.12)",
+        }}
+      >
+        <p style={{ fontWeight: 600, marginBottom: 4 }}>Tahun {label}</p>
+        {ordered.map((p: any) => (
+          <div key={p.dataKey} style={{ display: "flex", alignItems: "center", gap: 6, lineHeight: 1.6 }}>
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 9999,
+                background: colorMap[p.dataKey as string],
+                flexShrink: 0,
+              }}
+            />
+            <span style={{ color: colorMap[p.dataKey as string], fontWeight: 500 }}>
+              {p.dataKey} : {formatCompactNumber(p.value, metricUnit)}
+            </span>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
       <div className="absolute inset-0 bg-background/80" onClick={onClose}></div>
@@ -665,15 +716,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                           tickFormatter={(value) => formatCompactNumber(value)}
                         />
                         <Tooltip
-                          formatter={(value, name) => [`${formatCompactNumber(value as number, metricUnit)}`, String(name)]}
-                          labelFormatter={(label) => `Tahun ${label}`}
-                          contentStyle={{
-                            backgroundColor: "hsl(var(--card))",
-                            borderColor: "hsl(var(--border))",
-                            color: "hsl(var(--foreground))",
-                            borderRadius: "0.375rem",
-                            fontSize: "0.75rem",
-                          }}
+                          content={renderTooltip}
                         />
                         <Legend wrapperStyle={{ paddingTop: 12 }} />
                         {chartData.lines.map((key, index) => (
