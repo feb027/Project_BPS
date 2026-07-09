@@ -1300,7 +1300,11 @@ class CatalogAPIView(APIView):
         # series for that table number across ALL publications (multi-year).
         nomor = request.GET.get("nomor_tabel")
         if nomor:
-            tables = list(Tabel.objects.filter(nomor_tabel=nomor))
+            tables = list(
+                Tabel.objects.filter(nomor_tabel=nomor)
+                .select_related("bab__publikasi")
+                .order_by("-bab__publikasi__tahun_terbit")
+            )
             if not tables:
                 return Response({"error": "nomor_tabel tidak ditemukan"}, status=404)
             rows = (
@@ -1402,11 +1406,17 @@ class CatalogAPIView(APIView):
                 node = merged[nt]
                 node["jumlah_publikasi"] += 1
                 node["jumlah_baris"] += s["jumlah"]
-                node["publikasi_tahun"].add(tabel.bab.publikasi.tahun_terbit)
-                if not node["nama_ringkas"] and tabel.nama_ringkas:
-                    node["nama_ringkas"] = tabel.nama_ringkas
-                if not node["judul"] and tabel.judul:
+                pub_year = tabel.bab.publikasi.tahun_terbit
+                node["publikasi_tahun"].add(pub_year)
+                # Prefer the title/short-name from the NEWEST publication so the
+                # catalog shows the current wording (not the oldest year's).
+                if pub_year >= node.get("_best_year", -1):
+                    node["_best_year"] = pub_year
                     node["judul"] = tabel.judul
+                    if tabel.nama_ringkas:
+                        node["nama_ringkas"] = tabel.nama_ringkas
+                elif not node["nama_ringkas"] and tabel.nama_ringkas:
+                    node["nama_ringkas"] = tabel.nama_ringkas
 
             ordered = sorted(
                 merged.values(),
