@@ -8,7 +8,7 @@ interface SidebarProps {
 
 export function Sidebar({ query, setQuery }: SidebarProps) {
   return (
-    <aside className="w-80 border-r border-border bg-card/50 backdrop-blur-sm flex flex-col h-full shadow-sm z-10 transition-all duration-300">
+    <aside className="w-80 shrink-0 border-r border-border bg-card/50 backdrop-blur-sm flex flex-col h-full shadow-sm z-10 transition-all duration-300">
       <div className="p-6 border-b border-border flex flex-col gap-1">
         <h1 className="text-xl font-semibold tracking-tight text-primary">Data Publikasi BPS</h1>
         <p className="text-xs text-muted-foreground">Sistem Pencarian & Ekstraksi Time-Series</p>

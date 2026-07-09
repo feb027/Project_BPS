@@ -61,18 +61,18 @@ function TableCard({
         <FileBarChart className="h-4 w-4" />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2">
-          <span className="font-mono text-xs font-semibold text-primary">
+        <div className="flex items-baseline gap-2 min-w-0">
+          <span className="font-mono text-xs font-semibold text-primary truncate">
             {tabel.nomor_tabel}
           </span>
           {tabel.nama_ringkas && (
-            <span className="text-sm font-semibold text-foreground truncate group-hover:text-primary transition-colors">
+            <span className="text-sm font-semibold text-foreground truncate min-w-0 group-hover:text-primary transition-colors">
               {tabel.nama_ringkas}
             </span>
           )}
         </div>
         {!tabel.nama_ringkas && (
-          <p className="text-sm font-semibold text-foreground truncate group-hover:text-primary transition-colors">
+          <p className="text-sm font-semibold text-foreground truncate min-w-0 group-hover:text-primary transition-colors">
             {cleanTitle(tabel.judul)}
           </p>
         )}
@@ -112,7 +112,7 @@ export function CatalogBrowser({ onOpenTabel, fill, onClose }: CatalogBrowserPro
   const babs = data?.babs ?? []
 
   return (
-    <aside className={`${fill ? "flex-1" : "w-96 shrink-0"} border-r border-border bg-card/40 flex flex-col h-full overflow-hidden`}>
+    <aside className={`${fill ? "flex-1 min-w-0" : "w-96 shrink-0"} border-r border-border bg-card/40 flex flex-col h-full overflow-hidden`}>
       <div className="border-b border-border px-5 py-4">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -137,7 +137,7 @@ export function CatalogBrowser({ onOpenTabel, fill, onClose }: CatalogBrowserPro
         </p>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+      <div className="flex-1 min-w-0 overflow-y-auto px-4 py-4">
         {isLoading ? (
           <div className="flex h-full flex-col items-center justify-center text-primary">
             <Loader2 className="h-8 w-8 animate-spin" />
