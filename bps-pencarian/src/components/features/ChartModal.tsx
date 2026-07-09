@@ -302,7 +302,14 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
       return countA >= countB ? a : b
     }, metrics[0])
     setSelectedMetric(best)
-    setSelectedDim(new Set()) // no members pre-selected
+    // Restore the user's previously saved members for this dimension if any;
+    // otherwise leave it empty so they pick explicitly (no silent "show all").
+    const savedSel = savedRef?.sel?.[richDim]
+    const restored =
+      Array.isArray(savedSel) && savedSel.length > 0
+        ? new Set(savedSel.filter((v) => (richDim === "wilayah" ? wilayahValues : rincianValues).includes(v)))
+        : new Set<string>()
+    setSelectedDim(restored)
     setHasAutoSelected(true)
   }, [metrics, allRows, hasAutoSelected, dimension, dimValues, availableDims, wilayahValues, rincianValues, isSeries])
 
