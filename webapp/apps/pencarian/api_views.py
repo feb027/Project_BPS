@@ -104,6 +104,39 @@ def _query_terms(query):
     ]
 
 
+# Age signature of a query, e.g. "penduduk umur 15 tahun" -> "berumur 15 tahun".
+# Many BPS tables are scoped to an age band (3.2.1 = "Berumur 15 Tahun Keatas",
+# 4.1.11 = "Berumur 7-24 Tahun"), so a query that names an age must NOT
+# fall back to the all-ages population total. We extract the age phrase and use
+# it to (a) drop facts from tables whose title does not mention that age, and
+# (b) boost tables that DO mention it.
+_AGE_RE = re.compile(r"umur\s+(\d{1,3})\s*(tahun|thn|th)?", re.IGNORECASE)
+_AGE_BAND_RE = re.compile(r"umur\s+(\d{1,3})\s*[-–\s]\s*(\d{1,3})\s*tahun", re.IGNORECASE)
+
+
+def _extract_age_signature(query):
+    """Return a normalized age phrase from the query, or '' if none.
+
+    "umur 15 tahun" -> "berumur 15 tahun"
+    "usia 7-24 tahun" -> "berumur 7-24 tahun"
+    """
+    q = normalize_text(query)
+    m = _AGE_BAND_RE.search(q)
+    if m:
+        return f"berumur {m.group(1)}-{m.group(2)} tahun"
+    m = _AGE_RE.search(q)
+    if m:
+        return f"berumur {m.group(1)} tahun"
+    return ""
+
+
+def _title_matches_age(title_norm, age_sig):
+    """True if the (already normalized) table title mentions the age signature."""
+    if not age_sig:
+        return True
+    return age_sig in title_norm
+
+
 SCHOOL_LEVELS = {"SD", "MI", "RA", "TK", "SMP", "MTS", "SMA", "SMK", "MA", "SLB"}
 
 
@@ -201,6 +234,8 @@ def _quick_topic_matches(query, limit=12):
     if not terms:
         return []
 
+    age_sig = _extract_age_signature(query)
+
     qs = (
         Fakta.objects.filter(nilai_num__isnull=False)
         .select_related('kolom__indikator', 'tabel', 'tabel__bab__publikasi', 'wilayah', 'rincian')
@@ -216,6 +251,11 @@ def _quick_topic_matches(query, limit=12):
     rows = list(qs.order_by('kolom__indikator__nama', 'tabel__bab__publikasi__tahun_terbit', 'tahun', 'id')[:6000])
     if "produksi" in terms:
         rows = [fakta for fakta in rows if "produktivit" not in normalize_text(fakta.tabel.judul)]
+    # Drop facts from tables that don't match the requested age band, so an
+    # age-scoped query like "jumlah penduduk umur 15 tahun" never aggregates the
+    # all-ages population total.
+    if age_sig:
+        rows = [fakta for fakta in rows if _title_matches_age(normalize_text(fakta.tabel.judul), age_sig)]
     if not rows:
         return []
 
@@ -328,12 +368,26 @@ def _quick_topic_matches(query, limit=12):
         if observations:
             payload.append({
                 "indicator_id": group["indicator"].id,
-                "indicator_name": group["indicator"].nama,
+                "indicator_name": _indicator_display_name(group["indicator"].nama),
                 "subject_name": "Kabupaten Tasikmalaya",
                 "summary_kind": "aggregate",
                 "observations": observations,
             })
     return payload
+
+
+def _indicator_display_name(raw_name):
+    """Human-friendly indicator label for the direct-answer card.
+
+    Publication indicator names are often noisy compound tags like
+    'Penduduk - Jumlah' or 'Penduduk - Laki-Laki'. Strip the leading
+    subject/entity prefix (anything before the first ' - ') so the card shows
+    a clean concept ('Jumlah', 'Laki-Laki') rather than the extraction artifact.
+    """
+    label = (raw_name or "").strip()
+    if " - " in label:
+        label = label.split(" - ", 1)[1].strip()
+    return label or (raw_name or "-").strip() or "-"
 
 
 def _rincian_display_name(raw_name):
@@ -394,6 +448,8 @@ def _quick_rincian_matches(query, limit=12):
     if not terms:
         return []
 
+    age_sig = _extract_age_signature(query)
+
     qs = (
         Fakta.objects.filter(rincian__isnull=False, nilai_num__isnull=False)
         .select_related('kolom__indikator', 'tabel', 'tabel__bab__publikasi', 'wilayah', 'rincian')
@@ -406,6 +462,8 @@ def _quick_rincian_matches(query, limit=12):
         )
 
     rows = list(qs.order_by('tabel__nomor_tabel', 'kolom__indikator__nama', 'tahun', 'id')[:8000])
+    if age_sig:
+        rows = [fakta for fakta in rows if _title_matches_age(normalize_text(fakta.tabel.judul), age_sig)]
     if not rows:
         return []
 
@@ -465,15 +523,35 @@ def _quick_rincian_matches(query, limit=12):
 
         group_titles = " ".join(normalize_text(fakta.tabel.judul) for fakta in group["rows"][:20])
         if subject_intent:
-            selected_keys = [
+            matched = [
                 key for key in rows_by_subject
                 if any(term in key for term in terms)
             ]
+            # If the only intent match is the trivial total ('jumlah'/'total'),
+            # prefer the real breakdown categories instead of collapsing to it.
+            trivial = {key for key in matched if key in {"jumlah", "total"}}
+            if matched and matched != list(trivial):
+                selected_keys = matched
+            else:
+                breakdown_keys = [
+                    key for key in rows_by_subject
+                    if key not in {"jumlah", "total", "kabupaten tasikmalaya"}
+                ]
+                selected_keys = breakdown_keys or list(rows_by_subject)
         elif "jenis permukaan" in group_titles and (set(rows_by_subject) & surface_terms):
             selected_keys = [key for key in rows_by_subject if key in surface_terms]
         else:
-            non_total_keys = [key for key in rows_by_subject if key not in {"jumlah", "total"}]
-            selected_keys = non_total_keys or list(rows_by_subject)
+            # No explicit subject in the query. Prefer a meaningful breakdown
+            # (the real rincian categories) over collapsing to the 'Jumlah'
+            # total row. E.g. "penduduk umur 15 tahun" should surface the
+            # weekly-activity split (Bekerja, Sekolah, Mengurus Rumah
+            # Tangga, ...) rather than just the grand total labelled
+            # "Penduduk - Jumlah".
+            breakdown_keys = [
+                key for key in rows_by_subject
+                if key not in {"jumlah", "total", "kabupaten tasikmalaya"}
+            ]
+            selected_keys = breakdown_keys or list(rows_by_subject)
 
         def subject_rank(key):
             subject_rows = rows_by_subject[key]["rows"]
@@ -512,7 +590,7 @@ def _quick_rincian_matches(query, limit=12):
         subject_name = subject_names[0] if len(subject_names) == 1 else " + ".join(subject_names)
         return {
             "indicator_id": group["indicator"].id,
-            "indicator_name": group["indicator"].nama,
+            "indicator_name": _indicator_display_name(group["indicator"].nama),
             "subject_name": subject_name,
             "summary_kind": "rincian",
             "comparison_subjects": [{"nama": name, "jenis": "rincian"} for name in subject_names],

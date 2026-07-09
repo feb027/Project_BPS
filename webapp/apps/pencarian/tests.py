@@ -4,7 +4,7 @@ from django.test import TestCase
 
 from apps.data.models import Fakta
 from apps.katalog.models import Bab, KolomTabel, Publikasi, Tabel
-from apps.pencarian.api_views import _detect_wilayahs, _quick_rincian_matches, _quick_topic_matches, _quick_wilayah_matches, _quick_wilayah_matches_for_wilayahs
+from apps.pencarian.api_views import (_detect_wilayahs, _extract_age_signature, _quick_rincian_matches, _quick_topic_matches, _quick_wilayah_matches, _quick_wilayah_matches_for_wilayahs)
 from apps.referensi.models import Indikator, Rincian, Wilayah
 
 
@@ -186,3 +186,48 @@ class QuickTopicAnswerTests(TestCase):
         obs = {o["tahun"]: o["nilai"] for o in card["observations"]}
         self.assertEqual(obs.get(2025), 2708.82)
         self.assertNotEqual(obs.get(2025), 2708.82 + 900 + 901 + 902)
+
+
+class AgeScopedQueryTests(TestCase):
+    def _make_age_table(self, nomor, judul, indicator_nama, rincian_names):
+        pub, _ = Publikasi.objects.get_or_create(
+            judul="Kabupaten Tasikmalaya Angka 2022", tahun_terbit=2022)
+        bab, _ = Bab.objects.get_or_create(publikasi=pub, nomor=3, nama="Penduduk")
+        tabel = Tabel.objects.create(bab=bab, nomor_tabel=nomor, judul=judul, tahun_data=2022)
+        ind = Indikator.objects.create(nama=indicator_nama)
+        kolom = KolomTabel.objects.create(tabel=tabel, urutan=1, indikator=ind, tahun=2022)
+        regency = Wilayah.objects.create(nama="Kabupaten Tasikmalaya", jenis="kabupaten")
+        Fakta.objects.create(tabel=tabel, kolom=kolom, wilayah=regency, rincian=None, tahun=2022, nilai_num=Decimal("1000"), nilai_teks="1000")
+        for nama in rincian_names:
+            r = Rincian.objects.create(nama=nama)
+            Fakta.objects.create(tabel=tabel, kolom=kolom, wilayah=regency, rincian=r, tahun=2022, nilai_num=Decimal("100"), nilai_teks="100")
+
+    def test_age_signature_parsing(self):
+        self.assertEqual(_extract_age_signature("jumlah penduduk umur 15 tahun"), "berumur 15 tahun")
+        self.assertEqual(_extract_age_signature("penduduk umur 7-24 tahun"), "berumur 7-24 tahun")
+        self.assertEqual(_extract_age_signature("jumlah penduduk"), "")
+
+    def test_age_query_uses_scoped_table_not_all_ages_total(self):
+        # All-ages total population (3.1.1) vs age-15+ weekly-activity (3.2.1).
+        self._make_age_table(
+            "3.1.1",
+            "Jumlah Penduduk Menurut Kecamatan di Kabupaten Tasikmalaya, 2017",
+            "Penduduk - Jumlah",
+            ["Laki-Laki", "Perempuan"],
+        )
+        self._make_age_table(
+            "3.2.1",
+            "Jumlah Penduduk Berumur 15 Tahun Keatas Menurut Jenis Kegiatan Selama Seminggu yang Lalu di Kabupaten Tasikmalaya, 2022",
+            "Penduduk Berumur 15 Keatas - Jumlah",
+            ["Bekerja", "Sekolah", "Mengurus Rumah Tangga"],
+        )
+
+        cards = _quick_rincian_matches("jumlah penduduk umur 15 tahun")
+        self.assertTrue(cards, "expected a direct-answer card")
+        # The card must come from the age-15+ table (3.2.1), never the
+        # all-ages population total (3.1.1).
+        card = cards[0]
+        self.assertEqual(card["subject_name"], "Bekerja + Mengurus Rumah Tangga + Sekolah")
+        for obs in card["observations"]:
+            self.assertEqual(obs["tabel"]["nomor_tabel"], "3.2.1")
+            self.assertNotEqual(obs["tabel"]["nomor_tabel"], "3.1.1")
