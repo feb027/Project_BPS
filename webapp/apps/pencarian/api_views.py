@@ -995,11 +995,23 @@ class FacetedSearchAPIView(APIView):
         # otherwise collide with the population table's 'Sekolah' rincian.
         quick_matches = _quick_school_matches(search_query, detected_wilayah)
         if not quick_matches:
-            quick_matches = (
+            wilayah_matches = (
                 _quick_wilayah_matches_for_wilayahs(search_query, detected_wilayahs)
                 if detected_wilayah
-                else (_quick_rincian_matches(search_query) or _quick_topic_matches(search_query))
+                else []
             )
+            if wilayah_matches:
+                quick_matches = wilayah_matches
+            else:
+                # The wilayah-scoped matcher ANDs every query term against the
+                # indicator *name* (line 830). Table-title queries like
+                # "Hasil Penjualan Tiket Objek Wisata Per Triwulan" carry terms
+                # ("penjualan", "wisata", "triwulan") that live in the table
+                # title, not the indicator name ("Pengunjung"/"Tiket"), so
+                # the strict matcher returns nothing. Fall through to the
+                # broader rincian/topic matchers (which OR across title) so
+                # these queries still get a direct-answer card.
+                quick_matches = _quick_rincian_matches(search_query) or _quick_topic_matches(search_query)
 
         if connection.vendor == 'postgresql':
             tabel_qs = Tabel.objects.annotate(
