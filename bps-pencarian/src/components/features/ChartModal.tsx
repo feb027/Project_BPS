@@ -1,7 +1,20 @@
 import { useMemo, useState, useCallback } from "react"
-import { X, Loader2, Table2, LineChart as LineIcon, BarChart3, ChevronDown, Check, ListTree } from "lucide-react"
+import { X, Loader2, Table2, LineChart as LineIcon, BarChart3, ChevronDown, Check, ListTree, FileSpreadsheet, FileText } from "lucide-react"
 import { ResponsiveContainer, LineChart, CartesianGrid, XAxis, YAxis, Tooltip, Legend, Line } from "recharts"
+import * as XLSX from "xlsx"
+import html2canvas from "html2canvas"
+import jsPDF from "jspdf"
 import { useTimeSeries, useCatalogSeries, type CatalogSeriesRow } from "../../lib/api"
+
+function safeFileName(name: string) {
+  return (name || "data")
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-zA-Z0-9 _.-]/g, "")
+    .replace(/\s+/g, "_")
+    .replace(/_+/g, "_")
+    .slice(0, 80) || "data"
+}
 
 interface ChartModalProps {
   item: {
@@ -295,6 +308,65 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
     persist(selectedMetric, dimension, new Set())
   }, [persist, selectedMetric, dimension])
 
+  // --- Export only the selected dimension members (e.g. chosen kecamatan) ---
+  // Build the filtered rows that reflect the current selection.
+  const exportRows = useMemo(() => {
+    return allRows
+      .filter((row) => metricKey(row) === selectedMetric)
+      .filter((row) => {
+        if (selectedDim.size === 0) return true
+        return selectedDim.has(dimensionValue(row, dimension))
+      })
+      .map((row) => ({
+        Tahun: row.tahun ?? "-",
+        [dimension === "wilayah" ? "Wilayah" : "Rincian"]: dimensionValue(row, dimension) || "-",
+        Nilai: getValue(row),
+        Satuan: normUnit(row.unit) || "",
+        Rincian: row.rincian_nama && row.rincian_nama !== "-" ? row.rincian_nama : "",
+        Status: row.flag || "ada",
+      }))
+  }, [allRows, selectedMetric, selectedDim, dimension])
+
+  const handleExportExcel = useCallback(() => {
+    if (exportRows.length === 0) return
+    const worksheet = XLSX.utils.json_to_sheet(exportRows)
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Data")
+    const sel = selectedDim.size > 0 ? `_${Array.from(selectedDim).join("-")}` : ""
+    XLSX.writeFile(workbook, `${safeFileName(item.title)}${sel}.xlsx`)
+  }, [exportRows, item.title, selectedDim])
+
+  const handleExportPDF = useCallback(async () => {
+    if (exportRows.length === 0) return
+    const worksheet = XLSX.utils.json_to_sheet(exportRows)
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Data")
+    // Render the sheet to an HTML table, then to canvas -> PDF.
+    const html = XLSX.utils.sheet_to_html(worksheet, { id: "bps-export-table", editable: false })
+    const container = document.createElement("div")
+    container.innerHTML = html
+    Object.assign(container.style, {
+      position: "fixed",
+      left: "-99999px",
+      top: "0",
+      background: "#ffffff",
+      padding: "12px",
+    } as CSSStyleDeclaration)
+    document.body.appendChild(container)
+    try {
+      const canvas = await html2canvas(container, { scale: 2, backgroundColor: "#ffffff" })
+      const imgData = canvas.toDataURL("image/png")
+      const pdf = new jsPDF("landscape", "mm", "a4")
+      const pdfWidth = pdf.internal.pageSize.getWidth()
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width
+      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, Math.min(pdfHeight, pdf.internal.pageSize.getHeight()))
+      const sel = selectedDim.size > 0 ? `_${Array.from(selectedDim).join("-")}` : ""
+      pdf.save(`${safeFileName(item.title)}${sel}.pdf`)
+    } finally {
+      document.body.removeChild(container)
+    }
+  }, [exportRows, item.title, selectedDim])
+
   // --- Chart data: pivot by (year × dimension value) ---
   const chartData = useMemo(() => {
     const metricRows = allRows.filter((r) => metricKey(r) === selectedMetric)
@@ -390,6 +462,26 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                     className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-semibold transition-colors ${view === "table" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
                   >
                     <BarChart3 className="h-4 w-4" /> Tabel
+                  </button>
+                </div>
+
+                {/* Export (selected dimension members only, e.g. chosen kecamatan) */}
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={handleExportExcel}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-primary/5 hover:border-primary/50 transition-colors"
+                    title="Unduh Excel (kecamatan/rincian terpilih)"
+                  >
+                    <FileSpreadsheet className="h-4 w-4" /> Excel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportPDF}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-primary/5 hover:border-primary/50 transition-colors"
+                    title="Unduh PDF (kecamatan/rincian terpilih)"
+                  >
+                    <FileText className="h-4 w-4" /> PDF
                   </button>
                 </div>
 

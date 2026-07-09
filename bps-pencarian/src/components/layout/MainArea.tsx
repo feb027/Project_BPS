@@ -1,6 +1,7 @@
 import { Search, FileText, BarChart3, Loader2, Table2, PanelLeft } from "lucide-react"
 import { useSearch } from "../../lib/api"
 import { InlineTimeSeriesAnswer } from "../features/InlineTimeSeriesAnswer"
+import { cleanTitle } from "../../lib/utils"
 
 type SelectedItem = {id?: number, nomor_tabel?: string, type: 'tabel' | 'indikator', title: string, initialFilter?: string, initialFilters?: string[]}
 
@@ -206,9 +207,9 @@ export function MainArea({ query, setSelectedItem, browseOpen, onToggleBrowse }:
                         key={`tab-${tab.id}`}
                         icon={<FileText className="h-5 w-5" />}
                         accent="accent"
-                        onClick={() => openTabel(tab.id, tab.judul)}
+                        onClick={() => openTabel(tab.id, cleanTitle(tab.judul))}
                       >
-                        <h3 className="text-lg font-semibold text-foreground group-hover:text-primary transition-colors">{tab.judul}</h3>
+                        <h3 className="text-lg font-semibold text-foreground group-hover:text-primary transition-colors">{cleanTitle(tab.judul)}</h3>
                         <div className="flex items-center gap-3 mt-1.5">
                           <span className="inline-flex items-center rounded-full bg-accent/10 px-2.5 py-0.5 text-xs font-semibold text-accent">Tabel Data</span>
                           {tab.nomor_tabel && <span className="text-xs text-muted-foreground">Tabel {tab.nomor_tabel}</span>}

@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react"
 import { useCatalog, type CatalogTable } from "../../lib/api"
+import { cleanTitle } from "../../lib/utils"
 
 export interface CatalogSelection {
   nomor_tabel: string
@@ -51,7 +52,7 @@ function TableCard({
       onClick={() =>
         onOpen({
           nomor_tabel: tabel.nomor_tabel,
-          title: tabel.nama_ringkas || tabel.judul,
+          title: cleanTitle(tabel.nama_ringkas || tabel.judul),
         })
       }
       className="group w-full text-left rounded-md border border-border bg-background p-3 hover:border-primary/50 hover:bg-primary/[0.03] transition-colors duration-150 flex items-start gap-3"
@@ -72,11 +73,11 @@ function TableCard({
         </div>
         {!tabel.nama_ringkas && (
           <p className="text-sm font-semibold text-foreground truncate group-hover:text-primary transition-colors">
-            {tabel.judul}
+            {cleanTitle(tabel.judul)}
           </p>
         )}
         <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">
-          {tabel.nama_ringkas ? tabel.judul : ""}
+          {tabel.nama_ringkas ? cleanTitle(tabel.judul) : ""}
         </p>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
           <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5">
