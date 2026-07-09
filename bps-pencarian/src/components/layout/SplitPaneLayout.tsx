@@ -37,7 +37,13 @@ export function SplitPaneLayout() {
     })
 
   const hasQuery = deferredQuery.trim().length >= 2
+  // When searching, the browse panel slides out to the left (kept mounted
+  // + animated) and the results get the full width. When there is NO
+  // query, show BOTH the browse panel (left) and the landing hint
+  // (right) side by side so the user sees example queries that map
+  // to the published table titles.
   const browseOpen = hasQuery ? showBrowse : true
+  const showLanding = !hasQuery
 
   // No query: browse fills the whole main view. Querying: the panel is a
   // fixed-width rail that animates width + slide.
@@ -55,15 +61,26 @@ export function SplitPaneLayout() {
         <div className={innerClass}>
           <CatalogBrowser
             onOpenTabel={openTabel}
-            fill={!hasQuery}
+            fill={showLanding ? false : !hasQuery}
             onClose={hasQuery ? () => setShowBrowse(false) : undefined}
           />
         </div>
       </div>
-      {hasQuery && (
+      {showLanding ? (
         <div className="flex-1 overflow-hidden relative flex flex-col">
           <MainArea
             query={deferredQuery}
+            setQuery={setQuery}
+            setSelectedItem={setSelectedItem}
+            browseOpen={showBrowse}
+            onToggleBrowse={() => setShowBrowse((v) => !v)}
+          />
+        </div>
+      ) : hasQuery && (
+        <div className="flex-1 overflow-hidden relative flex flex-col">
+          <MainArea
+            query={deferredQuery}
+            setQuery={setQuery}
             setSelectedItem={setSelectedItem}
             browseOpen={showBrowse}
             onToggleBrowse={() => setShowBrowse((v) => !v)}

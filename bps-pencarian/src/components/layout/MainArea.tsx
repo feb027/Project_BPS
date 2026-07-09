@@ -6,6 +6,7 @@ type SelectedItem = {id?: number, nomor_tabel?: string, type: 'tabel' | 'indikat
 
 interface MainAreaProps {
   query: string
+  setQuery: (q: string) => void
   setSelectedItem: (item: SelectedItem | null) => void
   browseOpen?: boolean
   onToggleBrowse?: () => void
@@ -39,6 +40,50 @@ function EmptyPanel({ title, description, icon = "table" }: EmptyPanelProps) {
   )
 }
 
+// Landing/empty-state hint shown before any query is typed. Guides the
+// user to search per-kecamatan via the search bar, with examples that
+// mirror the published table titles already displayed in the browse panel.
+function LandingHint({ setQuery }: { setQuery: (q: string) => void }) {
+  const examples = [
+    { q: "jumlah penduduk cisayong", label: "Penduduk per kecamatan (mis. Cisayong)" },
+    { q: "realisasi pendapatan 2025", label: "Realisasi Pendapatan 2025" },
+    { q: "luas lahan sawah irigasi", label: "Luas Lahan Sawah Irigasi" },
+    { q: "jumlah pengunjung wisata triwulan", label: "Pengunjung Objek Wisata per Triwulan" },
+  ]
+  return (
+    <section className="rounded-lg border border-border bg-card min-h-[calc(100vh-10rem)] shadow-sm flex flex-col">
+      <div className="border-b border-border px-5 py-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-primary">Jawaban langsung</p>
+        <h3 className="mt-1 text-xl font-semibold text-foreground">Hasil pencarian</h3>
+      </div>
+      <div className="flex-1 rounded-b-lg bg-background/50 p-6">
+        <div className="h-full min-h-[420px] rounded-md border border-dashed border-border bg-muted/20 flex flex-col items-center justify-center text-center px-6">
+          <Search className="h-10 w-10 mb-4 text-muted-foreground" />
+          <p className="text-lg font-semibold text-foreground">Cari data per kecamatan</p>
+          <p className="mt-2 max-w-md text-sm text-muted-foreground">
+            Ketik di kotak pencarian di kiri untuk mencari indikator, rincian, atau
+            wilayah (kecamatan). Hasil akan langsung cocok dengan judul tabel publikasi
+            yang sudah ditampilkan di panel jelajahi.
+          </p>
+          <div className="mt-5 w-full max-w-md grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {examples.map((ex) => (
+              <button
+                key={ex.q}
+                type="button"
+                onClick={() => setQuery(ex.q)}
+                className="rounded-md border border-border bg-background px-3 py-2 text-left text-sm text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors"
+              >
+                <span className="block font-medium">{ex.label}</span>
+                <span className="block text-xs text-muted-foreground">"{ex.q}"</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function RawResultCard({ children, icon, accent = "primary", onClick }: { children: React.ReactNode, icon: React.ReactNode, accent?: "primary" | "accent", onClick: () => void }) {
   const accentClass = accent === "primary" ? "bg-primary/80" : "bg-accent/80"
   const iconClass = accent === "primary" ? "bg-secondary/10 text-secondary" : "bg-accent/10 text-accent"
@@ -59,7 +104,7 @@ function RawResultCard({ children, icon, accent = "primary", onClick }: { childr
   )
 }
 
-export function MainArea({ query, setSelectedItem, browseOpen, onToggleBrowse }: MainAreaProps) {
+export function MainArea({ query, setQuery, setSelectedItem, browseOpen, onToggleBrowse }: MainAreaProps) {
   const { data, isLoading, error } = useSearch(query)
 
   const detectedWilayah = data?.detected_wilayah?.nama as string | undefined
@@ -125,11 +170,7 @@ export function MainArea({ query, setSelectedItem, browseOpen, onToggleBrowse }:
 
       <div className="p-8 max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
         {query.length < 2 ? (
-          <EmptyPanel
-            icon="search"
-            title="Belum ada pencarian"
-            description="Ketik nama indikator, rincian, atau wilayah. Area hasil tetap penuh supaya grafik atau tabel berikutnya tidak mengubah tata letak halaman."
-          />
+          <LandingHint setQuery={setQuery} />
         ) : isLoading ? (
           <EmptyPanel
             icon="loading"
