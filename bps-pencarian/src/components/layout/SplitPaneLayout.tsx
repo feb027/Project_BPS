@@ -9,10 +9,12 @@ const ChartModal = lazy(() => import("../features/ChartModal").then((module) => 
 type SelectedItem = {
   nomor_tabel?: string
   id?: number
-  type: "tabel" | "indikator"
+  type: "tabel" | "indikator" | "series"
   title: string
   initialFilter?: string
   initialFilters?: string[]
+  seriesObservations?: any[]
+  subjectName?: string
 }
 
 export function SplitPaneLayout() {

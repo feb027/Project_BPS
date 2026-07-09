@@ -733,9 +733,15 @@ def _quick_school_matches(query, wilayah=None, limit=12):
             chosen = next((f for f in fakta_rows if f.wilayah_id == wilayah.id), fakta_rows[0])
             by_year[year] = chosen
             continue
-        regency_fakta = next((f for f in fakta_rows if f.wilayah and f.wilayah.nama == regency_name), None)
-        if regency_fakta is not None:
-            by_year[year] = regency_fakta
+        # Sum every matched school-level table's regency total so the card
+        # shows the true kabupaten total across ALL levels (SD+SMP+SMA+...),
+        # not just the first table that happens to sort first.
+        regency_rows = [f for f in fakta_rows if f.wilayah and f.wilayah.nama == regency_name]
+        if regency_rows:
+            total = sum((f.nilai_num for f in regency_rows if f.nilai_num is not None), Decimal("0"))
+            repr_fakta = regency_rows[0]
+            repr_fakta.nilai_num = total
+            by_year[year] = repr_fakta
         else:
             # No pre-computed regency total: sum every kecamatan row for the year.
             total = sum((f.nilai_num for f in fakta_rows if f.nilai_num is not None), Decimal("0"))
@@ -799,6 +805,155 @@ def _quick_school_matches(query, wilayah=None, limit=12):
             "wilayah": {"id": wilayah.id, "nama": wilayah.nama, "jenis": wilayah.jenis} if wilayah else None,
             "subject_name": card_subject,
             "summary_kind": "aggregate",
+            "drill_mode": "series",
+            "observations": observations,
+        }
+    ]
+
+
+def _quick_guru_matches(query, wilayah=None, limit=12):
+    """Resolve 'jumlah guru' / 'guru swasta' / 'guru SMA' to the teacher count
+    in the 'Jumlah Sekolah, Guru, dan Murid ... (LEVEL)' tables.
+
+    Models after ``_quick_school_matches``. The generic rincian matcher must
+    NOT handle 'guru': it wrongly surfaces the 'Jabatan Fungsional Guru'
+    *rincian* inside the ASN/PNS tables (or, absent that, the population
+    'Mengurus rumah tangga' breakdown), because it requires a ``rincian`` and
+    only scores by substring presence. This returns the actual teacher count.
+    """
+    terms = _query_terms(query)
+    if "guru" not in terms:
+        return []
+
+    level_terms = [t for t in terms if t.upper() in SCHOOL_LEVELS]
+
+    # Ownership / category from the query.
+    if "swasta" in terms:
+        ownership = "Swasta"
+    elif "negeri" in terms:
+        ownership = "Negeri"
+    elif "asn" in terms:
+        ownership = "ASN"
+    else:
+        ownership = "Jumlah"
+
+    qs = (
+        Fakta.objects.filter(nilai_num__isnull=False)
+        .select_related("kolom__indikator", "tabel", "tabel__bab__publikasi", "wilayah")
+    )
+    if wilayah is not None:
+        qs = qs.filter(wilayah=wilayah)
+    # Restrict to the teacher tables family so we never pull 'Jabatan
+    # Fungsional Guru' from the ASN/PNS tables.
+    qs = qs.filter(tabel__judul__icontains="Jumlah Sekolah, Guru, dan Murid")
+    # When a school level is named, pin to that level's table.
+    if level_terms:
+        level_filters = Q()
+        for level in level_terms:
+            level_filters |= Q(tabel__judul__icontains=f"({level.upper()})")
+        qs = qs.filter(level_filters)
+    # Match the Guru indicator stem + ownership/category.
+    qs = qs.filter(kolom__indikator__nama__icontains="Guru")
+    if ownership == "Jumlah":
+        # Plain total: 'Guru Jumlah' (exclude the qualified variants).
+        qs = qs.filter(kolom__indikator__nama__icontains="Jumlah")
+        qs = qs.exclude(kolom__indikator__nama__icontains="ASN")
+        qs = qs.exclude(kolom__indikator__nama__icontains="Non")
+    elif ownership == "Swasta":
+        qs = qs.filter(kolom__indikator__nama__icontains="Swasta")
+    elif ownership == "Negeri":
+        qs = qs.filter(kolom__indikator__nama__icontains="Negeri")
+    elif ownership == "ASN":
+        qs = qs.filter(kolom__indikator__nama__icontains="ASN")
+
+    rows = list(qs.order_by("tabel__bab__publikasi__tahun_terbit", "tahun", "id")[:8000])
+    if not rows:
+        return []
+
+    regency_name = "Kabupaten Tasikmalaya"
+    rows_by_year = {}
+    for fakta in rows:
+        year = fakta.tahun_lengkap
+        if year is None:
+            continue
+        rows_by_year.setdefault(year, []).append(fakta)
+
+    by_year = {}
+    for year, fakta_rows in rows_by_year.items():
+        if wilayah is not None:
+            chosen = next((f for f in fakta_rows if f.wilayah_id == wilayah.id), fakta_rows[0])
+            by_year[year] = chosen
+            continue
+        regency_rows = [f for f in fakta_rows if f.wilayah and f.wilayah.nama == regency_name]
+        if regency_rows:
+            # Sum every matched school-level table's regency total so the card
+            # shows the true kabupaten total across ALL levels, not just the
+            # first table that sorts first.
+            total = sum((f.nilai_num for f in regency_rows if f.nilai_num is not None), Decimal("0"))
+            repr_fakta = regency_rows[0]
+            repr_fakta.nilai_num = total
+            by_year[year] = repr_fakta
+        else:
+            # No pre-computed regency total: sum every row for the year
+            # (across all matched school levels / kecamatan).
+            total = sum((f.nilai_num for f in fakta_rows if f.nilai_num is not None), Decimal("0"))
+            repr_fakta = fakta_rows[0]
+            repr_fakta.nilai_num = total
+            repr_fakta.wilayah = None
+            by_year[year] = repr_fakta
+
+    observations = sorted(
+        (
+            {
+                "id": f.id,
+                "tahun": year,
+                "nilai": float(f.nilai_num),
+                "nilai_teks": f.nilai_teks,
+                "wilayah_nama": f.wilayah.nama if f.wilayah else regency_name,
+                "subject_name": None,
+                "satuan": getattr(f.kolom, "satuan", "") or getattr(f.kolom.indikator, "satuan", "") or "",
+                "tabel": {"id": f.tabel_id, "nomor_tabel": f.tabel.nomor_tabel, "judul": f.tabel.judul},
+            }
+            for year, f in by_year.items()
+        ),
+        key=lambda o: (o["tahun"] or 0),
+    )
+    if not observations:
+        return []
+
+    ownership_label = "" if ownership == "Jumlah" else f" {ownership}"
+    _SCHOOL_LEVEL_NAMES = {
+        "RA": "Raudatul Athfal (RA)",
+        "SD": "SD",
+        "MI": "Madrasah Ibtidaiyah (MI)",
+        "TK": "TK",
+        "SMP": "SMP",
+        "MTS": "Madrasah Tsanawiyah (MTs)",
+        "SMA": "SMA",
+        "SMK": "SMK",
+        "MA": "Madrasah Aliyah (MA)",
+        "SLB": "SLB",
+    }
+    if level_terms:
+        upper_levels = sorted({t.upper() for t in level_terms})
+        friendly_levels = [_SCHOOL_LEVEL_NAMES.get(lvl, lvl) for lvl in upper_levels]
+        level_label = friendly_levels[0] if len(friendly_levels) == 1 else "Sekolah"
+        display_name = f"Jumlah Guru{ownership_label} ({level_label})"
+    else:
+        display_name = f"Jumlah Guru{ownership_label}"
+        level_label = None
+    wilayah_nama = wilayah.nama if wilayah else regency_name
+    card_subject = (
+        f"{wilayah_nama} ({level_label})" if (wilayah and level_label) else wilayah_nama
+    )
+    return [
+        {
+            "indicator_id": rows[0].kolom.indikator.id,
+            "indicator_name": display_name,
+            "wilayah": {"id": wilayah.id, "nama": wilayah.nama, "jenis": wilayah.jenis} if wilayah else None,
+            "subject_name": card_subject,
+            "summary_kind": "aggregate",
+            "drill_mode": "series",
             "observations": observations,
         }
     ]
@@ -1011,11 +1166,18 @@ class FacetedSearchAPIView(APIView):
             if detected_wilayahs else None
         )
         search_query = _query_without_wilayahs(query, detected_wilayahs)
-        # School-count queries ('jumlah sekolah RA', 'jumlah sekolah SD di X')
-        # resolve to the correct 'Jumlah Sekolah (LEVEL)' table and take
-        # priority over the generic rincian/indicator matchers, which would
-        # otherwise collide with the population table's 'Sekolah' rincian.
-        quick_matches = _quick_school_matches(search_query, detected_wilayah)
+        # Teacher-count queries ('jumlah guru', 'guru swasta', 'guru SMA') resolve
+        # to the correct 'Jumlah Sekolah, Guru, dan Murid (LEVEL)' table and take
+        # priority over the generic rincian matcher, which would otherwise
+        # surface the 'Jabatan Fungsional Guru' rincian (ASN/PNS tables) or the
+        # population 'Mengurus rumah tangga' breakdown.
+        quick_matches = _quick_guru_matches(search_query, detected_wilayah)
+        if not quick_matches:
+            # School-count queries ('jumlah sekolah RA', 'jumlah sekolah SD di X')
+            # resolve to the correct 'Jumlah Sekolah (LEVEL)' table and take
+            # priority over the generic rincian/indicator matchers, which would
+            # otherwise collide with the population table's 'Sekolah' rincian.
+            quick_matches = _quick_school_matches(search_query, detected_wilayah)
         if not quick_matches:
             wilayah_matches = (
                 _quick_wilayah_matches_for_wilayahs(search_query, detected_wilayahs)

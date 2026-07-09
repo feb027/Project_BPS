@@ -1,13 +1,14 @@
 import { Search, FileText, BarChart3, Loader2, Table2, PanelLeft } from "lucide-react"
+import type { Dispatch, SetStateAction } from "react"
 import { useSearch } from "../../lib/api"
 import { InlineTimeSeriesAnswer } from "../features/InlineTimeSeriesAnswer"
 import { cleanTitle } from "../../lib/utils"
 
-type SelectedItem = {id?: number, nomor_tabel?: string, type: 'tabel' | 'indikator', title: string, initialFilter?: string, initialFilters?: string[]}
+type SelectedItem = {id?: number, nomor_tabel?: string, type: 'tabel' | 'indikator' | 'series', title: string, initialFilter?: string, initialFilters?: string[], seriesObservations?: any[], subjectName?: string}
 
 interface MainAreaProps {
   query: string
-  setSelectedItem: (item: SelectedItem | null) => void
+  setSelectedItem: Dispatch<SetStateAction<SelectedItem | null>>
   browseOpen?: boolean
   onToggleBrowse?: () => void
 }
@@ -155,13 +156,20 @@ export function MainArea({ query, setSelectedItem, browseOpen, onToggleBrowse }:
               <InlineTimeSeriesAnswer
                 match={primaryQuickMatch}
                 subjectName={directAnswerSubject}
-                onOpenChart={() => setSelectedItem({
-                  id: primaryQuickMatch.indicator_id,
-                  type: 'indikator',
-                  title: primaryQuickMatch.indicator_name,
-                  initialFilter: directAnswerFilter,
-                  initialFilters: initialSubjectFilters,
-                })}
+                onOpenChart={() => setSelectedItem(primaryQuickMatch.drill_mode === "series"
+                  ? {
+                      type: 'series',
+                      title: primaryQuickMatch.indicator_name,
+                      seriesObservations: primaryQuickMatch.observations,
+                      subjectName: directAnswerSubject,
+                    }
+                  : {
+                      id: primaryQuickMatch.indicator_id,
+                      type: 'indikator',
+                      title: primaryQuickMatch.indicator_name,
+                      initialFilter: directAnswerFilter,
+                      initialFilters: initialSubjectFilters,
+                    })}
               />
             ) : (
               <EmptyPanel

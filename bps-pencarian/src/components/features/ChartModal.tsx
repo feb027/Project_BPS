@@ -20,10 +20,12 @@ interface ChartModalProps {
   item: {
     id?: number
     nomor_tabel?: string
-    type: "tabel" | "indikator"
+    type: "tabel" | "indikator" | "series"
     title: string
     initialFilter?: string
     initialFilters?: string[]
+    seriesObservations?: any[]
+    subjectName?: string
   }
   onClose: () => void
 }
@@ -72,6 +74,21 @@ const chartColors = [
 function normUnit(unit: string | undefined) {
   const u = (unit || "").trim().toLowerCase()
   return u === "none" ? "" : u
+}
+
+// Rincian labels must be uniform: entries that differ ONLY by letter case
+// (e.g. "KOPERASI X" vs "Koperasi X" vs "koperasi x") refer to the same
+// category and must not appear as separate, near-duplicate options in the
+// dropdown / chart legend / table. We canonicalize to Title Case so every
+// variant collapses to one consistent label.
+export function toTitleCase(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/(^|[^a-z])[a-z]/g, (c) => c.toUpperCase())
+}
+export function canonRincian(name: string | undefined): string {
+  const n = (name ?? "").trim()
+  return n && n !== "-" ? toTitleCase(n) : n
 }
 
 function metricKey(row: CatalogSeriesRow) {
@@ -131,18 +148,51 @@ function saveSelection(item: ChartModalProps["item"], sel: SavedSelection) {
 }
 
 export function ChartModal({ item, onClose }: ChartModalProps) {
+  const isSeries = item.type === "series"
   const merged = useCatalogSeries(item.nomor_tabel ?? null)
-  const single = useTimeSeries(item.id ?? null, item.nomor_tabel ? null : item.type)
+  const single = useTimeSeries(item.id ?? null, isSeries ? null : (item.nomor_tabel ? null : (item.type as "tabel" | "indikator")))
   const isMerged = Boolean(item.nomor_tabel)
-  const { data, isLoading, error } = isMerged ? merged : single
+  const { data, isLoading, error } = isMerged ? merged : isSeries ? { data: null, isLoading: false, error: null } : single
 
   const [view, setView] = useState<"chart" | "table">("chart")
 
   const allRows: CatalogSeriesRow[] = useMemo(() => {
+    if (isSeries) {
+      // Drill into a pre-aggregated "series" answer (e.g. the Jumlah Guru
+      // kabupaten total). Use the same observations so the detail view is
+      // identical to the inline summary — one row per year, no scattered
+      // per-level rows. Force a uniform subject so the single series is not
+      // split by leftover per-level rincian labels carried from the source
+      // tables.
+      const subject = item.subjectName ?? "Kabupaten Tasikmalaya"
+      // Use a uniform (empty) unit for the whole series so metricKey() is
+      // identical across all years. Source observations may carry differing
+      // satuan ("Orang" / "Jiwa" / "") per year, which would otherwise split
+      // 2020/2021 into a different metric and drop them from the table.
+      const mapped = (item.seriesObservations ?? []).map((r) => ({
+        id: r.id,
+        tahun: r.tahun,
+        nilai: r.nilai,
+        nilai_teks: r.nilai_teks ?? String(r.nilai),
+        unit: "",
+        wilayah_nama: r.wilayah_nama ?? "-",
+        rincian_nama: subject,
+        subject_name: subject,
+        flag: r.flag || "ada",
+      }))
+      return mapped
+    }
     if (!data) return []
-    if (isMerged) return (data as any).series as CatalogSeriesRow[]
-    return Array.isArray(data) ? data : (data as any).observations ?? []
-  }, [data, isMerged])
+    const raw: CatalogSeriesRow[] = isMerged
+      ? ((data as any).series as CatalogSeriesRow[])
+      : Array.isArray(data)
+        ? data
+        : (data as any).observations ?? []
+    // Canonicalize rincian labels to a single Title Case form so variants
+    // like "KOPERASI X" / "Koperasi X" collapse into one consistent option
+    // across the dropdown, chart legend, and table.
+    return raw.map((r) => ({ ...r, rincian_nama: canonRincian(r.rincian_nama) }))
+  }, [data, isMerged, isSeries, item])
 
   // --- Derived facets ---
   const metrics = useMemo(() => {
@@ -177,6 +227,13 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
     return dims
   }, [wilayahValues, rincianValues])
 
+  // For a pre-aggregated "series" drill (e.g. Jumlah Guru kabupaten total)
+  // there is exactly ONE row per year with a single subject, so there is no
+  // dimension to pick. Treat it as a single rincian series and auto-select
+  // it so the chart/table render immediately instead of prompting the user
+  // to "pilih minimal satu wilayah".
+  const effectiveDims: Dimension[] = isSeries ? ["rincian"] : availableDims
+
   // --- Selection state (initialized from saved localStorage if present) ---
   const savedRef = useMemo(() => loadSavedSelection(item), [item])
   const [selectedMetric, setSelectedMetric] = useState<string>(() => {
@@ -184,6 +241,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
     return saved && metrics.includes(saved) ? saved : metrics[0] ?? ""
   })
   const [dimension, setDimension] = useState<Dimension>(() => {
+    if (isSeries) return "rincian"
     const saved = savedRef?.dimension
     if (saved && availableDims.includes(saved)) return saved
     // default to the richer dimension
@@ -193,6 +251,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
   const dimValues = dimension === "wilayah" ? wilayahValues : rincianValues
 
   const [selectedDim, setSelectedDim] = useState<Set<string>>(() => {
+    if (isSeries) return new Set(rincianValues)
     const savedSel = savedRef?.sel?.[dimension]
     if (Array.isArray(savedSel) && savedSel.length > 0) {
       return new Set(savedSel.filter((v) => dimValues.includes(v)))
@@ -224,6 +283,15 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
   // silently showing all (or a pre-picked subset).
   useMemo(() => {
     if (hasAutoSelected || metrics.length === 0 || dimValues.length === 0) return
+    if (isSeries) {
+      // Single pre-aggregated series: keep the rincian member selected so the
+      // chart/table render immediately (no "pilih minimal satu" prompt).
+      setDimension("rincian")
+      setSelectedMetric(metrics[0] ?? "")
+      setSelectedDim(new Set(rincianValues))
+      setHasAutoSelected(true)
+      return
+    }
     const richDim: Dimension = availableDims.includes("rincian")
       ? "rincian"
       : availableDims[0] ?? "wilayah"
@@ -236,7 +304,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
     setSelectedMetric(best)
     setSelectedDim(new Set()) // no members pre-selected
     setHasAutoSelected(true)
-  }, [metrics, allRows, hasAutoSelected, dimension, dimValues, availableDims, wilayahValues, rincianValues])
+  }, [metrics, allRows, hasAutoSelected, dimension, dimValues, availableDims, wilayahValues, rincianValues, isSeries])
 
   const persist = useCallback(
     (nextMetric: string, nextDim: Dimension, nextSel: Set<string>) => {
@@ -481,7 +549,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                 )}
 
                 {/* Dimension selector (Wilayah / Rincian) */}
-                {availableDims.length > 1 && (
+                {effectiveDims.length > 1 && (
                   <div className="flex items-center gap-2">
                     <label className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Dimensi:</label>
                     <div className="flex items-center gap-1 rounded-md border border-border bg-background p-1">
@@ -501,7 +569,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                 )}
 
                 {/* Dimension member multi-select */}
-                {dimValues.length > 0 && (
+                {dimValues.length > 0 && !isSeries && (
                   <div className="relative">
                     <button
                       type="button"
