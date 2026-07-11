@@ -440,6 +440,9 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
       if (selected.size > 0 && !selected.has(dim)) return
       const year = String(row.tahun ?? "")
       if (!byYear[year]) byYear[year] = { tahun: Number(row.tahun) }
+      // Backend already aggregates aliased rincian (e.g. Eselon III.a+III.b ->
+      // "Administrator") and collapses duplicate publications, so each
+      // (year, dim) pair carries exactly one value here.
       byYear[year][dim] = Number(getValue(row))
     })
 

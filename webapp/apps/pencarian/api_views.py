@@ -1337,30 +1337,71 @@ class CatalogAPIView(APIView):
                 .select_related("wilayah", "rincian", "kolom", "tabel")
                 .order_by("tabel__bab__publikasi__tahun_terbit")
             )
-            series = []
+            # Aggregate facts into one row per (tahun, rincian_canonical, subject, unit).
+            # - Different raw rincian aliased to the SAME canonical (e.g. Eselon III.a
+            #   + III.b -> "Administrator") are SUMMED so the series is complete.
+            # - Duplicate facts for the SAME raw rincian from different publications
+            #   (revisions) are collapsed: keep the newest publication's value.
+            agg = {}
             for f in rows:
                 tahun = f.tahun_lengkap
                 if tahun is None:
                     continue
                 unit = (f.kolom.satuan if f.kolom_id else "") or ""
-                # Normalize unit case so "Jiwa" and "jiwa" merge as one indicator.
                 unit = unit.strip().lower() if unit and unit.strip().lower() != "none" else ""
-                # Resolve rincian alias (mis. 'Eselon III.a' -> 'Administrator')
-                # supaya seri time-series lintas tahun menyambung.
                 rincian_resolved = _resolve_rincian_alias(
                     f.rincian.nama if f.rincian else "-", f.tabel.judul
                 )
+                subject = f.kolom.indikator.nama if f.kolom_id else (f.wilayah.nama if f.wilayah else "-")
+                key = (tahun, rincian_resolved, subject, unit)
+                pub_yr = f.tabel.bab.publikasi.tahun_terbit if f.tabel_id else 0
+                rinc_id = f.rincian_id
+                val = float(f.nilai_num or 0)
+                if key not in agg:
+                    agg[key] = {
+                        "tahun": tahun, "unit": unit,
+                        "wilayah_nama": f.wilayah.nama if f.wilayah else "-",
+                        "rincian_nama": rincian_resolved, "subject_name": subject,
+                        "flag": f.flag or "ada",
+                        # track members for aggregation
+                        "_members": [(rinc_id, pub_yr, val, f.id, f.nilai_teks, f.flag or "ada")],
+                    }
+                else:
+                    agg[key]["_members"].append((rinc_id, pub_yr, val, f.id, f.nilai_teks, f.flag or "ada"))
+
+            series = []
+            for key, agg_row in agg.items():
+                members = agg_row.pop("_members")
+                # group members by raw rincian_id
+                by_rinc = {}
+                for rinc_id, pub_yr, val, fid, nteks, flag in members:
+                    by_rinc.setdefault(rinc_id, []).append((pub_yr, val, fid, nteks, flag))
+                total = 0.0
+                rep_teks = "-"
+                rep_flag = "ada"
+                for rinc_id, grp in by_rinc.items():
+                    if len(grp) == 1:
+                        # single raw rincian: take its value
+                        _, v, _, nteks, flag = grp[0]
+                        total += v
+                        rep_teks, rep_flag = nteks, flag
+                    else:
+                        # duplicate revisions of the SAME raw rincian: keep newest pub
+                        grp_sorted = sorted(grp, key=lambda x: x[0], reverse=True)
+                        _, v, _, nteks, flag = grp_sorted[0]
+                        total += v
+                        rep_teks, rep_flag = nteks, flag
                 series.append(
                     {
-                        "id": f.id,
-                        "tahun": tahun,
-                        "nilai": float(f.nilai_num or 0),
-                        "nilai_teks": f.nilai_teks,
-                        "unit": unit,
-                        "wilayah_nama": f.wilayah.nama if f.wilayah else "-",
-                        "rincian_nama": rincian_resolved,
-                        "subject_name": f.kolom.indikator.nama if f.kolom_id else (f.wilayah.nama if f.wilayah else "-"),
-                        "flag": f.flag or "ada",
+                        "id": members[0][3],
+                        "tahun": agg_row["tahun"],
+                        "nilai": total,
+                        "nilai_teks": rep_teks,
+                        "unit": agg_row["unit"],
+                        "wilayah_nama": agg_row["wilayah_nama"],
+                        "rincian_nama": agg_row["rincian_nama"],
+                        "subject_name": agg_row["subject_name"],
+                        "flag": rep_flag,
                     }
                 )
             first = tables[0]
