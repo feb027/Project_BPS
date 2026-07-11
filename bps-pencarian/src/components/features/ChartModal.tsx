@@ -443,9 +443,20 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
       byYear[year][dim] = Number(getValue(row))
     })
 
+    // Order the series by their value in the LATEST year (descending) so the
+    // legend, tooltip, AND the drawn line positions all match. (Recharts
+    // stacks lines by data value, so a purely alphabetical order would make
+    // the tooltip/legend disagree with where each colored line actually sits.)
+    const years = Object.values(byYear)
+    const latestYear = years.length ? Math.max(...years.map((y) => Number(y.tahun))) : null
+    const valueOf = (dim: string) => {
+      if (latestYear == null) return 0
+      const row = years.find((y) => Number(y.tahun) === latestYear)
+      return row ? Number((row as any)[dim]) || 0 : 0
+    }
     const lines =
       selected.size > 0
-        ? Array.from(selected).sort()
+        ? Array.from(selected).sort((a, b) => valueOf(b) - valueOf(a))
         : [] // no selection -> empty chart/table, prompt user to pick
 
     return {
@@ -458,9 +469,9 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
   const metricUnit = normUnit(allRows.find((r) => metricKey(r) === selectedMetric)?.unit)
 
   // Stable color lookup so the tooltip, legend, and lines stay in the same
-  // order/colors. chartData.lines is alphabetically sorted and the <Line>
-  // stroke uses chartColors[index]; mirror that here so the hover tooltip
-  // lists series in the exact same sequence as the drawn lines.
+  // order/colors. chartData.lines is sorted by latest-year value (descending)
+  // and the <Line> stroke uses chartColors[index]; mirror that here so the
+  // hover tooltip lists series in the exact same sequence as the drawn lines.
   const colorMap = useMemo(() => {
     const m: Record<string, string> = {}
     chartData.lines.forEach((k, i) => {
@@ -472,9 +483,23 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
   const renderTooltip = (props: any) => {
     const { active, payload, label } = props
     if (!active || !payload || payload.length === 0) return null
-    const ordered = chartData.lines
-      .map((k) => payload.find((p: any) => p.dataKey === k))
-      .filter(Boolean)
+    // Sort the tooltip by each series' value IN THE HOVERED YEAR so the row
+    // order always mirrors where each colored line sits at that year. (Legend
+    // stays locked to the latest year for stability.)
+    const point = chartData.points.find(
+      (p: any) => Number(p.tahun) === Number(label),
+    )
+    const ordered = point
+      ? [...chartData.lines]
+          .sort(
+            (a: string, b: string) =>
+              (Number((point as any)[b]) || 0) - (Number((point as any)[a]) || 0),
+          )
+          .map((k: string) => payload.find((p: any) => p.dataKey === k))
+          .filter(Boolean)
+      : chartData.lines
+          .map((k: string) => payload.find((p: any) => p.dataKey === k))
+          .filter(Boolean)
     return (
       <div
         style={{

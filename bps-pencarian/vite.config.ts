@@ -6,6 +6,13 @@ import path from "path"
 
 // https://vite.dev/config/
 export default defineConfig({
+  // Inject a build-time stamp so the entry/chunk content-hashes change on
+  // every build. Without this, edits to a lazy chunk (e.g. ChartModal) leave
+  // the entry hash stable, and a front CDN (Cloudflare) keeps serving the
+  // cached old chunk. A new hash => new URL => CDN cache miss => fresh build.
+  define: {
+    __BUILD_STAMP__: JSON.stringify(new Date().toISOString()),
+  },
   plugins: [
     react(),
     tailwindcss(),
