@@ -1334,7 +1334,7 @@ class CatalogAPIView(APIView):
             rows = (
                 Fakta.objects.filter(tabel__in=tables)
                 .filter(flag__in=['ada', 'nihil'])
-                .select_related("wilayah", "rincian", "kolom", "tabel")
+                .select_related("wilayah", "rincian", "kolom", "tabel", "tabel__bab__publikasi")
                 .order_by("tabel__bab__publikasi__tahun_terbit")
             )
             # Aggregate facts into one row per (tahun, rincian_canonical, subject, unit).
@@ -1348,13 +1348,20 @@ class CatalogAPIView(APIView):
                 if tahun is None:
                     continue
                 unit = (f.kolom.satuan if f.kolom_id else "") or ""
-                unit = unit.strip().lower() if unit and unit.strip().lower() != "none" else ""
+                unit = unit.strip().lower()
+                # Treat person-count units (jiwa / orang) and empty as the same
+                # unit so re-publications with slightly different satuan labels
+                # ("" vs "Jiwa" vs "Orang") collapse into one series instead of
+                # exploding the chart into near-duplicate lines.
+                if unit in ("", "none", "jiwa", "orang", "person", "orang."):
+                    unit = ""
                 rincian_resolved = _resolve_rincian_alias(
                     f.rincian.nama if f.rincian else "-", f.tabel.judul
                 )
                 subject = f.kolom.indikator.nama if f.kolom_id else (f.wilayah.nama if f.wilayah else "-")
                 key = (tahun, rincian_resolved, subject, unit)
                 pub_yr = f.tabel.bab.publikasi.tahun_terbit if f.tabel_id else 0
+                pub_id = f.tabel.bab.publikasi_id if f.tabel_id else 0
                 rinc_id = f.rincian_id
                 val = float(f.nilai_num or 0)
                 if key not in agg:
@@ -1363,34 +1370,36 @@ class CatalogAPIView(APIView):
                         "wilayah_nama": f.wilayah.nama if f.wilayah else "-",
                         "rincian_nama": rincian_resolved, "subject_name": subject,
                         "flag": f.flag or "ada",
-                        # track members for aggregation
-                        "_members": [(rinc_id, pub_yr, val, f.id, f.nilai_teks, f.flag or "ada")],
+                        # track members for aggregation: (rinc_id, pub_id, pub_yr, val, fid, teks, flag)
+                        "_members": [(rinc_id, pub_id, pub_yr, val, f.id, f.nilai_teks, f.flag or "ada")],
                     }
                 else:
-                    agg[key]["_members"].append((rinc_id, pub_yr, val, f.id, f.nilai_teks, f.flag or "ada"))
+                    agg[key]["_members"].append((rinc_id, pub_id, pub_yr, val, f.id, f.nilai_teks, f.flag or "ada"))
 
             series = []
             for key, agg_row in agg.items():
                 members = agg_row.pop("_members")
-                # group members by raw rincian_id
-                by_rinc = {}
-                for rinc_id, pub_yr, val, fid, nteks, flag in members:
-                    by_rinc.setdefault(rinc_id, []).append((pub_yr, val, fid, nteks, flag))
-                total = 0.0
-                rep_teks = "-"
-                rep_flag = "ada"
-                for rinc_id, grp in by_rinc.items():
-                    if len(grp) == 1:
-                        # single raw rincian: take its value
-                        _, v, _, nteks, flag = grp[0]
-                        total += v
-                        rep_teks, rep_flag = nteks, flag
-                    else:
-                        # duplicate revisions of the SAME raw rincian: keep newest pub
-                        grp_sorted = sorted(grp, key=lambda x: x[0], reverse=True)
-                        _, v, _, nteks, flag = grp_sorted[0]
-                        total += v
-                        rep_teks, rep_flag = nteks, flag
+                # Group by (publication, year). Some publications legitimately
+                # carry TWO year columns (e.g. 2019 AND 2020) in one table, so we
+                # must keep those as separate year points. Within one
+                # (publication, year) cell, different raw rincian aliased to the same
+                # canonical are SUB-PARTS (e.g. Eselon III.a + III.b -> "Administrator")
+                # and must be SUMMED. Across different publications covering the SAME
+                # year we take the NEWEST publication's value -- never sum across pubs.
+                by_pub_year = {}
+                for rinc_id, pub_id, pub_yr, val, fid, nteks, flag in members:
+                    by_pub_year.setdefault((pub_id, agg_row["tahun"]), {"pub_yr": pub_yr, "rows": []})
+                    by_pub_year[(pub_id, agg_row["tahun"])]["rows"].append((val, nteks, flag))
+                # collapse each (pub, year) cell to one value (sum sub-parts)
+                cells = []
+                for (pid, _yr), info in by_pub_year.items():
+                    cells.append((pid, info["pub_yr"], sum(v for v, _, _ in info["rows"]), info["rows"][0][1], info["rows"][0][2]))
+                if len(cells) == 1:
+                    _pid, _pyr, total, rep_teks, rep_flag = cells[0]
+                else:
+                    # multiple (pub, year) cells for the same year: keep newest pub
+                    newest = max(cells, key=lambda c: c[1])
+                    _pid, _pyr, total, rep_teks, rep_flag = newest
                 series.append(
                     {
                         "id": members[0][3],

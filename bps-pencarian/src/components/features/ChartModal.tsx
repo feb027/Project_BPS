@@ -208,16 +208,24 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
     () => Array.from(new Set(allRows.map((r) => r.wilayah_nama).filter((v) => v && v !== "-"))).sort(),
     [allRows]
   )
+  // For the "rincian" dimension we only want the per-category totals, not the
+  // gender sub-splits (Anggota PNS - Laki-Laki / Perempuan) which would otherwise
+  // explode the dropdown and the chart into near-duplicate series. Keep rows whose
+  // subject is a Jumlah/wilayah total (i.e. NOT a gender split).
+  const rincianRows = useMemo(
+    () => allRows.filter((r) => !/(laki-laki|perempuan)/i.test(r.subject_name || "")),
+    [allRows]
+  )
   const rincianValues = useMemo(
     () =>
       Array.from(
         new Set(
-          allRows
+          rincianRows
             .map((r) => r.rincian_nama)
             .filter((v) => v && v !== "-" && !TRIVIAL_RINCIAN.has(v.toLowerCase()))
         )
       ).sort(),
-    [allRows]
+    [rincianRows]
   )
 
   const availableDims: Dimension[] = useMemo(() => {
@@ -430,7 +438,10 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
 
   // --- Chart data: pivot by (year × dimension value) ---
   const chartData = useMemo(() => {
-    const metricRows = allRows.filter((r) => metricKey(r) === selectedMetric)
+    // When splitting by rincian, use only the Jumlah/wilayah-total rows (not the
+    // Laki-Laki / Perempuan gender splits) so each category is one clean series.
+    const sourceRows = dimension === "rincian" ? rincianRows : allRows
+    const metricRows = sourceRows.filter((r) => metricKey(r) === selectedMetric)
     const byYear: Record<string, Record<string, number | null>> = {}
     const selected = selectedDim
 
