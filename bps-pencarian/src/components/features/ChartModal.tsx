@@ -107,7 +107,28 @@ export function canonRincian(name: string | undefined): string {
 
 function metricKey(row: CatalogSeriesRow) {
   const unit = normUnit(row.unit)
-  return `${row.subject_name}${unit ? ` (${unit})` : ""}`
+  return `${canonicalMetricName(row.subject_name)}${unit ? ` (${unit})` : ""}`
+}
+
+// Collapse year-range variants of the same concept into ONE metric so the
+// dropdown/chart do not splinter e.g. "Laju Pertumbuhan ... 2020-2025",
+// "... 2020-2023", "... 2020-2022" into three near-empty one-point series.
+// BPS renames these columns every edition; the concept is identical.
+function canonicalMetricName(name?: string | null): string {
+  if (!name) return ""
+  let n = name
+  // Strip a trailing year-range token like " 2020-2025" / " 2020–2022".
+  n = n.replace(/\s*\d{4}\s*[-–]\s*\d{4}/g, "")
+  // Strip a standalone trailing "(... 2020-2025)" year-range inside parens.
+  n = n.replace(/\(\s*\d{4}\s*[-–]\s*\d{4}\s*\)/g, "")
+  return n.replace(/\s+/g, " ").trim()
+}
+
+// Gender sub-splits (... - Laki-Laki / - Perempuan) are intentional per-district
+// breakdowns, not independent metrics. Keep them out of the metric dropdown so
+// the user picks the population TOTAL, not a gender slice, as the primary line.
+function isGenderMetric(name?: string | null): boolean {
+  return /(laki-laki|perempuan)/i.test(name || "")
 }
 
 // The dimension along which rows are split into separate lines.
@@ -212,6 +233,8 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
   const metrics = useMemo(() => {
     const s = new Map<string, string>()
     allRows.forEach((r) => {
+      // Drop gender sub-splits from the metric picker (see isGenderMetric).
+      if (isGenderMetric(r.subject_name)) return
       const k = metricKey(r)
       if (!s.has(k)) s.set(k, k)
     })
