@@ -63,15 +63,38 @@
 
 <script>
   var hot;
-  
+
+  // Parse angka Indonesia: titik = pemisah ribuan (dibuang), koma = desimal.
+  // "84.385" -> 84385 ; "1.234,56" -> 1234.56 ; "167.186" -> 167186.
+  function parseNum(raw) {
+    if (raw === null || raw === undefined) return NaN;
+    let s = String(raw).trim();
+    if (s === '') return NaN;
+    s = s.replace(/\./g, '');      // buang semua titik (ribuan)
+    s = s.replace(',', '.');        // koma -> titik desimal
+    return parseFloat(s);
+  }
+
+  // Format angka ke tampilan ribuan Indonesia (1234.56 -> "1.234,56").
+  function fmtNum(n) {
+    if (isNaN(n)) return '';
+    return n.toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  }
+
+  // Baris terakhir dianggap baris TOTAL bila namanya mengandung kata kunci ini.
+  function isTotalName(name) {
+    const n = (name || '').toLowerCase();
+    return n.includes('total') || n.includes('tasikmalaya') || n.includes('jumlah');
+  }
+
   document.addEventListener("DOMContentLoaded", function() {
     const data = [];
     const headers = ["{{ label_baris }}"];
-    
+
     {% for k in koloms %}
       headers.push("{{ k.indikator.nama|escapejs }}{% if k.tahun %} ({{ k.tahun|stringformat:"s" }}){% endif %}{% if k.satuan %} — {{ k.satuan|escapejs }}{% endif %}");
     {% endfor %}
-    
+
     {% for row in baris %}
       var rowData = ["{{ row.nama|escapejs }}"];
       {% for v in row.sel %}
@@ -80,85 +103,136 @@
       data.push(rowData);
     {% endfor %}
 
+    // Pastikan ada baris TOTAL di paling bawah (untuk tabel kategori yang
+    // belum punya, dan tabel kecamatan yang baris terakhirnya "Kabupaten Tasikmalaya").
+    if (data.length === 0 || !isTotalName(data[data.length - 1][0])) {
+      const totalName = {% if is_kategori %}"TOTAL"{% else %}"Kabupaten Tasikmalaya"{% endif %};
+      const blank = new Array(headers.length).fill("");
+      blank[0] = totalName;
+      data.push(blank);
+    }
+
     const container = document.getElementById('hot-container');
-    
+
     hot = new Handsontable(container, {
       data: data,
       rowHeaders: true,
       colHeaders: headers,
-      fixedColumnsStart: 1, // Kunci nama kecamatan
+      fixedColumnsStart: 1,
       contextMenu: true,
       manualColumnResize: true,
       manualRowResize: true,
       licenseKey: 'non-commercial-and-evaluation',
+
+      // Hitung ulang baris TOTAL setiap ada perubahan.
+      // - Baris body diedit -> kolom itu di-reset (bukan override) lalu dijumlahkan.
+      // - Sel di baris TOTAL diedit -> jadi override (warna merah bila beda dgn hitungan).
       afterChange: function(changes, source) {
-        if (source === 'loadData') return;
-        {% if not is_kategori %}
-        // AUTO-SUM Logic untuk tabel wilayah
-        // Kita berasumsi baris terakhir adalah "TOTAL" atau "Kabupaten Tasikmalaya"
-        if (data.length > 0) {
-          const totalRowIdx = data.length - 1;
-          const totalRowName = (data[totalRowIdx][0] || "").toLowerCase();
-          
-          if (totalRowName.includes('total') || totalRowName.includes('tasikmalaya')) {
-            // Evaluasi ulang semua kolom
-            for (let c = 1; c < headers.length; c++) {
-              let sum = 0;
-              let hasValues = false;
-              for (let r = 0; r < totalRowIdx; r++) {
-                let val = String(data[r][c] || "").replace(/\./g, '').replace(/,/g, '.');
-                let num = parseFloat(val);
-                if (!isNaN(num)) {
-                  sum += num;
-                  hasValues = true;
-                }
-              }
-              
-              if (hasValues) {
-                let userTotalRaw = String(data[totalRowIdx][c] || "").replace(/\./g, '').replace(/,/g, '.');
-                let userTotal = parseFloat(userTotalRaw);
-                
-                if (!isNaN(userTotal)) {
-                  // Berikan metadata class jika sum beda dengan userTotal
-                  const isMatch = Math.abs(sum - userTotal) < 0.01;
-                  hot.setCellMeta(totalRowIdx, c, 'className', isMatch ? 'htValidSum' : 'htInvalidSum');
-                } else {
-                  hot.setCellMeta(totalRowIdx, c, 'className', '');
-                }
-              } else {
-                hot.setCellMeta(totalRowIdx, c, 'className', '');
-              }
-            }
-            hot.render(); // Redraw untuk mengaplikasikan warna kelas
+        if (source === 'loadData' || source === 'recalc') return;
+        if (!changes) return;
+        recalcTotals(changes);
+      },
+
+      cells: function(row, col) {
+        const cp = {};
+        if (typeof hot !== 'undefined' && hot) {
+          const totalIdx = getTotalRowIndex();
+          // Baris TOTAL: kolom angka boleh di-override (tidak readOnly),
+          // kolom nama (col 0) bebas diedit.
+          if (totalIdx >= 0 && row === totalIdx && col > 0) {
+            cp.readOnly = false;
           }
         }
-        {% endif %}
-      },
-      cells: function(row, col) {
-        var cellProperties = {};
-        return cellProperties;
+        return cp;
       }
     });
+
+    // Indeks baris TOTAL (baris terakhir bila namanya total/tasikmalaya/jumlah).
+    function getTotalRowIndex() {
+      const n = hot.countRows();
+      if (n === 0) return -1;
+      const last = hot.getSourceDataAtCell(n - 1, 0);
+      return isTotalName(last) ? n - 1 : -1;
+    }
+
+    // Apakah sel kolom c di baris total adalah override (sudah diketik user)?
+    function isOverridden(c) {
+      const tIdx = getTotalRowIndex();
+      if (tIdx < 0) return false;
+      return hot.getCellMeta(tIdx, c).isOverride === true;
+    }
+
+    function recalcTotals(changes) {
+      const tIdx = getTotalRowIndex();
+      if (tIdx < 0) return;
+      const totalName = hot.getSourceDataAtCell(tIdx, 0);
+
+      // Reset override pada kolom yang ikut diubah dari baris BODY.
+      let needsRender = false;
+      changes.forEach(([r, c, _oldVal, newVal]) => {
+        if (c === 0) return; // ganti nama tidak mempengaruhi
+        if (r === tIdx) {
+          // User mengedit langsung baris TOTAL -> tandai override.
+          const parsed = parseNum(newVal);
+          hot.setCellMeta(tIdx, c, 'isOverride', !isNaN(parsed));
+          needsRender = true;
+        } else {
+          // Edit baris body -> kolom ini kembali dihitung otomatis.
+          if (isOverridden(c)) {
+            hot.setCellMeta(tIdx, c, 'isOverride', false);
+            needsRender = true;
+          }
+        }
+      });
+
+      // Hitung & isi tiap kolom angka di baris total.
+      for (let c = 1; c < headers.length; c++) {
+        let sum = 0, hasValues = false;
+        for (let r = 0; r < tIdx; r++) {
+          const num = parseNum(hot.getSourceDataAtCell(r, c));
+          if (!isNaN(num)) { sum += num; hasValues = true; }
+        }
+        if (!hasValues) {
+          if (!isOverridden(c)) {
+            hot.setDataAtCell(tIdx, c, '', 'recalc');
+            hot.setCellMeta(tIdx, c, 'className', '');
+          }
+          continue;
+        }
+        const userRaw = hot.getSourceDataAtCell(tIdx, c);
+        const userVal = parseNum(userRaw);
+        if (isOverridden(c)) {
+          // User override: jangan timpa, cuma warnai.
+          const match = !isNaN(userVal) && Math.abs(sum - userVal) < 0.01;
+          hot.setCellMeta(tIdx, c, 'className', match ? 'htValidSum' : 'htInvalidSum');
+        } else {
+          // Isi otomatis.
+          hot.setDataAtCell(tIdx, c, fmtNum(sum), 'recalc');
+          hot.setCellMeta(tIdx, c, 'className', 'htValidSum');
+        }
+      }
+      hot.render();
+    }
+
+    // Hitung awal saat load.
+    setTimeout(() => { recalcTotals([]); }, 50);
 
     const form = document.getElementById('data-form');
     form.addEventListener('submit', function(e) {
       const gridData = hot.getData();
       const hiddenContainer = document.getElementById('hidden-inputs');
-      hiddenContainer.innerHTML = ''; 
-      
-      // Hitung baris riil (yang nama barisnya tidak kosong)
+      hiddenContainer.innerHTML = '';
+
       let n_rows = 0;
       for (let r = 0; r < gridData.length; r++) {
         const rowName = gridData[r][0] || "";
         if (rowName.trim() !== "") {
-          // Input untuk nama baris
           const nameInput = document.createElement('input');
           nameInput.type = 'hidden';
           nameInput.name = `row-${n_rows}-nama`;
           nameInput.value = rowName;
           hiddenContainer.appendChild(nameInput);
-          
-          // Input untuk kolom
+
           for (let c = 1; c < gridData[r].length; c++) {
             const val = gridData[r][c] || "";
             const input = document.createElement('input');
@@ -173,10 +247,16 @@
       document.getElementById('n_rows').value = n_rows;
     });
   });
-  
+
   function tambahBaris() {
     if (hot) {
-      hot.alter('insert_row_below', hot.countRows());
+      // Sisipkan di atas baris TOTAL (jangan di bawah total).
+      const tIdx = (function(){
+        const n = hot.countRows();
+        if (n === 0) return n;
+        return isTotalName(hot.getSourceDataAtCell(n - 1, 0)) ? n - 1 : n;
+      })();
+      hot.alter('insert_row_above', tIdx);
     }
   }
 </script>
