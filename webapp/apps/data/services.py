@@ -87,6 +87,7 @@ def ingest_long_rows(rows, publikasi: Publikasi, user=None) -> HasilIngest:
     cache_rincian: dict[str, Rincian] = {}
     cache_tabel: dict[str, Tabel] = {}
     urutan_kolom: dict[int, int] = {}  # tabel_id -> counter
+    kolom_cache: dict[int, dict[str, KolomTabel]] = {}  # tabel_id -> {norm_indikator: KolomTabel}
 
     # indeks indikator yang sudah ada, dikunci dgn nama ter-normalisasi
     # -> ingest menyatukan varian sepele ke indikator yang sudah ada
@@ -150,16 +151,28 @@ def ingest_long_rows(rows, publikasi: Publikasi, user=None) -> HasilIngest:
             # mulai dari urutan tertinggi yang sudah ada di DB (ingest inkremental)
             maks = tabel.kolom_set.aggregate(m=Max("urutan"))["m"] or 0
             urutan_kolom[tabel.id] = maks
-        kolom, kolom_baru = KolomTabel.objects.get_or_create(
-            tabel=tabel, indikator=indikator, tahun=tahun,
-            defaults={
-                "urutan": urutan_kolom[tabel.id] + 1,
-                "satuan": satuan,
-                "tipe_nilai": tipe_nilai,
-            },
-        )
-        if kolom_baru:
-            urutan_kolom[tabel.id] += 1
+            # indeks kolom existing di tabel ini, dikunci nama indikator ter-normalisasi
+            # -> varian sepele ("Laki-Laki" vs "Laki-laki") tidak pecah jadi kolom ganda
+            kolom_cache[tabel.id] = {
+                normalisasi_indikator(c.indikator.nama): c
+                for c in tabel.kolom_set.select_related("indikator").all()
+            }
+
+        kunci_kolom = normalisasi_indikator(nama_ind)
+        kolom = kolom_cache[tabel.id].get(kunci_kolom)
+        kolom_baru = False
+        if kolom is None:
+            kolom, kolom_baru = KolomTabel.objects.get_or_create(
+                tabel=tabel, indikator=indikator, tahun=tahun,
+                defaults={
+                    "urutan": urutan_kolom[tabel.id] + 1,
+                    "satuan": satuan,
+                    "tipe_nilai": tipe_nilai,
+                },
+            )
+            if kolom_baru:
+                urutan_kolom[tabel.id] += 1
+                kolom_cache[tabel.id][kunci_kolom] = kolom
 
         # --- Referensi: Wilayah & Rincian ---
         wilayah = None
