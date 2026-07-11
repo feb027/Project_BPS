@@ -1359,7 +1359,15 @@ class CatalogAPIView(APIView):
                     f.rincian.nama if f.rincian else "-", f.tabel.judul
                 )
                 subject = f.kolom.indikator.nama if f.kolom_id else (f.wilayah.nama if f.wilayah else "-")
-                key = (tahun, rincian_resolved, subject, unit)
+                # Wilayah MUST be part of the aggregation key. For per-kecamatan
+                # tables (tipe_baris=kecamatan) every row shares the same
+                # (tahun, subject, unit), so without wilayah in the key the 40
+                # districts would collapse into a single dict entry and silently
+                # overwrite each other (only 1 of 40 survived -> UI showed ~15
+                # arbitrary districts). Rincian/kabupaten tables have wilayah=None
+                # ("-") so this stays a unique per-row key for them too.
+                wilayah_nama = f.wilayah.nama if f.wilayah else "-"
+                key = (tahun, wilayah_nama, rincian_resolved, subject, unit)
                 pub_yr = f.tabel.bab.publikasi.tahun_terbit if f.tabel_id else 0
                 pub_id = f.tabel.bab.publikasi_id if f.tabel_id else 0
                 rinc_id = f.rincian_id
