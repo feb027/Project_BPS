@@ -11,11 +11,35 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 
 from apps.katalog.models import Tabel
-from apps.referensi.models import Indikator, Wilayah
+from apps.referensi.models import Indikator, Wilayah, Rincian, RincianAlias
 from apps.data.models import CanonicalIndicator, Fakta
 from apps.data.timeseries import get_canonical_time_series
 from apps.data.utils import normalize_text
 from .serializers import TabelSerializer, IndikatorSerializer, FaktaTimeSeriesSerializer
+
+
+def _resolve_rincian_alias(nama, table_title=""):
+    """Map nama rincian mentah ke canonical agar time-series lintas tahun nyambung.
+
+    Contoh: 'Eselon III.a' -> 'Administrator' (penyederhanaan birokrasi).
+    Prioritaskan alias ber-konteks (table_title_pattern cocok), lalu alias global.
+    """
+    if not nama:
+        return nama
+    norm = (nama or "").strip().lower()
+    if not norm:
+        return nama
+    title = (table_title or "").lower()
+    qs = RincianAlias.objects.filter(normalized_alias=norm, is_approved=True)
+    if title:
+        # table_title_pattern harus merupakan substring dari judul tabel
+        ctx_match = qs.filter(table_title_pattern__in=[p for p in qs.values_list("table_title_pattern", flat=True) if p and p.lower() in title]).first()
+        if ctx_match:
+            return ctx_match.canonical_rincian.nama
+    glob = qs.filter(table_title_pattern="").first()
+    if glob:
+        return glob.canonical_rincian.nama
+    return nama
 
 
 def _detect_wilayahs(query):
@@ -217,7 +241,7 @@ def _wilayah_payload(groups, wilayah, limit=12):
             observations.append({
                 "id": fakta.id,
                 "tahun": year,
-                "nilai": float(fakta.nilai_num),
+                "nilai": float(fakta.nilai_num or 0),
                 "nilai_teks": fakta.nilai_teks,
                 "wilayah_nama": wilayah.nama,
                 "subject_name": subject if subject != wilayah.nama else None,
@@ -254,7 +278,7 @@ def _quick_topic_matches(query, limit=12):
     age_sig = _extract_age_signature(query)
 
     qs = (
-        Fakta.objects.filter(nilai_num__isnull=False)
+        Fakta.objects.filter(flag__in=['ada', 'nihil'])
         .select_related('kolom__indikator', 'tabel', 'tabel__bab__publikasi', 'wilayah', 'rincian')
     )
     for term in terms:
@@ -461,7 +485,7 @@ def _fakta_observation(fakta, subject_name, subject_kind="rincian"):
     return {
         "id": fakta.id,
         "tahun": fakta.tahun_lengkap,
-        "nilai": float(fakta.nilai_num),
+        "nilai": float(fakta.nilai_num or 0),
         "nilai_teks": fakta.nilai_teks,
         "wilayah_nama": getattr(fakta.wilayah, 'nama', None) or "-",
         "rincian_nama": subject_name if subject_kind == "rincian" else getattr(fakta.rincian, 'nama', None),
@@ -490,7 +514,7 @@ def _quick_rincian_matches(query, limit=12):
     age_sig = _extract_age_signature(query)
 
     qs = (
-        Fakta.objects.filter(rincian__isnull=False, nilai_num__isnull=False)
+        Fakta.objects.filter(rincian__isnull=False, flag__in=['ada', 'nihil'])
         .select_related('kolom__indikator', 'tabel', 'tabel__bab__publikasi', 'wilayah', 'rincian')
     )
     for term in terms:
@@ -684,7 +708,7 @@ def _quick_school_matches(query, wilayah=None, limit=12):
         ownership = "Jumlah"
 
     qs = (
-        Fakta.objects.filter(nilai_num__isnull=False)
+        Fakta.objects.filter(flag__in=['ada', 'nihil'])
         .select_related("kolom__indikator", "tabel", "tabel__bab__publikasi", "wilayah")
     )
     if wilayah is not None:
@@ -757,7 +781,7 @@ def _quick_school_matches(query, wilayah=None, limit=12):
             {
                 "id": f.id,
                 "tahun": year,
-                "nilai": float(f.nilai_num),
+                "nilai": float(f.nilai_num or 0),
                 "nilai_teks": f.nilai_teks,
                 "wilayah_nama": f.wilayah.nama if f.wilayah else regency_name,
                 "subject_name": None,
@@ -838,7 +862,7 @@ def _quick_guru_matches(query, wilayah=None, limit=12):
         ownership = "Jumlah"
 
     qs = (
-        Fakta.objects.filter(nilai_num__isnull=False)
+        Fakta.objects.filter(flag__in=['ada', 'nihil'])
         .select_related("kolom__indikator", "tabel", "tabel__bab__publikasi", "wilayah")
     )
     if wilayah is not None:
@@ -907,7 +931,7 @@ def _quick_guru_matches(query, wilayah=None, limit=12):
             {
                 "id": f.id,
                 "tahun": year,
-                "nilai": float(f.nilai_num),
+                "nilai": float(f.nilai_num or 0),
                 "nilai_teks": f.nilai_teks,
                 "wilayah_nama": f.wilayah.nama if f.wilayah else regency_name,
                 "subject_name": None,
@@ -972,7 +996,7 @@ def _quick_wilayah_matches(query, wilayah, limit=12):
     wants_ra_school = "ra" in terms and "sekolah" in terms
     if wants_ra_school:
         ra_qs = (
-            Fakta.objects.filter(wilayah=wilayah, nilai_num__isnull=False)
+            Fakta.objects.filter(wilayah=wilayah, flag__in=['ada', 'nihil'])
             .filter(tabel__judul__icontains="Raudatul Athfal")
             .filter(kolom__indikator__nama__icontains="Sekolah")
             .select_related('kolom__indikator', 'tabel', 'tabel__bab__publikasi', 'wilayah')
@@ -1000,7 +1024,7 @@ def _quick_wilayah_matches(query, wilayah, limit=12):
     indicator_terms = [term for term in terms if term.upper() not in SCHOOL_LEVELS]
 
     qs = (
-        Fakta.objects.filter(wilayah=wilayah, nilai_num__isnull=False)
+        Fakta.objects.filter(wilayah=wilayah, flag__in=['ada', 'nihil'])
         .select_related('kolom__indikator', 'tabel', 'wilayah')
     )
     for term in indicator_terms:
@@ -1271,7 +1295,7 @@ class TimeSeriesAPIView(APIView):
         if tabel_id:
             qs = qs.filter(tabel_id=tabel_id)
 
-        qs = qs.exclude(nilai_num__isnull=True).order_by('tahun')
+        qs = qs.filter(flag__in=['ada', 'nihil']).order_by('tahun')
 
         serializer = FaktaTimeSeriesSerializer(qs, many=True)
         return Response(serializer.data)
@@ -1309,7 +1333,7 @@ class CatalogAPIView(APIView):
                 return Response({"error": "nomor_tabel tidak ditemukan"}, status=404)
             rows = (
                 Fakta.objects.filter(tabel__in=tables)
-                .exclude(nilai_num__isnull=True)
+                .filter(flag__in=['ada', 'nihil'])
                 .select_related("wilayah", "rincian", "kolom", "tabel")
                 .order_by("tabel__bab__publikasi__tahun_terbit")
             )
@@ -1321,15 +1345,20 @@ class CatalogAPIView(APIView):
                 unit = (f.kolom.satuan if f.kolom_id else "") or ""
                 # Normalize unit case so "Jiwa" and "jiwa" merge as one indicator.
                 unit = unit.strip().lower() if unit and unit.strip().lower() != "none" else ""
+                # Resolve rincian alias (mis. 'Eselon III.a' -> 'Administrator')
+                # supaya seri time-series lintas tahun menyambung.
+                rincian_resolved = _resolve_rincian_alias(
+                    f.rincian.nama if f.rincian else "-", f.tabel.judul
+                )
                 series.append(
                     {
                         "id": f.id,
                         "tahun": tahun,
-                        "nilai": float(f.nilai_num),
+                        "nilai": float(f.nilai_num or 0),
                         "nilai_teks": f.nilai_teks,
                         "unit": unit,
                         "wilayah_nama": f.wilayah.nama if f.wilayah else "-",
-                        "rincian_nama": f.rincian.nama if f.rincian else "-",
+                        "rincian_nama": rincian_resolved,
                         "subject_name": f.kolom.indikator.nama if f.kolom_id else (f.wilayah.nama if f.wilayah else "-"),
                         "flag": f.flag or "ada",
                     }
@@ -1374,7 +1403,7 @@ class CatalogAPIView(APIView):
         from django.db.models import Count, Min, Max
         agg = (
             Fakta.objects.filter(tabel_id__in=tabel_ids)
-            .exclude(nilai_num__isnull=True)
+            .filter(flag__in=['ada', 'nihil'])
             .values("tabel_id")
             .annotate(
                 jumlah=Count("id"),

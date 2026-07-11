@@ -54,9 +54,9 @@ function formatCompactNumber(value: number | string | null | undefined, unit?: s
   if (!matched) {
     body = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(numeric)
   }
-  // Unit leads the value, e.g. "Rp 3,43 T" not "3,43 T Rp".
+  // Unit follows the value, e.g. "169,29 km²" not "km² 169,29".
   const u = unit && unit !== "-" ? unit : ""
-  return u ? `${u} ${body}` : body
+  return u ? `${body} ${u}` : body
 }
 
 function getValue(row: any) {

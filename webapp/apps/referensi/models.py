@@ -73,3 +73,47 @@ class Rincian(TimeStampedModel):
 
     def __str__(self):
         return f"{self.nama}{f' [{self.kelompok}]' if self.kelompok else ''}"
+
+
+class RincianAlias(TimeStampedModel):
+    """
+    Mapping nama rincian mentah (mis. 'Eselon III.a') ke rincian canonical
+    ('Administrator') agar time-series lintas tahun menyambung meski BPS
+    mengubah nomenklatur (penyederhanaan birokrasi: Eselon -> Jabatan).
+
+    table_title_pattern membatasi konteks (mis. hanya tabel PNS) supaya alias
+    generik tidak salah memetakan tabel lain.
+    """
+
+    canonical_rincian = models.ForeignKey(
+        Rincian, on_delete=models.CASCADE, related_name="aliases_canonical"
+    )
+    raw_rincian = models.ForeignKey(
+        Rincian, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="alias_sources",
+    )
+    alias_text = models.TextField(help_text="Nama rincian mentah yang akan dipetakan")
+    normalized_alias = models.TextField(
+        help_text="alias_text yang dinormalisasi (lower, strip) untuk lookup cepat"
+    )
+    table_title_pattern = models.CharField(
+        max_length=500, blank=True,
+        help_text="Konteks judul tabel. Kosong = berlaku semua tabel.",
+    )
+    is_approved = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = "Rincian Alias"
+        verbose_name_plural = "Rincian Aliases"
+        ordering = ["normalized_alias"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["normalized_alias", "table_title_pattern"],
+                name="uq_rincian_alias_context",
+            )
+        ]
+        indexes = [models.Index(fields=["normalized_alias"])]
+
+    def __str__(self):
+        ctx = f" @ {self.table_title_pattern}" if self.table_title_pattern else ""
+        return f"{self.alias_text}{ctx} -> {self.canonical_rincian.nama}"

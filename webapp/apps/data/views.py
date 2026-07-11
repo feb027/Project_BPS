@@ -5,7 +5,7 @@ from django.contrib import messages
 from django.db.models import Count
 from django.shortcuts import get_object_or_404, redirect, render
 
-from apps.katalog.models import Bab, Publikasi, Tabel
+from apps.katalog.models import Bab, Publikasi, Tabel, KolomTabel
 from .models import Fakta
 from .services import ingest_long_rows
 from .exports import export_csv, export_xlsx
@@ -160,6 +160,25 @@ def tabel_detail(request, pk):
                         w_new, _ = Wilayah.objects.get_or_create(nama=new_nama, defaults={'jenis': _jenis_wilayah(new_nama)})
                         Fakta.objects.filter(tabel=tabel, wilayah_id=sid).update(wilayah=w_new)
                         diubah += 1
+
+        # 2b. Hapus Kolom (dan seluruh fakta di kolom tersebut)
+        hapus_kolom_ids = [
+            int(key.split("delkol-")[1])
+            for key in request.POST
+            if key.startswith("delkol-") and request.POST[key] == "1"
+        ]
+        if hapus_kolom_ids:
+            KolomTabel.objects.filter(tabel=tabel, id__in=hapus_kolom_ids).delete()
+            # Reindex urutan kolom agar tetap rapat (1,2,3,...)
+            for i, k in enumerate(
+                KolomTabel.objects.filter(tabel=tabel).order_by("urutan"), start=1
+            ):
+                if k.urutan != i:
+                    k.urutan = i
+                    k.save(update_fields=["urutan"])
+            # Muat ulang daftar kolom agar loop di bawah memakai data terbaru
+            koloms = list(tabel.kolom_set.select_related("indikator").order_by("urutan"))
+            diubah += len(hapus_kolom_ids)
 
         # 3. Update Nilai Sel Fakta
         for f in Fakta.objects.filter(tabel=tabel).select_related("kolom"):

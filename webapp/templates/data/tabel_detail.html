@@ -79,11 +79,13 @@
           <th>
             {% if edit %}
               <div style="font-size:11px; color:var(--muted); margin-bottom:4px; font-weight:600;">{{ k.indikator.nama }}</div>
-              <div style="display:flex; flex-direction:column; gap:4px; align-items:center;">
-                <input type="text" name="kol-{{ k.id|unlocalize }}-satuan" value="{% if k.satuan and k.satuan != '-' %}{{ k.satuan }}{% endif %}" placeholder="Satuan" style="width:80px; padding:4px; font-size:11px; border:1px solid var(--line); border-radius:4px; text-align:center;">
-                <input type="text" name="kol-{{ k.id|unlocalize }}-tahun" value="{% if k.tahun %}{{ k.tahun|unlocalize }}{% endif %}" placeholder="Tahun" style="width:80px; padding:4px; font-size:11px; border:1px solid var(--line); border-radius:4px; text-align:center;">
-              </div>
-            {% else %}
+                <div style="display:flex; flex-direction:column; gap:4px; align-items:center;">
+                  <input type="text" name="kol-{{ k.id|unlocalize }}-satuan" value="{% if k.satuan and k.satuan != '-' %}{{ k.satuan }}{% endif %}" placeholder="Satuan" style="width:80px; padding:4px; font-size:11px; border:1px solid var(--line); border-radius:4px; text-align:center;">
+                  <input type="text" name="kol-{{ k.id|unlocalize }}-tahun" value="{% if k.tahun %}{{ k.tahun|unlocalize }}{% endif %}" placeholder="Tahun" style="width:80px; padding:4px; font-size:11px; border:1px solid var(--line); border-radius:4px; text-align:center;">
+                  <button type="button" class="btn btn--sm btn--ghost" style="color:var(--danger); border-color:transparent; margin-top:2px;" title="Hapus kolom ini" onclick="if(confirm('Hapus kolom &laquo;{{ k.indikator.nama }}&raquo; beserta semua nilainya?')) { document.getElementById('delkol-{{ k.id|unlocalize }}').value='1'; this.closest('th').style.display='none'; }"><i data-lucide="trash-2" style="width:13px;height:13px;"></i></button>
+                  <input type="hidden" name="delkol-{{ k.id|unlocalize }}" id="delkol-{{ k.id|unlocalize }}" value="0">
+                </div>
+              {% else %}
               {{ k.indikator.nama }}{% if k.tahun %} <span style="color:var(--ink-2);"><br>({{ k.tahun|unlocalize }})</span>{% endif %}{% if k.satuan and k.satuan != '-' %} &mdash; {{ k.satuan }}{% endif %}
             {% endif %}
           </th>
@@ -152,6 +154,12 @@
             {% endif %}
           </td>
         {% endfor %}
+        {% if edit %}
+          <td style="text-align:center;">
+            <button type="button" class="btn btn--sm btn--ghost" style="color:var(--danger); border-color:transparent;" onclick="if(confirm('Hapus baris total ini?')) { document.getElementById('del-{{ row.id|unlocalize }}').value='1'; this.closest('tr').style.display='none'; }"><i data-lucide="x" style="width:14px;height:14px;"></i></button>
+            <input type="hidden" name="del-{{ row.id|unlocalize }}" id="del-{{ row.id|unlocalize }}" value="0">
+          </td>
+        {% endif %}
       </tr>
       {% endfor %}
     </tfoot>

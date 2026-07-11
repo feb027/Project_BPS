@@ -12,16 +12,29 @@ class TabelSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tabel
         fields = ['id', 'nomor_tabel', 'nama_ringkas', 'judul', 'sumber', 'tahun_data']
-
 class FaktaTimeSeriesSerializer(serializers.ModelSerializer):
     """
     Serializer khusus untuk output grafik Time Series.
     Menghindari N+1 dengan bergantung pada View untuk memanggil select_related.
+
+    Nihil ("-") diperlakukan sebagai 0 agar garis time-series menyambung
+    (bukan putus/null). Flag 'tidak_tersedia' sudah di-exclude di view.
     """
+
     wilayah_nama = serializers.CharField(source='wilayah.nama', read_only=True, default="-")
-    rincian_nama = serializers.CharField(source='rincian.nama', read_only=True, default="-")
+    rincian_nama = serializers.SerializerMethodField()
     tahun = serializers.IntegerField(source='tahun_lengkap', read_only=True)
-    nilai = serializers.DecimalField(source='nilai_num', max_digits=24, decimal_places=4, read_only=True)
+    nilai = serializers.SerializerMethodField()
+
+    def get_rincian_nama(self, obj):
+        from apps.pencarian.api_views import _resolve_rincian_alias
+        raw = obj.rincian.nama if obj.rincian else "-"
+        title = obj.tabel.judul if obj.tabel_id else ""
+        return _resolve_rincian_alias(raw, title)
+
+    def get_nilai(self, obj):
+        # nihil / null -> 0 supaya chart tidak putus
+        return float(obj.nilai_num or 0)
 
     class Meta:
         model = Fakta
