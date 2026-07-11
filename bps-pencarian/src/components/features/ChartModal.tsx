@@ -54,9 +54,23 @@ function formatCompactNumber(value: number | string | null | undefined, unit?: s
   if (!matched) {
     body = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(numeric)
   }
-  // Unit follows the value, e.g. "169,29 km²" not "km² 169,29".
-  const u = unit && unit !== "-" ? unit : ""
-  return u ? `${body} ${u}` : body
+  // Currency (Rp) LEADS the value: "Rp 3,43 T". Every other unit (km, jiwa,
+  // %, ha, ...) FOLLOWS it: "169,29 km". Decide placement from the unit.
+  const u = displayUnit(unit)
+  if (!u) return body
+  return isPrefixUnit(u) ? `${u} ${body}` : `${body} ${u}`
+}
+
+// Units that must be written BEFORE the number (Indonesian currency convention).
+const PREFIX_UNITS = new Set(["rp", "rp.", "idr", "us$", "$"])
+function isPrefixUnit(unit?: string) {
+  return PREFIX_UNITS.has((unit || "").trim().toLowerCase())
+}
+// Canonical display form: "rp" -> "Rp"; everything else kept as-is.
+function displayUnit(unit?: string) {
+  const u = (unit || "").trim()
+  if (!u || u === "-") return ""
+  return isPrefixUnit(u) ? "Rp" : u
 }
 
 function getValue(row: any) {

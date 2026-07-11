@@ -64,6 +64,17 @@ const COMPACT_UNITS: [number, string][] = [
   [1e6, "Jt"],
   [1e3, "Rb"],
 ]
+// Units written BEFORE the number (Indonesian currency convention: "Rp 3,43 T").
+const PREFIX_UNITS = new Set(["rp", "rp.", "idr", "us$", "$"])
+function isPrefixUnit(unit?: string) {
+  return PREFIX_UNITS.has((unit || "").trim().toLowerCase())
+}
+// Canonical display form: "rp" -> "Rp"; everything else kept as-is.
+function displayUnit(unit?: string) {
+  const u = (unit || "").trim()
+  if (!u || u === "-") return ""
+  return isPrefixUnit(u) ? "Rp" : u
+}
 function formatCompactNumber(value: number | string | null | undefined, unit?: string) {
   if (value === null || value === undefined || value === "") return "-"
   const numeric = Number(value)
@@ -82,13 +93,10 @@ function formatCompactNumber(value: number | string | null | undefined, unit?: s
   if (!matched) {
     body = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(numeric)
   }
-  // Unit leads the value, e.g. "Rp 3,43 T" not "3,43 T Rp".
-  const u = cleanUnit(unit)
-  return u ? `${u} ${body}` : body
-}
-
-function cleanUnit(unit?: string) {
-  return unit && unit !== "-" ? unit : ""
+  // Currency (Rp) LEADS the value; every other unit (km, jiwa, %) FOLLOWS it.
+  const u = displayUnit(unit)
+  if (!u) return body
+  return isPrefixUnit(u) ? `${u} ${body}` : `${body} ${u}`
 }
 
 function getRowSubject(row: Observation) {
@@ -115,7 +123,7 @@ export function InlineTimeSeriesAnswer({ match, subjectName, onOpenChart }: Inli
   const isComparison = subjects.length > 1
   const first = rows[0]
   const latest = rows.at(-1)
-  const unit = cleanUnit(latest?.satuan || first?.satuan)
+  const unit = displayUnit(latest?.satuan || first?.satuan)
   const hasRows = rows.length > 0
 
   const latestBySubject = subjects.map((subject) => {
@@ -209,7 +217,7 @@ export function InlineTimeSeriesAnswer({ match, subjectName, onOpenChart }: Inli
             ) : latest ? (
               <div>
                 <p className="mt-1 text-2xl font-semibold text-foreground">{formatCompactNumber(latest.nilai, unit)}</p>
-                <p className="text-xs text-muted-foreground">{latest.tahun}{unit ? ` • ${unit}` : ""}</p>
+                <p className="text-xs text-muted-foreground">{isPrefixUnit(unit) ? `${unit} • ${latest.tahun}` : `${latest.tahun}${unit ? ` • ${unit}` : ""}`}</p>
               </div>
             ) : null}
           </div>
@@ -309,7 +317,7 @@ export function InlineTimeSeriesAnswer({ match, subjectName, onOpenChart }: Inli
                       <tr key={row.id} className="border-b border-border last:border-0">
                         <td className="px-3 py-2 text-muted-foreground">{row.tahun}</td>
                         <td className="px-3 py-2 text-right font-medium text-foreground">
-                          {formatIndonesianNumber(row.nilai)}{unit ? ` ${unit}` : ""}
+                          {isPrefixUnit(unit) ? `${unit} ${formatIndonesianNumber(row.nilai)}` : `${formatIndonesianNumber(row.nilai)}${unit ? ` ${unit}` : ""}`}
                         </td>
                       </tr>
                     ))}
