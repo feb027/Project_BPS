@@ -18,27 +18,55 @@ from apps.data.utils import normalize_text
 from .serializers import TabelSerializer, IndikatorSerializer, FaktaTimeSeriesSerializer
 
 
-def _resolve_rincian_alias(nama, table_title=""):
+def _build_alias_map():
+    """Preload all approved RincianAlias into a dict once, so the per-fact
+    aggregation loop does NOT hit the database 10k+ times (was the main cause
+    of 60s+ response times on large tables like 5.2.1)."""
+    from apps.referensi.models import RincianAlias
+    amap = {}
+    for a in RincianAlias.objects.filter(is_approved=True).select_related("canonical_rincian"):
+        amap.setdefault(a.normalized_alias, []).append(
+            (a.table_title_pattern or "", a.canonical_rincian.nama)
+        )
+    return amap
+
+
+def _resolve_rincian_alias(nama, table_title="", alias_map=None):
     """Map nama rincian mentah ke canonical agar time-series lintas tahun nyambung.
 
     Contoh: 'Eselon III.a' -> 'Administrator' (penyederhanaan birokrasi).
     Prioritaskan alias ber-konteks (table_title_pattern cocok), lalu alias global.
+    `alias_map` (dari _build_alias_map) wajib di-pass agar tidak query DB per fakta.
     """
     if not nama:
         return nama
     norm = (nama or "").strip().lower()
     if not norm:
         return nama
+    if alias_map is None:
+        # Fallback (tests): hit DB once. Callers should pass alias_map.
+        from apps.referensi.models import RincianAlias
+        qs = RincianAlias.objects.filter(normalized_alias=norm, is_approved=True)
+        title = (table_title or "").lower()
+        ctx = qs.filter(table_title_pattern__in=[p for p in qs.values_list("table_title_pattern", flat=True) if p and p.lower() in title]).first()
+        if ctx:
+            return ctx.canonical_rincian.nama
+        glob = qs.filter(table_title_pattern="").first()
+        if glob:
+            return glob.canonical_rincian.nama
+        return nama
+    entries = alias_map.get(norm)
+    if not entries:
+        return nama
     title = (table_title or "").lower()
-    qs = RincianAlias.objects.filter(normalized_alias=norm, is_approved=True)
-    if title:
-        # table_title_pattern harus merupakan substring dari judul tabel
-        ctx_match = qs.filter(table_title_pattern__in=[p for p in qs.values_list("table_title_pattern", flat=True) if p and p.lower() in title]).first()
-        if ctx_match:
-            return ctx_match.canonical_rincian.nama
-    glob = qs.filter(table_title_pattern="").first()
-    if glob:
-        return glob.canonical_rincian.nama
+    # konteks dulu
+    for pattern, canonical in entries:
+        if pattern and pattern.lower() in title:
+            return canonical
+    # global (pattern kosong)
+    for pattern, canonical in entries:
+        if not pattern:
+            return canonical
     return nama
 
 
@@ -1279,7 +1307,7 @@ class TimeSeriesAPIView(APIView):
     """
     API untuk data Fakta (time-series) berdasarkan Indikator atau Tabel.
     """
-    @method_decorator(cache_page(60 * 15)) # 15 menit cache
+    @method_decorator(cache_page(60)) # 5 menit cache (safety net)
     def get(self, request):
         indikator_id = request.GET.get('indikator_id')
         tabel_id = request.GET.get('tabel_id')
@@ -1317,7 +1345,7 @@ class CatalogAPIView(APIView):
 
     NORMALIZE = lambda self, name: re.sub(r"\s+", " ", (name or "").strip().lower())
 
-    @method_decorator(cache_page(60 * 15))  # 15 menit cache (merged + catalog)
+    @method_decorator(cache_page(60))  # 5 menit cache (merged + catalog)
     def get(self, request):
         from apps.katalog.models import Bab, Tabel
 
@@ -1332,23 +1360,40 @@ class CatalogAPIView(APIView):
             )
             if not tables:
                 return Response({"error": "nomor_tabel tidak ditemukan"}, status=404)
+            alias_map = _build_alias_map()
             rows = (
                 Fakta.objects.filter(tabel__in=tables)
                 .filter(flag__in=['ada', 'nihil'])
-                .select_related("wilayah", "rincian", "kolom", "tabel", "tabel__bab__publikasi")
-                .order_by("tabel__bab__publikasi__tahun_terbit")
+                .values(
+                    'id', 'tahun', 'nilai_num', 'nilai_teks', 'flag',
+                    'wilayah__nama', 'rincian__nama', 'rincian_id',
+                    'kolom__indikator__nama', 'kolom__satuan', 'kolom__tahun',
+                    'tabel__tahun_data', 'tabel__judul',
+                    'tabel__bab__publikasi__tahun_terbit', 'tabel__bab__publikasi_id',
+                )
+                .order_by('tabel__bab__publikasi__tahun_terbit')
             )
-            # Aggregate facts into one row per (tahun, rincian_canonical, subject, unit).
-            # - Different raw rincian aliased to the SAME canonical (e.g. Eselon III.a
-            #   + III.b -> "Administrator") are SUMMED so the series is complete.
-            # - Duplicate facts for the SAME raw rincian from different publications
-            #   (revisions) are collapsed: keep the newest publication's value.
             agg = {}
             for f in rows:
-                tahun = f.tahun_lengkap
+                # Compute tahun_lengkap (mirip Fakta.tahun_lengkap property) tanpa
+                # mem-build model instance per row.
+                tahun = f['tahun']
+                if tahun is None:
+                    kt = f.get('kolom__tahun')
+                    if kt is not None:
+                        tahun = kt
+                    elif f.get('tabel__tahun_data') is not None:
+                        tahun = f['tabel__tahun_data']
+                    else:
+                        import re as _re
+                        _m = _re.findall(r"\b(?:19|20)\d{2}\b", f.get('tabel__judul') or "")
+                        if _m:
+                            tahun = int(_m[-1])
+                        else:
+                            tahun = (f.get('tabel__bab__publikasi__tahun_terbit') or 0) - 1
                 if tahun is None:
                     continue
-                unit = (f.kolom.satuan if f.kolom_id else "") or ""
+                unit = (f['kolom__satuan'] or "") or ""
                 unit = unit.strip().lower()
                 # Treat person-count units (jiwa / orang) and empty as the same
                 # unit so re-publications with slightly different satuan labels
@@ -1357,33 +1402,26 @@ class CatalogAPIView(APIView):
                 if unit in ("", "none", "jiwa", "orang", "person", "orang.", "-"):
                     unit = ""
                 rincian_resolved = _resolve_rincian_alias(
-                    f.rincian.nama if f.rincian else "-", f.tabel.judul
+                    f['rincian__nama'] if f['rincian__nama'] else "-", f['tabel__judul'], alias_map
                 )
-                subject = f.kolom.indikator.nama if f.kolom_id else (f.wilayah.nama if f.wilayah else "-")
-                # Wilayah MUST be part of the aggregation key. For per-kecamatan
-                # tables (tipe_baris=kecamatan) every row shares the same
-                # (tahun, subject, unit), so without wilayah in the key the 40
-                # districts would collapse into a single dict entry and silently
-                # overwrite each other (only 1 of 40 survived -> UI showed ~15
-                # arbitrary districts). Rincian/kabupaten tables have wilayah=None
-                # ("-") so this stays a unique per-row key for them too.
-                wilayah_nama = f.wilayah.nama if f.wilayah else "-"
+                subject = f['kolom__indikator__nama'] if f['kolom__indikator__nama'] else (f['wilayah__nama'] if f['wilayah__nama'] else "-")
+                wilayah_nama = f['wilayah__nama'] if f['wilayah__nama'] else "-"
                 key = (tahun, wilayah_nama, rincian_resolved, subject, unit)
-                pub_yr = f.tabel.bab.publikasi.tahun_terbit if f.tabel_id else 0
-                pub_id = f.tabel.bab.publikasi_id if f.tabel_id else 0
-                rinc_id = f.rincian_id
-                val = float(f.nilai_num or 0)
+                pub_yr = f['tabel__bab__publikasi__tahun_terbit'] or 0
+                pub_id = f['tabel__bab__publikasi_id'] or 0
+                rinc_id = f['rincian_id']
+                val = float(f['nilai_num'] or 0)
                 if key not in agg:
                     agg[key] = {
                         "tahun": tahun, "unit": unit,
-                        "wilayah_nama": f.wilayah.nama if f.wilayah else "-",
+                        "wilayah_nama": wilayah_nama,
                         "rincian_nama": rincian_resolved, "subject_name": subject,
-                        "flag": f.flag or "ada",
+                        "flag": f['flag'] or "ada",
                         # track members for aggregation: (rinc_id, pub_id, pub_yr, val, fid, teks, flag)
-                        "_members": [(rinc_id, pub_id, pub_yr, val, f.id, f.nilai_teks, f.flag or "ada")],
+                        "_members": [(rinc_id, pub_id, pub_yr, val, f['id'], f['nilai_teks'], f['flag'] or "ada")],
                     }
                 else:
-                    agg[key]["_members"].append((rinc_id, pub_id, pub_yr, val, f.id, f.nilai_teks, f.flag or "ada"))
+                    agg[key]["_members"].append((rinc_id, pub_id, pub_yr, val, f['id'], f['nilai_teks'], f['flag'] or "ada"))
 
             series = []
             for key, agg_row in agg.items():
@@ -1544,7 +1582,7 @@ class CanonicalTimeSeriesAPIView(APIView):
 
     Accepts either `indicator_code` (preferred) or `canonical_indicator_id`.
     """
-    @method_decorator(cache_page(60 * 15))
+    @method_decorator(cache_page(60))
     def get(self, request):
         indicator_code = request.GET.get('indicator_code') or request.GET.get('code')
         canonical_indicator_id = request.GET.get('canonical_indicator_id')

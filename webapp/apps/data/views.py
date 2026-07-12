@@ -2,6 +2,7 @@ from decimal import Decimal, InvalidOperation
 import re
 
 from django.contrib import messages
+from django.core.cache import cache
 from django.db.models import Count
 from django.shortcuts import get_object_or_404, redirect, render
 
@@ -210,6 +211,7 @@ def tabel_detail(request, pk):
                     except Exception: pass
         
         messages.success(request, f"{diubah} perubahan disimpan.")
+        cache.clear()
         return redirect("data:tabel_detail", pk=pk)
 
     fakta = Fakta.objects.filter(tabel=tabel).select_related("wilayah", "rincian", "kolom")
@@ -243,6 +245,10 @@ def tabel_detail(request, pk):
     ids_reg = sorted((s for s, v in subjek.items() if not v["is_total"]),
                      key=lambda i: subjek[i]["nama"])
     ids_tot = [s for s, v in subjek.items() if v["is_total"]]
+    # Tabel level kabupaten/provinsi (1 wilayah, tidak ada baris kecamatan):
+    # tampilkan baris total sebagai satu-satunya baris agar tidak kosong.
+    if not ids_reg and ids_tot:
+        ids_reg, ids_tot = ids_tot, []
     baris = [buat_baris(s) for s in ids_reg]
     baris_total = [buat_baris(s) for s in ids_tot]
 
@@ -292,6 +298,7 @@ def tabel_isi(request, pk):
                 rows.append(base)
         ingest_long_rows(rows, publikasi=tabel.bab.publikasi, user=request.user if request.user.is_authenticated else None)
         messages.success(request, "Data tersimpan.")
+        cache.clear()
         return redirect("data:tabel_detail", pk=pk)
 
     # ---- prefill ----

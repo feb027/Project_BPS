@@ -4,6 +4,7 @@ import re
 
 from django.conf import settings
 from django.contrib import messages
+from django.core.cache import cache
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from google import genai
@@ -162,6 +163,7 @@ def tabel_edit(request, pk):
             k.tipe_nilai = tipe
             k.save()
         messages.success(request, "Tabel & kolom diperbarui.")
+        cache.clear()
         return redirect("data:tabel_detail", pk=tabel.pk)
     crumb = [
         {"label": "Data", "url": "/data/"},
@@ -178,6 +180,7 @@ def tabel_delete(request, pk):
     bab_pk = tabel.bab_id
     if request.method == "POST":
         tabel.delete()
+        cache.clear()
         messages.success(request, "Tabel dihapus.")
         return redirect("data:bab", pk=bab_pk)
     return render(request, "katalog/konfirmasi_hapus.html", {
