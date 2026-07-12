@@ -1317,6 +1317,7 @@ class CatalogAPIView(APIView):
 
     NORMALIZE = lambda self, name: re.sub(r"\s+", " ", (name or "").strip().lower())
 
+    @method_decorator(cache_page(60 * 15))  # 15 menit cache (merged + catalog)
     def get(self, request):
         from apps.katalog.models import Bab, Tabel
 
@@ -1353,7 +1354,7 @@ class CatalogAPIView(APIView):
                 # unit so re-publications with slightly different satuan labels
                 # ("" vs "Jiwa" vs "Orang") collapse into one series instead of
                 # exploding the chart into near-duplicate lines.
-                if unit in ("", "none", "jiwa", "orang", "person", "orang."):
+                if unit in ("", "none", "jiwa", "orang", "person", "orang.", "-"):
                     unit = ""
                 rincian_resolved = _resolve_rincian_alias(
                     f.rincian.nama if f.rincian else "-", f.tabel.judul

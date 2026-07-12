@@ -87,7 +87,7 @@ const chartColors = [
 // Normalize unit case so "Jiwa" and "jiwa" merge into one indicator.
 function normUnit(unit: string | undefined) {
   const u = (unit || "").trim().toLowerCase()
-  return u === "none" ? "" : u
+  return u === "none" || u === "-" || u === "–" || u === "—" ? "" : u
 }
 
 // Rincian labels must be uniform: entries that differ ONLY by letter case
@@ -304,6 +304,12 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
     // legacy: old wilayah-only save (pre-dimension refactor)
     if (dimension === "wilayah" && Array.isArray((savedRef as any)?.wilayah)) {
       return new Set((savedRef as any).wilayah.filter((v: string) => dimValues.includes(v)))
+    }
+    // Auto-select "Kabupaten Tasikmalaya" (the district total) so the chart
+    // renders immediately instead of prompting "pilih minimal satu wilayah".
+    // Per-district tables have 39 kecamatan + this total = 40 members.
+    if (dimension === "wilayah" && dimValues.includes("Kabupaten Tasikmalaya")) {
+      return new Set(["Kabupaten Tasikmalaya"])
     }
     return new Set()
   })
