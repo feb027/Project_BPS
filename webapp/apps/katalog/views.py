@@ -5,13 +5,92 @@ import re
 from django.conf import settings
 from django.contrib import messages
 from django.core.cache import cache
+from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from google import genai
 
-from apps.referensi.models import Indikator
+from apps.data.models import Fakta
+from apps.data.services import _jenis_wilayah
+from apps.referensi.models import Indikator, Rincian, Wilayah
 from .forms import BabForm, PublikasiForm, TabelForm
 from .models import Bab, KolomTabel, Publikasi, Tabel
+
+
+def _get_default_kabupaten_wilayah():
+    wilayah, _ = Wilayah.objects.get_or_create(
+        nama="Kabupaten Tasikmalaya",
+        jenis=Wilayah.Jenis.KABUPATEN,
+        parent=None,
+    )
+    return wilayah
+
+
+def _migrate_row_dimension_to_match_tipe(tabel, old_tipe_baris=None):
+    """Keep Fakta row references consistent with Tabel.tipe_baris.
+
+    Manual edits in Pengaturan used to only change metadata. If a table's row
+    labels were stored as Wilayah but the user changed the type to
+    "Per Kategori (rincian)", the detail page/API started reading Fakta.rincian
+    and rendered empty. This migrates the existing row labels into the selected
+    dimension so the manual setting actually works.
+    """
+    facts = Fakta.objects.filter(tabel=tabel).select_related("wilayah", "rincian")
+
+    moved = 0
+    if tabel.tipe_baris == Tabel.TipeBaris.KATEGORI:
+        default_wilayah = _get_default_kabupaten_wilayah()
+        cache_rincian = {}
+        for fakta in facts:
+            # Prefer existing rincian; otherwise convert the current wilayah label
+            # into a rincian category (e.g. PDRB / Net Ekspor / konsumsi RT).
+            source_name = (fakta.rincian.nama if fakta.rincian_id else (fakta.wilayah.nama if fakta.wilayah_id else "")).strip()
+            if not source_name:
+                continue
+            key = (source_name, "")
+            rincian = cache_rincian.get(key)
+            if rincian is None:
+                rincian, _ = Rincian.objects.get_or_create(nama=source_name, kelompok="")
+                cache_rincian[key] = rincian
+            updates = []
+            if fakta.rincian_id != rincian.id:
+                fakta.rincian = rincian
+                updates.append("rincian")
+            # Category tables are district-level breakdowns by default. Keeping
+            # the old fake wilayah label would make bps-hub group by wilayah.
+            if fakta.wilayah_id != default_wilayah.id:
+                fakta.wilayah = default_wilayah
+                updates.append("wilayah")
+            if updates:
+                fakta.save(update_fields=updates)
+                moved += 1
+        return moved
+
+    # Non-kategori tables are rendered by Wilayah. If the user changes a table
+    # back to Per Kecamatan/Per Kabupaten, move the row labels from rincian to
+    # wilayah so data stays visible too.
+    cache_wilayah = {}
+    for fakta in facts:
+        source_name = (fakta.rincian.nama if fakta.rincian_id else (fakta.wilayah.nama if fakta.wilayah_id else "")).strip()
+        if not source_name:
+            continue
+        jenis = _jenis_wilayah(source_name)
+        key = (source_name, jenis)
+        wilayah = cache_wilayah.get(key)
+        if wilayah is None:
+            wilayah, _ = Wilayah.objects.get_or_create(nama=source_name, jenis=jenis, parent=None)
+            cache_wilayah[key] = wilayah
+        updates = []
+        if fakta.wilayah_id != wilayah.id:
+            fakta.wilayah = wilayah
+            updates.append("wilayah")
+        if fakta.rincian_id is not None:
+            fakta.rincian = None
+            updates.append("rincian")
+        if updates:
+            fakta.save(update_fields=updates)
+            moved += 1
+    return moved
 
 
 def publikasi_create(request):
@@ -141,28 +220,39 @@ def tabel_create(request, bab_pk):
 def tabel_edit(request, pk):
     tabel = get_object_or_404(Tabel.objects.select_related("bab__publikasi"), pk=pk)
     koloms = list(tabel.kolom_set.select_related("indikator").order_by("urutan"))
+    old_tipe_baris = tabel.tipe_baris
     form = TabelForm(request.POST or None, instance=tabel)
     if request.method == "POST" and form.is_valid():
-        form.save()
-        # update definisi kolom yang sudah ada
-        for k in koloms:
-            nama = (request.POST.get(f"kolom-{k.id}-nama") or "").strip()
-            satuan = (request.POST.get(f"kolom-{k.id}-satuan") or "").strip()
-            tahun_str = request.POST.get(f"kolom-{k.id}-tahun")
-            tahun = None
-            if tahun_str:
-                m = re.search(r"\d{4}", tahun_str.strip())
-                if m: tahun = int(m.group(0))
-            tipe = request.POST.get(f"kolom-{k.id}-tipe") or k.tipe_nilai
-            if nama and nama != k.indikator.nama:
-                ind, _ = Indikator.objects.get_or_create(
-                    nama=nama, defaults={"satuan": satuan, "tipe_nilai": tipe})
-                k.indikator = ind
-            k.satuan = satuan
-            k.tahun = tahun or None
-            k.tipe_nilai = tipe
-            k.save()
-        messages.success(request, "Tabel & kolom diperbarui.")
+        with transaction.atomic():
+            tabel = form.save()
+            needs_dimension_sync = old_tipe_baris != tabel.tipe_baris
+            if not needs_dimension_sync and tabel.tipe_baris == Tabel.TipeBaris.KATEGORI:
+                needs_dimension_sync = Fakta.objects.filter(tabel=tabel, rincian__isnull=True, wilayah__isnull=False).exists()
+            if not needs_dimension_sync and tabel.tipe_baris != Tabel.TipeBaris.KATEGORI:
+                needs_dimension_sync = Fakta.objects.filter(tabel=tabel, wilayah__isnull=True, rincian__isnull=False).exists()
+            moved_rows = _migrate_row_dimension_to_match_tipe(tabel, old_tipe_baris) if needs_dimension_sync else 0
+            # update definisi kolom yang sudah ada
+            for k in koloms:
+                nama = (request.POST.get(f"kolom-{k.id}-nama") or "").strip()
+                satuan = (request.POST.get(f"kolom-{k.id}-satuan") or "").strip()
+                tahun_str = request.POST.get(f"kolom-{k.id}-tahun")
+                tahun = None
+                if tahun_str:
+                    m = re.search(r"\d{4}", tahun_str.strip())
+                    if m: tahun = int(m.group(0))
+                tipe = request.POST.get(f"kolom-{k.id}-tipe") or k.tipe_nilai
+                if nama and nama != k.indikator.nama:
+                    ind, _ = Indikator.objects.get_or_create(
+                        nama=nama, defaults={"satuan": satuan, "tipe_nilai": tipe})
+                    k.indikator = ind
+                k.satuan = satuan
+                k.tahun = tahun or None
+                k.tipe_nilai = tipe
+                k.save()
+        if moved_rows:
+            messages.success(request, f"Tabel & kolom diperbarui. {moved_rows} baris data disesuaikan ke tipe baris baru.")
+        else:
+            messages.success(request, "Tabel & kolom diperbarui.")
         cache.clear()
         return redirect("data:tabel_detail", pk=tabel.pk)
     crumb = [
