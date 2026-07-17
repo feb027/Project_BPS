@@ -73,6 +73,27 @@ def normalisasi_indikator(nama: str) -> str:
     return s
 
 
+def normalisasi_rincian(nama: str) -> str:
+    """
+    Kunci-samakan nama rincian, khususnya range angka pada tabel seperti
+    distribusi pengeluaran (10.3). Membersihkan spasi di sekitar '-' dan '/',
+    serta menyamakan penulisan batas ('1.500.000+' / '> 1.500.000' -> '>1.500.000',
+    '< 150.000' -> '<150.000') agar tidak jadi duplikat antar edisi.
+    """
+    s = (nama or "").strip()
+    # hapus spasi di sekitar tanda - dan /
+    s = re.sub(r"\s*-\s*", "-", s)
+    s = re.sub(r"\s*/\s*", "/", s)
+    # normalisasi batas atas/bawah
+    s = re.sub(r"^>\s*", ">", s)
+    s = re.sub(r"^<\s*", "<", s)
+    s = re.sub(r"\+$", "", s)          # '1.500.000+' -> '1.500.000' lalu prefix >
+    if s.startswith("1.500.000"):
+        s = ">" + s
+    s = re.sub(r"\s+", " ", s).strip()  # bersihkan spasi ganda lainnya
+    return s
+
+
 @transaction.atomic
 def ingest_long_rows(rows, publikasi: Publikasi, user=None) -> HasilIngest:
     """
@@ -191,6 +212,7 @@ def ingest_long_rows(rows, publikasi: Publikasi, user=None) -> HasilIngest:
         nama_rin = (row.get("rincian") or "").strip()
         if nama_rin:
             nama_rin = nama_rin[:500]   # penjaga truncation
+            nama_rin = normalisasi_rincian(nama_rin)  # bersihkan spasi/format range
             kelompok = (row.get("rincian_dim") or "").strip()[:80]
             key = f"{nama_rin}|{kelompok}"
             if key not in cache_rincian:
