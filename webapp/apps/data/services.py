@@ -158,7 +158,7 @@ def ingest_long_rows(rows, publikasi: Publikasi, user=None) -> HasilIngest:
                 for c in tabel.kolom_set.select_related("indikator").all()
             }
 
-        kunci_kolom = normalisasi_indikator(nama_ind)
+        kunci_kolom = (normalisasi_indikator(nama_ind), tahun)  # nama + tahun supaya kolom per-tahun tidak bentrok
         kolom = kolom_cache[tabel.id].get(kunci_kolom)
         kolom_baru = False
         if kolom is None:
