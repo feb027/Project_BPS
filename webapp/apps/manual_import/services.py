@@ -5,7 +5,9 @@ from datetime import datetime
 from io import BytesIO
 from typing import Any
 
-from openpyxl import Workbook
+from django.utils import timezone
+
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side, Protection
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
@@ -54,7 +56,7 @@ class ManualImportTemplateBuilder:
             ("master_tahun", str(self.MASTER_YEAR)),
             ("template_version", "1.0"),
             ("publication_year", str(self.publication_year)),
-            ("generated_at", datetime.utcnow().isoformat()),
+            ("generated_at", timezone.now().isoformat()),
             ("canonical_batch", str(uuid.uuid4())),
         ]
         for row in rows:
@@ -69,7 +71,7 @@ class ManualImportTemplateBuilder:
         ws.append(["wilayah_id", "nama", "jenis"])
         wilayah_qs = list(
             Wilayah.objects.filter(jenis__in=[Wilayah.Jenis.KABUPATEN, Wilayah.Jenis.KECAMATAN])
-            .order_by("-created_at")
+            .order_by("id")
         )
         wilayah_map: dict[int, tuple[str, str]] = {}
         if not wilayah_qs:
@@ -87,20 +89,18 @@ class ManualImportTemplateBuilder:
         ws.append(["indikator_id", "canonical_code", "nama", "satuan", "tipe_nilai"])
         indikator_qs = list(
             Indikator.objects.filter(
-                kolomtabel__tabel__bab__publikasi=self.master_publikasi,
+                kolom_set__tabel__bab__publikasi=self.master_publikasi,
             )
             .distinct()
-            .select_related("canonical_indicator")
-            .order_by("canonical_indicator__code", "nama")
+            .order_by("nama")
         )
         if not indikator_qs:
             raise ValueError("Indikator master 2026 belum tersedia.")
         for ind in indikator_qs:
-            canonical = getattr(ind, "canonical_indicator", None)
             ws.append(
                 [
                     ind.id,
-                    getattr(canonical, "code", "") or "",
+                    "",
                     ind.nama,
                     ind.satuan or "",
                     ind.tipe_nilai or "",

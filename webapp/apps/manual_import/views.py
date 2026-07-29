@@ -1,31 +1,23 @@
 from __future__ import annotations
 
-import csv
-import json
-from datetime import datetime
 from typing import Any
 
-from django.contrib.auth.decorators import login_required
-from django.http import HttpRequest, HttpResponse, JsonResponse
-from django.shortcuts import redirect
 from django.utils import timezone
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_GET, require_POST
 
 from rest_framework import status
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAdminUser
-from rest_framework.authentication import BasicAuthentication
+from rest_framework.authentication import BasicAuthentication, SessionAuthentication
 
 from openpyxl import load_workbook
 
 from .models import ImportUpload, ImportLog
 from .serializers import ImportUploadSerializer
 from .services import load_workbook_from_upload
-from apps.katalog.models import Bab, Tabel, KolomTabel
+from apps.katalog.models import Publikasi, Bab, Tabel, KolomTabel
 from apps.referensi.models import Indikator, Wilayah
-from apps.data.models import CanonicalIndicator
+from apps.data.models import Fakta
 
 
 MASTER_YEAR = 2026
@@ -72,9 +64,9 @@ def _collect_wilayah_master():
 def _collect_indikator_master():
     ind_qs = list(
         Indikator.objects.select_related("canonical_indicator")
-        .filter(kolomtabel__tabel__bab__publikasi__tahun_terbit=MASTER_YEAR)
+        .filter(kolom_set__tabel__bab__publikasi__tahun_terbit=MASTER_YEAR)
         .distinct()
-        .order_by("canonical_indicator__code", "nama")
+        .order_by("nama")
     )
     ind_map: dict[int, dict[str, Any]] = {}
     for ind in ind_qs:
@@ -83,8 +75,8 @@ def _collect_indikator_master():
             "id": ind.id,
             "nama": ind.nama,
             "satuan": ind.satuan or "",
-            "tipe_nilai": getattr(ind, "tipe_nilai", "") or "",
-            "canonical_code": getattr(canonical, "code", "") or "",
+            "tipe_nilai": ind.tipe_nilai or "",
+            "canonical_code": "",
         }
     return ind_map
 
@@ -275,7 +267,7 @@ def generate_template(request):
 
 
 @api_view(["POST"])
-@authentication_classes([BasicAuthentication])
+@authentication_classes([BasicAuthentication, SessionAuthentication])
 @permission_classes([IsAdminUser])
 def upload(request):
     upload_file = request.FILES.get("file")
@@ -347,7 +339,7 @@ def upload(request):
 
 
 @api_view(["GET"])
-@authentication_classes([BasicAuthentication])
+@authentication_classes([BasicAuthentication, SessionAuthentication])
 @permission_classes([IsAdminUser])
 def preview(request, pk: str):
     try:
@@ -446,6 +438,5 @@ def commit(request, pk: str):
     return Response({"status": "committed", "faktas_inserted": created_fakta, "skipped_rows": skipped_rows})
 
 
-@require_GET
 def placeholder(request):
     return JsonResponse({"status": "ok", "phase": "phase1_scaffold"})
