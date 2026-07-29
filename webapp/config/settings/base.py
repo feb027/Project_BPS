@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     "apps.data",
     "apps.ekstraksi",
     "apps.pencarian",
+    "apps.manual_import",
 ]
 
 MIDDLEWARE = [
