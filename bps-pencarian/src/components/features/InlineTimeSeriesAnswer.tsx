@@ -11,8 +11,8 @@ import {
   Legend,
 } from "recharts"
 import * as XLSX from "xlsx"
-import html2canvas from "html2canvas"
-import jsPDF from "jspdf"
+import html2canvas from "html2canvas-pro"
+import { exportProfessionalPdf } from "../../lib/pdfExport"
 
 type Observation = {
   id: number
@@ -161,14 +161,55 @@ export function InlineTimeSeriesAnswer({ match, subjectName, onOpenChart }: Inli
   }
 
   const handleExportPDF = async () => {
-    if (!hasRows || !sectionRef.current) return
-    const canvas = await html2canvas(sectionRef.current, { scale: 2, backgroundColor: "#ffffff" })
-    const imgData = canvas.toDataURL("image/png")
-    const pdf = new jsPDF("landscape", "mm", "a4")
-    const pdfWidth = pdf.internal.pageSize.getWidth()
-    const pdfHeight = (canvas.height * pdfWidth) / canvas.width
-    pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, Math.min(pdfHeight, pdf.internal.pageSize.getHeight()))
-    pdf.save(`${safeFileName(match.indicator_name)}_${safeFileName(subjectName)}.pdf`)
+    if (!hasRows) return
+
+    // Capture the chart/table section as image for the PDF
+    let chartImageDataUrl: string | undefined
+    if (sectionRef.current) {
+      try {
+        const canvas = await html2canvas(sectionRef.current, {
+          scale: 2,
+          backgroundColor: "#ffffff",
+          useCORS: true,
+        })
+        chartImageDataUrl = canvas.toDataURL("image/png")
+      } catch {
+        // Capture failed — export table-only PDF
+      }
+    }
+
+    // Build a pivot table: rows = subjects, columns = years
+    const years = Array.from(new Set(rows.map((r) => String(r.tahun)))).sort()
+
+    // Build lookup: { "Bantarkalong" => { "2017" => 273, ... } }
+    const lookup: Record<string, Record<string, number>> = {}
+    for (const row of rows) {
+      const subj = getRowSubject(row)
+      const year = String(row.tahun)
+      if (!lookup[subj]) lookup[subj] = {}
+      lookup[subj][year] = row.nilai
+    }
+
+    // Columns: [Seri, year1, year2, ...]
+    const columns = [isComparison ? "Wilayah" : "Seri", ...years]
+    const pdfRows = subjects.map((subj) => [
+      subj,
+      ...years.map((y) => lookup[subj]?.[y] ?? "-"),
+    ])
+
+    const satuanText = unit ? ` • Satuan: ${unit}` : ""
+    const tabelInfo = latest?.tabel ? ` • Sumber: Tabel ${latest.tabel.nomor_tabel}` : ""
+
+    await exportProfessionalPdf({
+      title: `${match.indicator_name} — ${subjectName}`,
+      subtitle: match.age_label
+        ? `Kelompok Umur: ${match.age_label} • ${subjects.length} seri • ${rows.length} titik data${yearRange ? ` • ${yearRange}` : ""}${satuanText}${tabelInfo}`
+        : `${subjects.length} seri • ${rows.length} titik data${yearRange ? ` • ${yearRange}` : ""}${satuanText}${tabelInfo}`,
+      columns,
+      rows: pdfRows,
+      fileName: `${safeFileName(match.indicator_name)}_${safeFileName(subjectName)}`,
+      chartImageDataUrl,
+    })
   }
 
   return (
