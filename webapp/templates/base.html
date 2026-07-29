@@ -24,17 +24,8 @@
         <a class="nav-link {% if request.resolver_match.namespace == 'ekstraksi' %}is-active{% endif %}" href="{% url 'ekstraksi:index' %}">
           <i data-lucide="file-scan" style="width:16px;height:16px;"></i> Ekstraksi PDF
         </a>
-        <a class="nav-link {% if request.resolver_match.namespace == 'pencarian' %}is-active{% endif %}" href="{% url 'pencarian:cari' %}">
-          <i data-lucide="search" style="width:16px;height:16px;"></i> Pencarian
-        </a>
         <a class="nav-link {% if request.resolver_match.namespace == 'data' %}is-active{% endif %}" href="{% url 'data:home' %}">
           <i data-lucide="database" style="width:16px;height:16px;"></i> Data Tabel
-        </a>
-        <a class="nav-link {% if request.resolver_match.namespace == 'referensi' %}is-active{% endif %}" href="{% url 'referensi:cleaning_dashboard' %}">
-          <i data-lucide="wrench" style="width:16px;height:16px;"></i> Pembersihan Data
-        </a>
-        <a class="nav-link {% if request.resolver_match.url_name == 'sync_dashboard' %}is-active{% endif %}" href="{% url 'katalog:sync_dashboard' %}">
-          <i data-lucide="git-compare" style="width:16px;height:16px;"></i> Auto-Sync Kolom
         </a>
         <a class="nav-link" href="/admin/">
           <i data-lucide="settings" style="width:16px;height:16px;"></i> Katalog &amp; Master
