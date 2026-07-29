@@ -1,9 +1,9 @@
-import { useMemo, useState, useCallback } from "react"
+import { useMemo, useState, useCallback, useRef } from "react"
 import { X, Loader2, Table2, LineChart as LineIcon, BarChart3, ChevronDown, Check, ListTree, FileSpreadsheet, FileText } from "lucide-react"
 import { ResponsiveContainer, LineChart, CartesianGrid, XAxis, YAxis, Tooltip, Legend, Line } from "recharts"
 import * as XLSX from "xlsx"
-import html2canvas from "html2canvas"
-import jsPDF from "jspdf"
+import html2canvas from "html2canvas-pro"
+import { exportProfessionalPdf } from "../../lib/pdfExport"
 import { useTimeSeries, useCatalogSeries, type CatalogSeriesRow } from "../../lib/api"
 
 function safeFileName(name: string) {
@@ -189,6 +189,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
   const isMerged = Boolean(item.nomor_tabel)
   const { data, isLoading, error } = isMerged ? merged : isSeries ? { data: null, isLoading: false, error: null } : single
 
+  const exportChartRef = useRef<HTMLDivElement>(null)
   const [view, setView] = useState<"chart" | "table">("chart")
 
   const allRows: CatalogSeriesRow[] = useMemo(() => {
@@ -450,34 +451,57 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
 
   const handleExportPDF = useCallback(async () => {
     if (exportRows.length === 0) return
-    const worksheet = XLSX.utils.json_to_sheet(exportRows)
-    const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Data")
-    // Render the sheet to an HTML table, then to canvas -> PDF.
-    const html = XLSX.utils.sheet_to_html(worksheet, { id: "bps-export-table", editable: false })
-    const container = document.createElement("div")
-    container.innerHTML = html
-    Object.assign(container.style, {
-      position: "fixed",
-      left: "-99999px",
-      top: "0",
-      background: "#ffffff",
-      padding: "12px",
-    } as CSSStyleDeclaration)
-    document.body.appendChild(container)
-    try {
-      const canvas = await html2canvas(container, { scale: 2, backgroundColor: "#ffffff" })
-      const imgData = canvas.toDataURL("image/png")
-      const pdf = new jsPDF("landscape", "mm", "a4")
-      const pdfWidth = pdf.internal.pageSize.getWidth()
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width
-      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, Math.min(pdfHeight, pdf.internal.pageSize.getHeight()))
-      const sel = selectedDim.size > 0 ? `_${Array.from(selectedDim).join("-")}` : ""
-      pdf.save(`${safeFileName(item.title)}${sel}.pdf`)
-    } finally {
-      document.body.removeChild(container)
+
+    // Capture chart image if chart view is active
+    let chartImageDataUrl: string | undefined
+    if (view === "chart" && exportChartRef.current) {
+      try {
+        const canvas = await html2canvas(exportChartRef.current, {
+          scale: 2,
+          backgroundColor: "#ffffff",
+          useCORS: true,
+        })
+        chartImageDataUrl = canvas.toDataURL("image/png")
+      } catch {
+        // Chart capture failed — export table-only PDF
+      }
     }
-  }, [exportRows, item.title, selectedDim])
+
+    // Build a pivot table: rows = wilayah/rincian, columns = years
+    const dimLabel = dimension === "wilayah" ? "Wilayah" : "Rincian"
+    const years = Array.from(new Set(exportRows.map((r) => String(r.Tahun)))).sort()
+    const members = Array.from(new Set(exportRows.map((r) => String(r[dimLabel as keyof typeof r] ?? "-"))))
+
+    // Build lookup: { "Bantarkalong" => { "2017" => 273, "2018" => 273, ... } }
+    const lookup: Record<string, Record<string, number | string>> = {}
+    for (const r of exportRows) {
+      const member = String(r[dimLabel as keyof typeof r] ?? "-")
+      const year = String(r.Tahun)
+      if (!lookup[member]) lookup[member] = {}
+      lookup[member][year] = r.Nilai
+    }
+
+    // Columns: [DimLabel, year1, year2, ...]
+    const columns = [dimLabel, ...years]
+    const rows = members.map((member) => [
+      member,
+      ...years.map((y) => lookup[member]?.[y] ?? "-"),
+    ])
+
+    // Determine satuan for subtitle
+    const satuan = exportRows.find((r) => r.Satuan)?.Satuan
+    const satuanText = satuan ? ` • Satuan: ${satuan}` : ""
+
+    const sel = selectedDim.size > 0 ? `_${Array.from(selectedDim).join("-")}` : ""
+    await exportProfessionalPdf({
+      title: item.title,
+      subtitle: `Indikator: ${selectedMetric} — ${dimLabel}: ${selectedDim.size} terpilih${satuanText}`,
+      columns,
+      rows,
+      fileName: `${safeFileName(item.title)}${sel}`,
+      chartImageDataUrl,
+    })
+  }, [exportRows, item.title, selectedDim, selectedMetric, dimension, view])
 
   // --- Chart data: pivot by (year × dimension value) ---
   const chartData = useMemo(() => {
@@ -782,7 +806,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
 
               {/* Chart / Table */}
               {view === "chart" ? (
-                <div className="rounded-md border border-border bg-background p-4 min-h-[440px] flex-1">
+                <div ref={exportChartRef} className="rounded-md border border-border bg-background p-4 min-h-[440px] flex-1">
                   {chartData.lines.length === 0 ? (
                     <div className="h-full min-h-[400px] flex items-center justify-center text-muted-foreground text-sm">
                       Pilih minimal satu {DIM_LABEL[dimension].toLowerCase()} untuk menampilkan grafik.
