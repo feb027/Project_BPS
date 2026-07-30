@@ -476,6 +476,15 @@ def commit(request, pk: str):
 
     try:
         with transaction.atomic():
+            # Find or create publikasi for the target year
+            target_publikasi, _ = Publikasi.objects.get_or_create(
+                tahun_terbit=upload.publication_year,
+                defaults={
+                    "judul": f"Kabupaten Tasikmalaya Angka {upload.publication_year}",
+                    "jenis": Publikasi.Jenis.DIGITAL,
+                },
+            )
+
             for tabel_id, table_result in payload["tables"].items():
                 if not table_result["valid"] or not table_result["data_rows"]:
                     continue
@@ -485,16 +494,21 @@ def commit(request, pk: str):
                 except Tabel.DoesNotExist:
                     continue
 
-                target_bab = master_tabel.bab
+                # Find or create Bab under target publikasi
+                target_bab, _ = Bab.objects.get_or_create(
+                    publikasi=target_publikasi,
+                    nomor=master_tabel.bab.nomor,
+                    defaults={"nama": master_tabel.bab.nama},
+                )
 
-                table_title = f"Imported Manual {upload.publication_year}"
+                # Create one table per source table (mirroring master)
                 target_tabel, _ = Tabel.objects.get_or_create(
                     bab=target_bab,
-                    judul=table_title,
+                    nomor_tabel=master_tabel.nomor_tabel,
                     defaults={
+                        "judul": master_tabel.judul,
                         "tipe_baris": master_tabel.tipe_baris,
-                        "nomor_tabel": f"99.{master_tabel.bab.nomor}.{master_tabel.nomor_tabel or '0'}",
-                        "nama_ringkas": f"IM {upload.publication_year}",
+                        "nama_ringkas": master_tabel.nama_ringkas,
                     },
                 )
 
