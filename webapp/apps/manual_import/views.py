@@ -5,9 +5,10 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.template.response import TemplateResponse
 from django.utils import timezone
 from django.db import transaction
+from django.views.decorators.csrf import csrf_exempt
 
 from rest_framework import status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 
 from .models import ImportUpload, ImportLog
@@ -269,6 +270,9 @@ def _extract_upload_payload(workbook, publication_year: int):
 
 
 @api_view(["POST"])
+@authentication_classes([])
+@permission_classes([])
+@csrf_exempt
 def generate_template(request):
     try:
         publication_year = int(request.data.get("publication_year", ""))
@@ -288,6 +292,9 @@ def generate_template(request):
 
 
 @api_view(["POST"])
+@authentication_classes([])
+@permission_classes([])
+@csrf_exempt
 def upload(request):
     upload_file = request.FILES.get("file")
     if not upload_file:
@@ -383,6 +390,9 @@ def preview(request, pk: str):
 
 
 @api_view(["POST"])
+@authentication_classes([])
+@permission_classes([])
+@csrf_exempt
 def commit(request, pk: str):
     try:
         upload = ImportUpload.objects.get(pk=pk)
