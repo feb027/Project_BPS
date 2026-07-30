@@ -467,115 +467,121 @@ def commit(request, pk: str):
     rincian_map = payload["rincian_map"]
     indikator_map = payload["indikator_map"]
 
-    master_publikasi = Publikasi.objects.get(tahun_terbit=MASTER_YEAR)
     from django.db import transaction
 
     total_faktas_inserted = 0
     total_skipped = 0
     tables_affected = []
 
-    with transaction.atomic():
-        for tabel_id, table_result in payload["tables"].items():
-            if not table_result["valid"] or not table_result["data_rows"]:
-                continue
+    try:
+        with transaction.atomic():
+            for tabel_id, table_result in payload["tables"].items():
+                if not table_result["valid"] or not table_result["data_rows"]:
+                    continue
 
-            # Find the master table to determine tipe_baris
-            try:
-                master_tabel = Tabel.objects.get(pk=tabel_id)
-            except Tabel.DoesNotExist:
-                continue
+                try:
+                    master_tabel = Tabel.objects.get(pk=tabel_id)
+                except Tabel.DoesNotExist:
+                    continue
 
-            target_bab = master_tabel.bab
+                target_bab = master_tabel.bab
 
-            # Create one target table per source table for the new year
-            table_title = f"Imported Manual {upload.publication_year}"
-            target_tabel, _ = Tabel.objects.get_or_create(
-                bab=target_bab,
-                judul=table_title,
-                defaults={
-                    "tipe_baris": master_tabel.tipe_baris,
-                    "nomor_tabel": f"99.{master_tabel.bab.nomor}.{master_tabel.nomor_tabel or '0'}",
-                    "nama_ringkas": f"IM {upload.publication_year}",
-                },
+                table_title = f"Imported Manual {upload.publication_year}"
+                target_tabel, _ = Tabel.objects.get_or_create(
+                    bab=target_bab,
+                    judul=table_title,
+                    defaults={
+                        "tipe_baris": master_tabel.tipe_baris,
+                        "nomor_tabel": f"99.{master_tabel.bab.nomor}.{master_tabel.nomor_tabel or '0'}",
+                        "nama_ringkas": f"IM {upload.publication_year}",
+                    },
+                )
+
+                data_rows = table_result["data_rows"]
+                indikator_header_indexes = table_result["indikator_header_indexes"]
+
+                for row in data_rows:
+                    row_id = row["row_id"]
+                    is_rincian = row.get("is_rincian", False)
+
+                    for _, label in indikator_header_indexes:
+                        indikator_id = next(
+                            (i for i, info in indikator_map.items() if info["nama"] == label),
+                            None,
+                        )
+                        if indikator_id is None:
+                            total_skipped += 1
+                            continue
+                        nilai_num = _safe_numeric(row["values"].get(label))
+                        nilai_teks = None if nilai_num is not None else str(row["values"].get(label)).strip()
+
+                        kolom, _ = KolomTabel.objects.get_or_create(
+                            tabel=target_tabel,
+                            indikator_id=indikator_id,
+                            defaults={"urutan": 1},
+                        )
+
+                        if is_rincian:
+                            Fakta.objects.create(
+                                tabel=target_tabel,
+                                wilayah=None,
+                                rincian=Rincian.objects.get(id=row_id),
+                                kolom=kolom,
+                                tahun=upload.publication_year,
+                                nilai_num=nilai_num,
+                                nilai_teks=nilai_teks or "-",
+                            )
+                        else:
+                            Fakta.objects.create(
+                                tabel=target_tabel,
+                                wilayah=Wilayah.objects.get(id=row_id),
+                                kolom=kolom,
+                                tahun=upload.publication_year,
+                                nilai_num=nilai_num,
+                                nilai_teks=nilai_teks or "-",
+                            )
+                        total_faktas_inserted += 1
+
+                tables_affected.append({
+                    "tabel_id": target_tabel.id,
+                    "judul": target_tabel.judul,
+                    "bab_nomor": master_tabel.bab.nomor,
+                    "faktas": len(data_rows) * len(indikator_header_indexes),
+                })
+
+            upload.status = ImportUpload.Status.COMMITTED
+            upload.processed_at = timezone.now()
+            upload.save()
+
+            ImportLog.objects.create(
+                upload=upload,
+                user=request.user if request.user.is_authenticated else None,
+                publication_year=upload.publication_year,
+                master_source_year=MASTER_YEAR,
+                mode="strict",
+                status=ImportLog.Status.COMMITTED,
+                raw_filename=upload.original_filename,
+                validation_report=upload.validation_report,
+                preview_summary=upload.preview_summary,
+                tables_affected=tables_affected,
+                faktas_inserted=total_faktas_inserted,
+                committed_at=timezone.now(),
             )
 
-            data_rows = table_result["data_rows"]
-            indikator_header_indexes = table_result["indikator_header_indexes"]
+        return Response({
+            "status": "committed",
+            "faktas_inserted": total_faktas_inserted,
+            "skipped_rows": total_skipped,
+            "tables_affected": tables_affected,
+        })
 
-            for row in data_rows:
-                row_id = row["row_id"]
-                is_rincian = row.get("is_rincian", False)
-
-                for _, label in indikator_header_indexes:
-                    indikator_id = next(
-                        (i for i, info in indikator_map.items() if info["nama"] == label),
-                        None,
-                    )
-                    if indikator_id is None:
-                        total_skipped += 1
-                        continue
-                    nilai_num = _safe_numeric(row["values"].get(label))
-                    nilai_teks = None if nilai_num is not None else str(row["values"].get(label)).strip()
-
-                    kolom, _ = KolomTabel.objects.get_or_create(
-                        tabel=target_tabel,
-                        indikator_id=indikator_id,
-                        defaults={"urutan": 1},
-                    )
-
-                    if is_rincian:
-                        Fakta.objects.create(
-                            tabel=target_tabel,
-                            wilayah=None,
-                            rincian=Rincian.objects.get(id=row_id),
-                            kolom=kolom,
-                            tahun=upload.publication_year,
-                            nilai_num=nilai_num,
-                            nilai_teks=nilai_teks or "-",
-                        )
-                    else:
-                        Fakta.objects.create(
-                            tabel=target_tabel,
-                            wilayah=Wilayah.objects.get(id=row_id),
-                            kolom=kolom,
-                            tahun=upload.publication_year,
-                            nilai_num=nilai_num,
-                            nilai_teks=nilai_teks or "-",
-                        )
-                    total_faktas_inserted += 1
-
-            tables_affected.append({
-                "tabel_id": target_tabel.id,
-                "judul": target_tabel.judul,
-                "bab_nomor": master_tabel.bab.nomor,
-                "faktas": len(data_rows) * len(indikator_header_indexes),
-            })
-
-        upload.status = ImportUpload.Status.COMMITTED
-        upload.processed_at = timezone.now()
-        upload.save()
-
-        ImportLog.objects.create(
-            upload=upload,
-            user=request.user if request.user.is_authenticated else None,
-            publication_year=upload.publication_year,
-            master_source_year=MASTER_YEAR,
-            mode="strict",
-            status=ImportLog.Status.COMMITTED,
-            raw_filename=upload.original_filename,
-            validation_report=upload.validation_report,
-            preview_summary=upload.preview_summary,
-            tables_affected=tables_affected,
-            faktas_inserted=total_faktas_inserted,
-            committed_at=timezone.now(),
+    except Exception as e:
+        return Response(
+            {
+                "error": f"Gagal commit ({type(e).__name__}): {str(e)}",
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
-
-    return Response({
-        "status": "committed",
-        "faktas_inserted": total_faktas_inserted,
-        "skipped_rows": total_skipped,
-        "tables_affected": tables_affected,
-    })
 
 
 # ── Page View ───────────────────────────────────────────────────────
