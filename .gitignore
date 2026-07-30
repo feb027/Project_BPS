@@ -18,3 +18,4 @@ backups/
 .kiro/
 
 .vscode/
+.hermes/desktop-attachments/*.xlsx
