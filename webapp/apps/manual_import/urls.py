@@ -8,5 +8,5 @@ urlpatterns = [
     path("upload/", views.upload, name="upload"),
     path("preview/<uuid:pk>/", views.preview, name="preview"),
     path("commit/<uuid:pk>/", views.commit, name="commit"),
-    path("", views.placeholder, name="placeholder"),
+    path("", views.page, name="page"),
 ]

@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.shortcuts import render
+from django.template.response import TemplateResponse
 from django.utils import timezone
 
 from rest_framework import status
@@ -436,6 +439,15 @@ def commit(request, pk: str):
         )
 
     return Response({"status": "committed", "faktas_inserted": created_fakta, "skipped_rows": skipped_rows})
+
+
+def page(request: HttpRequest):
+    credential = request.META.get("REMOTE_USER") or ""
+    return TemplateResponse(
+        request,
+        "manual_import/page.html",
+        {"api_basic_auth": credential},
+    )
 
 
 def placeholder(request):
