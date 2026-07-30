@@ -142,7 +142,14 @@
       var url = window.URL.createObjectURL(blob);
       var a = document.createElement('a');
       a.href = url;
-      a.download = 'template_bps_master_2026_' + year + '.xlsx';
+      // Use filename from server's Content-Disposition if available
+      var disposition = response.headers.get('Content-Disposition');
+      var filename = 'template_bps_master_2026_' + year + '.xlsx';
+      if (disposition) {
+        var match = disposition.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)/i);
+        if (match) filename = match[1].trim();
+      }
+      a.download = filename;
       a.click();
       window.URL.revokeObjectURL(url);
       showStatus('Template berhasil diunduh: ' + a.download, 'success');

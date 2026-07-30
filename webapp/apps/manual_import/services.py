@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 from io import BytesIO
 from typing import Any
@@ -356,7 +357,9 @@ class ManualImportTemplateBuilder:
         nomor = tabel.nomor_tabel or ""
         label = tabel.judul or ""
         raw = f"T_{bab.nomor:02d}{index:02d}_{nomor}_{label}"
-        return raw[:31]
+        # Replace invalid Excel sheet name characters: \ / ? * [ ] :
+        safe = re.sub(r"[\\/?*\[\]:]", "_", raw)
+        return safe[:31]
 
     @staticmethod
     def parse_bab_from_sheet(sheet_name: str) -> int | None:
