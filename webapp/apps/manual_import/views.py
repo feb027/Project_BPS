@@ -4,6 +4,7 @@ from typing import Any
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.template.response import TemplateResponse
 from django.utils import timezone
+from django.db.models import Max
 from django.db import transaction
 from django.views.decorators.csrf import csrf_exempt
 
@@ -515,11 +516,23 @@ def commit(request, pk: str):
                         nilai_num = _safe_numeric(row["values"].get(label))
                         nilai_teks = None if nilai_num is not None else str(row["values"].get(label)).strip()
 
-                        kolom, _ = KolomTabel.objects.get_or_create(
-                            tabel=target_tabel,
-                            indikator_id=indikator_id,
-                            defaults={"urutan": 1},
-                        )
+                        # Use existing kolom or create with next available urutan
+                        existing = KolomTabel.objects.filter(
+                            tabel=target_tabel, indikator_id=indikator_id
+                        ).first()
+                        if existing:
+                            kolom = existing
+                        else:
+                            max_urut = (
+                                KolomTabel.objects.filter(tabel=target_tabel)
+                                .aggregate(m=Max("urutan"))["m"]
+                                or 0
+                            )
+                            kolom = KolomTabel.objects.create(
+                                tabel=target_tabel,
+                                indikator_id=indikator_id,
+                                urutan=max_urut + 1,
+                            )
 
                         if is_rincian:
                             Fakta.objects.create(
