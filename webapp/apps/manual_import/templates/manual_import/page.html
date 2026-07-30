@@ -47,9 +47,12 @@
     <div id="preview-validation" class="manual-import__validation"></div>
     <div id="preview-summary" class="manual-import__summary"></div>
     <div id="preview-tables" class="manual-import__tables"></div>
-    <div class="manual-import__commit-bar">
-      <button id="btn-commit" type="button" class="btn btn--danger">Commit Import</button>
-      <span class="manual-import__hint">Aksi ini akan menulis data baru ke dalam database.</span>
+    <div class="manual-import__commit-bar" style="margin-top:24px;padding:20px 24px;background:#fff;border:1px solid #E2E8F0;border-radius:8px;display:flex;align-items:center;justify-content:space-between;gap:16px">
+      <div>
+        <div style="font-weight:600;font-size:14px;color:#1E3A8A">Konfirmasi Import</div>
+        <div style="font-size:12px;color:#64748B;margin-top:2px">Data akan ditulis ke database publikasi 2027. Pastikan semua tabel valid.</div>
+      </div>
+      <button id="btn-commit" type="button" class="btn btn--danger" style="background:#DC2626;color:#fff;border:none;border-radius:6px;padding:10px 24px;font-weight:600;font-size:14px;cursor:pointer;white-space:nowrap">Commit Import</button>
     </div>
   </div>
 </div>
@@ -193,7 +196,9 @@
     }
   }
 
-  // --- Render helpers ---
+  // ── Preview rendering ────────────────────────────────────────
+
+  /** Render prominent validation banner */
   function renderValidation(validation) {
     var container = document.getElementById('preview-validation');
     if (!container || !validation) return;
@@ -202,82 +207,166 @@
     var warnings = Array.isArray(validation.warnings) ? validation.warnings : [];
     var isValid = Boolean(validation.is_valid);
 
-    var html = '<div class="validation ' + (isValid ? 'validation--ok' : 'validation--error') + '">';
-    html += '<div class="validation__badge">' + (isValid ? '✓ Valid' : '✗ Tidak valid') + '</div>';
-    if (errors.length || warnings.length) {
-      html += '<ul class="validation__list">';
-      errors.forEach(function (item) {
-        html += '<li class="validation__item validation__item--error">' + escapeHtml(item.detail || item.code || String(item)) + '</li>';
-      });
-      warnings.forEach(function (item) {
-        html += '<li class="validation__item validation__item--warning">' + escapeHtml(item.detail || item.code || String(item)) + '</li>';
-      });
-      html += '</ul>';
+    var icon = isValid ? '✓' : '✗';
+    var label = isValid ? 'Data valid, siap di-commit' : 'Data tidak valid';
+    var bg = isValid ? '#10B981' : '#EF4444';
+
+    var html = '<div class="pv-banner" style="background:' + bg + ';border-radius:8px;padding:16px 20px;display:flex;align-items:center;gap:14px;margin-bottom:20px">';
+    html += '<span style="font-size:24px;color:#fff;font-weight:700;line-height:1">' + icon + '</span>';
+    html += '<div style="flex:1"><div style="color:#fff;font-weight:600;font-size:15px">' + label + '</div>';
+    html += '<div style="color:rgba(255,255,255,0.85);font-size:13px;margin-top:2px">' + (isValid ? 'Data siap dikirim ke database' : 'Perbaiki error pada file Excel dan upload ulang') + '</div></div>';
+    if (!isValid) {
+      html += '<button onclick="document.getElementById(\'preview-validation\').scrollIntoView()" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.3);color:#fff;border-radius:6px;padding:6px 14px;font-size:12px;cursor:pointer">Lihat Error</button>';
     }
     html += '</div>';
+
+    if (errors.length || warnings.length) {
+      html += '<div style="margin:-8px 0 16px;padding:10px 16px;background:#FFF8F0;border:1px solid #FDE68A;border-radius:6px">';
+      if (errors.length) {
+        html += '<div style="font-weight:600;font-size:13px;color:#DC2626;margin-bottom:4px">⚠ ' + errors.length + ' Error</div>';
+        errors.forEach(function (item) {
+          html += '<div style="font-size:12px;color:#7F1D1D;padding:2px 0 2px 12px">• ' + escapeHtml(item.detail || item.code || String(item)) + '</div>';
+        });
+      }
+      if (warnings.length) {
+        if (errors.length) html += '<hr style="border:none;border-top:1px solid #FDE68A;margin:6px 0">';
+        html += '<div style="font-weight:600;font-size:13px;color:#D97706;margin-bottom:4px">⚠ ' + warnings.length + ' Peringatan</div>';
+        warnings.forEach(function (item) {
+          html += '<div style="font-size:12px;color:#92400E;padding:2px 0 2px 12px">• ' + escapeHtml(item.detail || item.code || String(item)) + '</div>';
+        });
+      }
+      html += '</div>';
+    }
     container.innerHTML = html;
   }
 
+  /** Render stat cards in a clean row */
   function renderSummary(summary) {
     var container = document.getElementById('preview-summary');
     if (!container || !summary) return;
 
-    var rows = [
-      { label: 'Publication Year', value: summary.publication_year },
-      { label: 'Jumlah Tabel', value: summary.tables_count },
-      { label: 'Total Data Rows', value: summary.total_data_rows },
-      { label: 'Total Indikator', value: summary.total_indikator_columns },
-      { label: 'Master Source Year', value: summary.master_source_year },
+    var items = [
+      { icon: '📅', label: 'Tahun Publikasi', value: summary.publication_year },
+      { icon: '📊', label: 'Jumlah Tabel', value: summary.tables_count },
+      { icon: '📝', label: 'Total Baris Data', value: summary.total_data_rows.toLocaleString() },
+      { icon: '📌', label: 'Total Indikator', value: summary.total_indikator_columns },
+      { icon: '🗄️', label: 'Master Tahun', value: summary.master_source_year },
     ];
 
-    var html = '<div class="summary-grid">';
-    rows.forEach(function (row) {
-      html += '<div class="summary-cell"><div class="summary-cell__label">' + escapeHtml(String(row.label)) + '</div>';
-      html += '<div class="summary-cell__value">' + escapeHtml(String(row.value)) + '</div></div>';
+    var html = '<div class="pv-summary" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:20px">';
+    items.forEach(function (item) {
+      html += '<div style="background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:14px 16px;text-align:center">';
+      html += '<div style="font-size:20px;margin-bottom:4px">' + item.icon + '</div>';
+      html += '<div class="num" style="font-size:18px;font-weight:700;color:#1E3A8A;line-height:1.3">' + escapeHtml(String(item.value)) + '</div>';
+      html += '<div style="font-size:11px;color:#64748B;margin-top:2px;text-transform:uppercase;letter-spacing:0.3px">' + escapeHtml(item.label) + '</div>';
+      html += '</div>';
     });
     html += '</div>';
     container.innerHTML = html;
   }
 
+  /** Render per-table cards WITH actual data preview table inside */
   function renderTablePreviews(tables) {
     var container = document.getElementById('preview-tables');
     if (!container || !tables) return;
 
     var tableKeys = Object.keys(tables);
     if (tableKeys.length === 0) {
-      container.innerHTML = '<p class="empty">Tidak ada data tabel.</p>';
+      container.innerHTML = '<p class="empty" style="color:#64748B;font-size:14px;text-align:center;padding:32px 0">Tidak ada data tabel.</p>';
       container.hidden = false;
       return;
     }
 
-    var html = '<h4 style="margin: 20px 0 12px; font-size: 15px;">Detail Per Tabel</h4>';
+    var html = '<h4 style="margin:0 0 14px;font-size:16px;font-weight:700;color:#1E3A8A">Detail Per Tabel</h4>';
     tableKeys.forEach(function (key) {
       var table = tables[key];
       var s = table.summary || {};
-      html += '<div class="bab-card" style="border: 1px solid #E2E8F0; border-radius: 6px; padding: 14px 16px; margin-bottom: 10px; background: #fff;">';
-      html += '<div style="display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 14px;">';
-      html += '<span>Tabel #' + escapeHtml(key) + '</span>';
-      html += '<span class="badge ' + (table.valid ? 'badge--ada' : 'badge--perlu_cek') + '">' + (table.valid ? 'Valid' : 'Error') + '</span>';
+      var isRincian = table.preview_rows && table.preview_rows.length > 0 && table.preview_rows[0].is_rincian;
+      var rowLabel = isRincian ? 'Rincian' : 'Wilayah';
+
+      html += '<div class="pv-table-card" style="background:#fff;border:1px solid #E2E8F0;border-radius:8px;margin-bottom:14px;overflow:hidden">';
+
+      // Card header
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;background:#F8FAFC;border-bottom:1px solid #E2E8F0">';
+      html += '<div style="display:flex;align-items:center;gap:10px">';
+      html += '<span style="background:#E0E7FF;color:#1E40AF;border-radius:6px;padding:4px 10px;font-size:12px;font-weight:600">#' + escapeHtml(key) + '</span>';
+      html += '<span style="font-weight:600;font-size:14px;color:#1E3A8A">Tabel ' + escapeHtml(key) + '</span>';
       html += '</div>';
-      html += '<div style="display: flex; gap: 16px; margin-top: 8px; font-size: 13px; color: #64748B;">';
-      html += '<span>Baris: ' + s.data_rows + '</span>';
-      html += '<span>Indikator: ' + s.indikator_columns + '</span>';
-      html += '<span>Baris: ' + s.rows_present + '</span>';
+      html += '<span style="background:' + (table.valid ? '#D1FAE5' : '#FEE2E2') + ';color:' + (table.valid ? '#065F46' : '#991B1B') + ';border-radius:20px;padding:3px 12px;font-size:12px;font-weight:600">' + (table.valid ? '✓ Valid' : '✗ Error') + '</span>';
       html += '</div>';
+
+      // Card stats row
+      html += '<div style="display:flex;gap:0;padding:12px 18px;border-bottom:1px solid #F1F5F9">';
+      var stats = [
+        { label: 'Baris Data', value: s.data_rows },
+        { label: rowLabel + ' Terisi', value: s.rows_present || '-' },
+        { label: 'Indikator', value: s.indikator_columns },
+      ];
+      stats.forEach(function (st, i) {
+        html += '<div style="flex:1;text-align:center' + (i < stats.length - 1 ? ';border-right:1px solid #F1F5F9' : '') + '">';
+        html += '<div class="num" style="font-size:16px;font-weight:700;color:#1E3A8A">' + st.value + '</div>';
+        html += '<div style="font-size:11px;color:#64748B;margin-top:1px">' + st.label + '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+
+      // Errors/warnings in card
       if (table.errors && table.errors.length) {
-        html += '<div style="margin-top: 6px; font-size: 12px; color: #EF4444;">';
+        html += '<div style="padding:8px 18px;background:#FEF2F2;font-size:12px;color:#991B1B;border-bottom:1px solid #FEE2E2">';
         table.errors.forEach(function (e) {
-          html += '<div>⚠ ' + escapeHtml(e.detail || e.code) + '</div>';
+          html += '<div>• ' + escapeHtml(e.detail || e.code) + '</div>';
         });
         html += '</div>';
       }
       if (table.warnings && table.warnings.length) {
-        html += '<div style="margin-top: 4px; font-size: 12px; color: #D97706;">';
+        html += '<div style="padding:8px 18px;background:#FFFBEB;font-size:12px;color:#92400E;border-bottom:1px solid #FDE68A">';
         table.warnings.forEach(function (w) {
-          html += '<div>⚠ ' + escapeHtml(w.detail || w.code) + '</div>';
+          html += '<div>• ' + escapeHtml(w.detail || w.code) + '</div>';
         });
         html += '</div>';
       }
+
+      // Data preview table (show first 5 rows)
+      var previewRows = (table.preview_rows || []).slice(0, 5);
+      if (previewRows.length > 0) {
+        html += '<div style="overflow-x:auto">';
+        html += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+
+        // Header row
+        var colKeys = Object.keys(previewRows[0].values);
+        html += '<thead><tr style="background:#F1F5F9">';
+        html += '<th style="padding:6px 10px;text-align:left;font-weight:600;color:#475569;border-bottom:1px solid #E2E8F0;white-space:nowrap">' + (isRincian ? 'ID Rincian' : 'ID Wilayah') + '</th>';
+        html += '<th style="padding:6px 10px;text-align:left;font-weight:600;color:#475569;border-bottom:1px solid #E2E8F0;white-space:nowrap">' + (isRincian ? 'Nama Rincian' : 'Nama Wilayah') + '</th>';
+        colKeys.forEach(function (ck) {
+          html += '<th style="padding:6px 10px;text-align:right;font-weight:600;color:#475569;border-bottom:1px solid #E2E8F0;white-space:nowrap">' + escapeHtml(ck) + '</th>';
+        });
+        html += '</tr></thead><tbody>';
+
+        // Data rows
+        previewRows.forEach(function (row, ri) {
+          var bg = ri % 2 === 0 ? '#fff' : '#FAFBFC';
+          html += '<tr style="background:' + bg + '">';
+          html += '<td class="num" style="padding:5px 10px;border-bottom:1px solid #F1F5F9;font-weight:600;color:#1E3A8A">' + escapeHtml(String(row.row_id)) + '</td>';
+          html += '<td style="padding:5px 10px;border-bottom:1px solid #F1F5F9;color:#334155">' + escapeHtml(String(row.row_name || '')) + '</td>';
+          colKeys.forEach(function (ck) {
+            var val = row.values[ck];
+            var display = val !== null && val !== undefined && val !== '' ? String(val) : '—';
+            html += '<td class="num" style="padding:5px 10px;border-bottom:1px solid #F1F5F9;text-align:right;color:' + (val === null || val === undefined || val === '' ? '#CBD5E1' : '#334155') + '">' + escapeHtml(display) + '</td>';
+          });
+          html += '</tr>';
+        });
+        html += '</tbody></table>';
+
+        // Row count note
+        var totalRows = table.preview_row_count || 0;
+        if (totalRows > 5) {
+          html += '<div style="padding:6px 10px;background:#FAFBFC;font-size:11px;color:#64748B;text-align:center;border-top:1px solid #F1F5F9">';
+          html += 'Menampilkan 5 dari ' + totalRows + ' baris';
+          html += '</div>';
+        }
+        html += '</div>';
+      }
+
       html += '</div>';
     });
     container.innerHTML = html;
