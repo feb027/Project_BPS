@@ -9,7 +9,8 @@
     <div>
       <h2 class="manual-import__title">Import Manual</h2>
       <p class="manual-import__subtitle">
-        Unggah file Excel hasil pengisian manual untuk divalidasi dan disimpan ke dalam sistem.
+        Unggah file Excel hasil pengisian manual untuk divalidasi dan disimpan ke dalam sistem.<br>
+        Template terdiri dari satu sheet per Bab — isi sheet yang sesuai, upload, lalu commit.
       </p>
     </div>
     <div class="manual-import__actions">
@@ -28,13 +29,6 @@
       <label class="field__label" for="publication_year">Publication Year</label>
       <input id="publication_year" type="number" value="2027" min="2010" max="2099" />
     </div>
-    <div class="field">
-      <label class="field__label" for="mode">Mode</label>
-      <select id="mode">
-        <option value="strict">Strict</option>
-        <option value="review">Review</option>
-      </select>
-    </div>
   </div>
 
   <div id="status" class="manual-import__status" hidden></div>
@@ -43,8 +37,9 @@
     <h3 class="manual-import__preview-title">Preview</h3>
     <div id="preview-validation" class="manual-import__validation"></div>
     <div id="preview-summary" class="manual-import__summary"></div>
+    <div id="preview-babs" class="manual-import__babs"></div>
     <div class="manual-import__commit-bar">
-      <button id="btn-commit" class="btn btn--danger">Commit Import</button>
+      <button id="btn-commit" type="button" class="btn btn--danger">Commit Import</button>
       <span class="manual-import__hint">Aksi ini akan menulis data baru ke dalam database.</span>
     </div>
   </div>
@@ -55,21 +50,42 @@
 <script>
 (function () {
   const API_BASE = '/importer';
+  console.log('[manual_import] script loaded');
 
+  // Basic auth credential dari server (REMOTE_USER proxy), kosong kalau gak ada
+  var API_CREDENTIAL = '{{ api_basic_auth|escapejs }}';
+
+  // --- CSRF helper ---
+  function getCSRFToken() {
+    var name = 'csrftoken';
+    var value = '; ' + document.cookie;
+    var parts = value.split('; ' + name + '=');
+    if (parts.length < 2) return '';
+    return parts.pop().split(';').shift();
+  }
+
+  function authHeaders() {
+    var headers = {};
+    var token = getCSRFToken();
+    if (token) headers['X-CSRFToken'] = token;
+    // Kalau server kirim credential (REMOTE_USER proxy), kirim sebagai Basic Auth
+    if (API_CREDENTIAL) {
+      headers['Authorization'] = 'Basic ' + btoa(API_CREDENTIAL + ':');
+    }
+    return headers;
+  }
+
+  // --- DOM helpers ---
   function getYearInput() {
-    const yearInput = document.getElementById('publication_year');
+    var yearInput = document.getElementById('publication_year');
     if (!yearInput) {
       throw new Error('Missing #publication_year');
     }
     return yearInput;
   }
 
-  function getModeInput() {
-    return document.getElementById('mode');
-  }
-
   function showStatus(message, type) {
-    const statusEl = document.getElementById('status');
+    var statusEl = document.getElementById('status');
     if (!statusEl) {
       console.warn('[manual_import] status element missing');
       return;
@@ -79,65 +95,65 @@
     statusEl.textContent = message;
   }
 
+  // --- Template download ---
   async function generateTemplate() {
-    const yearInput = getYearInput();
-    const year = yearInput.value.trim();
+    var yearInput = getYearInput();
+    var year = yearInput.value.trim();
     if (!year) {
       showStatus('Isi publication year terlebih dahulu.', 'error');
       return;
     }
 
-    showStatus('Menyiapkan template...', 'info');
+    showStatus('Menyiapkan template per-bab...', 'info');
     try {
-      const response = await fetch(API_BASE + '/generate-template/', {
+      var response = await fetch(API_BASE + '/generate-template/', {
         method: 'POST',
-        headers: {
+        headers: Object.assign({
           'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ publication_year: Number(year) }),
+        }, authHeaders()),
         credentials: 'include',
+        body: JSON.stringify({ publication_year: Number(year) }),
       });
 
       if (!response.ok) {
-        const text = await response.text().catch(function () { return ''; });
+        var text = await response.text().catch(function () { return ''; });
         showStatus('Gagal generate template: ' + (text || response.status), 'error');
         return;
       }
 
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      var blob = await response.blob();
+      var url = window.URL.createObjectURL(blob);
+      var a = document.createElement('a');
       a.href = url;
       a.download = 'template_bps_master_2026_' + year + '.xlsx';
       a.click();
       window.URL.revokeObjectURL(url);
-      showStatus('Template berhasil diunduh.', 'success');
+      showStatus('Template berhasil diunduh: ' + a.download, 'success');
     } catch (err) {
       console.error('[manual_import] template error', err);
       showStatus('Terjadi kesalahan saat generate template.', 'error');
     }
   }
 
+  // --- Upload ---
   async function uploadFile(file) {
-    const yearInput = getYearInput();
-    const modeInput = getModeInput();
-    const year = Number(yearInput.value || 2027);
-    const mode = modeInput ? modeInput.value : 'strict';
-    const formData = new FormData();
+    var yearInput = getYearInput();
+    var year = Number(yearInput.value || 2027);
+    var formData = new FormData();
     formData.append('file', file);
     formData.append('publication_year', String(year));
-    formData.append('mode', mode);
 
     showStatus('Mengunggah file...', 'info');
     try {
-      const response = await fetch(API_BASE + '/upload/', {
+      var response = await fetch(API_BASE + '/upload/', {
         method: 'POST',
         body: formData,
         credentials: 'include',
+        headers: authHeaders(),
       });
 
-      const text = await response.text().catch(function () { return ''; });
-      let data = {};
+      var text = await response.text().catch(function () { return ''; });
+      var data = {};
       try { data = JSON.parse(text); } catch (_) {}
       if (!response.ok) {
         showStatus('Upload gagal: ' + (data.error || text || response.status), 'error');
@@ -153,50 +169,95 @@
     }
   }
 
+  // --- Render helpers ---
   function renderValidation(validation) {
-    const container = document.getElementById('preview-validation');
-    if (!container || !validation) {
-      return;
+    var container = document.getElementById('preview-validation');
+    if (!container || !validation) return;
+
+    var errors = Array.isArray(validation.errors) ? validation.errors : [];
+    var warnings = Array.isArray(validation.warnings) ? validation.warnings : [];
+    var isValid = Boolean(validation.is_valid);
+
+    var html = '<div class="validation ' + (isValid ? 'validation--ok' : 'validation--error') + '">';
+    html += '<div class="validation__badge">' + (isValid ? '✓ Valid' : '✗ Tidak valid') + '</div>';
+    if (errors.length || warnings.length) {
+      html += '<ul class="validation__list">';
+      errors.forEach(function (item) {
+        html += '<li class="validation__item validation__item--error">' + escapeHtml(item.detail || item.code || String(item)) + '</li>';
+      });
+      warnings.forEach(function (item) {
+        html += '<li class="validation__item validation__item--warning">' + escapeHtml(item.detail || item.code || String(item)) + '</li>';
+      });
+      html += '</ul>';
     }
-
-    const errors = Array.isArray(validation.errors) ? validation.errors : [];
-    const warnings = Array.isArray(validation.warnings) ? validation.warnings : [];
-    const isValid = Boolean(validation.is_valid);
-
-    let html = '<div class="validation ' + (isValid ? 'validation--ok' : 'validation--error') + '">';
-    html += '<div class="validation__badge">' + (isValid ? 'Valid' : 'Tidak valid') + '</div>';
-    html += '<ul class="validation__list">';
-    errors.forEach(function (item) {
-      html += '<li class="validation__item validation__item--error">' + escapeHtml(item.detail || item.code || String(item)) + '</li>';
-    });
-    warnings.forEach(function (item) {
-      html += '<li class="validation__item validation__item--warning">' + escapeHtml(item.detail || item.code || String(item)) + '</li>';
-    });
-    html += '</ul></div>';
+    html += '</div>';
     container.innerHTML = html;
   }
 
   function renderSummary(summary) {
-    const container = document.getElementById('preview-summary');
-    if (!container || !summary) {
-      return;
-    }
+    var container = document.getElementById('preview-summary');
+    if (!container || !summary) return;
 
-    const rows = [
+    var rows = [
       { label: 'Publication Year', value: summary.publication_year },
-      { label: 'Data Rows', value: summary.data_rows },
-      { label: 'Indicator Columns', value: summary.indikator_columns },
+      { label: 'Jumlah Bab', value: summary.babs_count },
+      { label: 'Total Data Rows', value: summary.total_data_rows },
+      { label: 'Total Indikator', value: summary.total_indikator_columns },
       { label: 'Master Source Year', value: summary.master_source_year },
-      { label: 'Wilayah Present', value: summary.wilayah_present + ' / ' + summary.wilayah_required },
     ];
 
-    let html = '<div class="summary-grid">';
+    var html = '<div class="summary-grid">';
     rows.forEach(function (row) {
       html += '<div class="summary-cell"><div class="summary-cell__label">' + escapeHtml(String(row.label)) + '</div>';
       html += '<div class="summary-cell__value">' + escapeHtml(String(row.value)) + '</div></div>';
     });
     html += '</div>';
     container.innerHTML = html;
+  }
+
+  function renderBabPreviews(babs) {
+    var container = document.getElementById('preview-babs');
+    if (!container || !babs) return;
+
+    var babKeys = Object.keys(babs);
+    if (babKeys.length === 0) {
+      container.innerHTML = '<p class="empty">Tidak ada data bab.</p>';
+      container.hidden = false;
+      return;
+    }
+
+    var html = '<h4 style="margin: 20px 0 12px; font-size: 15px;">Detail Per Bab</h4>';
+    babKeys.forEach(function (key) {
+      var bab = babs[key];
+      var s = bab.summary || {};
+      html += '<div class="bab-card" style="border: 1px solid #E2E8F0; border-radius: 6px; padding: 14px 16px; margin-bottom: 10px; background: #fff;">';
+      html += '<div style="display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 14px;">';
+      html += '<span>' + escapeHtml(bab.bab_nama || 'Bab ' + key) + '</span>';
+      html += '<span class="badge ' + (bab.valid ? 'badge--ada' : 'badge--perlu_cek') + '">' + (bab.valid ? 'Valid' : 'Error') + '</span>';
+      html += '</div>';
+      html += '<div style="display: flex; gap: 16px; margin-top: 8px; font-size: 13px; color: #64748B;">';
+      html += '<span>Baris: ' + s.data_rows + '</span>';
+      html += '<span>Indikator: ' + s.indikator_columns + '</span>';
+      html += '<span>Wilayah: ' + s.wilayah_present + '/' + s.wilayah_required + '</span>';
+      html += '</div>';
+      if (bab.errors && bab.errors.length) {
+        html += '<div style="margin-top: 6px; font-size: 12px; color: #EF4444;">';
+        bab.errors.forEach(function (e) {
+          html += '<div>⚠ ' + escapeHtml(e.detail || e.code) + '</div>';
+        });
+        html += '</div>';
+      }
+      if (bab.warnings && bab.warnings.length) {
+        html += '<div style="margin-top: 4px; font-size: 12px; color: #D97706;">';
+        bab.warnings.forEach(function (w) {
+          html += '<div>⚠ ' + escapeHtml(w.detail || w.code) + '</div>';
+        });
+        html += '</div>';
+      }
+      html += '</div>';
+    });
+    container.innerHTML = html;
+    container.hidden = false;
   }
 
   function escapeHtml(value) {
@@ -207,18 +268,17 @@
       .replace(/"/g, '&quot;');
   }
 
+  // --- Commit ---
   async function commitImport(uploadId) {
     try {
-      const response = await fetch(API_BASE + '/commit/' + uploadId + '/', {
+      var response = await fetch(API_BASE + '/commit/' + uploadId + '/', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders()),
         credentials: 'include',
       });
 
-      const text = await response.text().catch(function () { return ''; });
-      let data = {};
+      var text = await response.text().catch(function () { return ''; });
+      var data = {};
       try { data = JSON.parse(text); } catch (_) {}
       if (!response.ok) {
         showStatus('Commit gagal: ' + (data.error || text || response.status), 'error');
@@ -232,17 +292,19 @@
     }
   }
 
+  // --- Upload handler ---
   async function handleFile(file) {
-    const preview = document.getElementById('preview');
+    var preview = document.getElementById('preview');
     preview.hidden = true;
-    const data = await uploadFile(file);
-    if (!data || !data.preview) {
-      return;
-    }
+    var data = await uploadFile(file);
+    if (!data || !data.preview) return;
+
     renderValidation(data.preview.validation);
     renderSummary(data.preview.summary);
+    renderBabPreviews(data.preview.babs);
     preview.hidden = false;
-    const btnCommit = document.getElementById('btn-commit');
+
+    var btnCommit = document.getElementById('btn-commit');
     if (btnCommit) {
       btnCommit.onclick = function () {
         commitImport(String(data.upload_id));
@@ -250,16 +312,24 @@
     }
   }
 
-  const btnGenerate = document.getElementById('btn-generate-template');
-  const fileInput = document.getElementById('upload-file');
+  // --- Wire up --//
+  var btnGenerate = document.getElementById('btn-generate-template');
+  var fileInput = document.getElementById('upload-file');
+
   if (btnGenerate) {
     btnGenerate.addEventListener('click', function () {
-      generateTemplate();
+      console.log('[manual_import] Unduh Template clicked');
+      generateTemplate().catch(function (err) {
+        console.error('[manual_import] unhandled error in generateTemplate', err);
+        showStatus('Terjadi kesalahan: ' + err.message, 'error');
+      });
     });
+  } else {
+    console.warn('[manual_import] btn-generate-template not found in DOM');
   }
   if (fileInput) {
     fileInput.addEventListener('change', function (event) {
-      const file = event.target.files && event.target.files[0];
+      var file = event.target.files && event.target.files[0];
       if (file) {
         handleFile(file);
       }

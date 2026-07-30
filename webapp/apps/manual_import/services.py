@@ -1,30 +1,28 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 from io import BytesIO
 from typing import Any
 
 from django.utils import timezone
 
 from openpyxl import Workbook, load_workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side, Protection
-from openpyxl.utils import get_column_letter
+from openpyxl.styles import Font, PatternFill, Protection
 from openpyxl.worksheet.datavalidation import DataValidation
 
-from apps.katalog.models import Publikasi, Bab, Tabel, KolomTabel
+from apps.katalog.models import Publikasi, Bab, KolomTabel
 from apps.referensi.models import Indikator, Wilayah
-from apps.data.models import CanonicalIndicator
 
 
 def load_workbook_from_upload(upload_file) -> Any:
     if hasattr(upload_file, "seek"):
         upload_file.seek(0)
-    return Workbook(upload_file, read_only=True, data_only=True)
+    return load_workbook(upload_file, read_only=True, data_only=True)
 
 
 class ManualImportTemplateBuilder:
     MASTER_YEAR = 2026
+    SHEET_PREFIX = "BAB_"
 
     def __init__(self, publication_year: int):
         if publication_year <= self.MASTER_YEAR:
@@ -41,20 +39,45 @@ class ManualImportTemplateBuilder:
         ws_wilayah = wb.create_sheet("_WILAYAH_")
         self._build_wilayah_reference(ws_wilayah)
 
+        # Build INDICATOR reference sheet — also returns per-bab indicator groups
         ws_indikator = wb.create_sheet("_INDIKATOR_")
-        self._build_indikator_reference(ws_indikator)
+        bab_indikator_map = self._build_indikator_reference(ws_indikator)
 
-        ws_data = wb.create_sheet("DATA")
-        self._build_data_sheet(ws_data, ws_wilayah, ws_indikator)
+        # Build one DATA sheet per bab
+        babs = list(
+            Bab.objects.filter(publikasi=self.master_publikasi).order_by("nomor")
+        )
+        for bab in babs:
+            indikator_ids = bab_indikator_map.get(bab.nomor, [])
+            if not indikator_ids:
+                continue
+            ws = wb.create_sheet(self._sheet_name(bab))
+            self._build_bab_data_sheet(ws, bab, indikator_ids)
 
         self._lock_template(wb)
         return wb
+
+    @staticmethod
+    def _sheet_name(bab: Any) -> str:
+        """Excel-compatible sheet name (max 31 chars)."""
+        raw = f"BAB_{bab.nomor:02d}_{bab.nama}"
+        return raw[:31]
+
+    @staticmethod
+    def parse_bab_from_sheet(sheet_name: str) -> int | None:
+        """Reverse-lookup bab_nomor from a sheet name like 'BAB_01_Geografi'."""
+        if not sheet_name.startswith(ManualImportTemplateBuilder.SHEET_PREFIX):
+            return None
+        try:
+            return int(sheet_name[4:6])
+        except (ValueError, IndexError):
+            return None
 
     def _build_metadata(self, ws) -> None:
         ws.append(["key", "value"])
         rows = [
             ("master_tahun", str(self.MASTER_YEAR)),
-            ("template_version", "1.0"),
+            ("template_version", "1.1"),
             ("publication_year", str(self.publication_year)),
             ("generated_at", timezone.now().isoformat()),
             ("canonical_batch", str(uuid.uuid4())),
@@ -70,13 +93,15 @@ class ManualImportTemplateBuilder:
     def _build_wilayah_reference(self, ws) -> dict[int, tuple[str, str]]:
         ws.append(["wilayah_id", "nama", "jenis"])
         wilayah_qs = list(
-            Wilayah.objects.filter(jenis__in=[Wilayah.Jenis.KABUPATEN, Wilayah.Jenis.KECAMATAN])
+            Wilayah.objects.filter(
+                jenis__in=[Wilayah.Jenis.KABUPATEN, Wilayah.Jenis.KECAMATAN]
+            )
             .order_by("id")
         )
         wilayah_map: dict[int, tuple[str, str]] = {}
         if not wilayah_qs:
             raise ValueError("Data wilayah master 2026 belum diisi.")
-        for idx, w in enumerate(wilayah_qs, start=1):
+        for w in wilayah_qs:
             wilayah_map[w.id] = (w.nama, w.jenis)
             ws.append([w.id, w.nama, w.jenis])
         ws.column_dimensions["A"].width = 14
@@ -85,8 +110,15 @@ class ManualImportTemplateBuilder:
         ws.protection.sheet = True
         return wilayah_map
 
-    def _build_indikator_reference(self, ws) -> None:
-        ws.append(["indikator_id", "canonical_code", "nama", "satuan", "tipe_nilai"])
+    def _build_indikator_reference(self, ws) -> dict[int, list[int]]:
+        """Build _INDIKATOR_ sheet with a bab_nomor column.
+
+        Returns {bab_nomor: [indikator_id, ...]} for building per-bab data sheets.
+        """
+        ws.append(
+            ["indikator_id", "canonical_code", "nama", "satuan", "tipe_nilai", "bab_nomor"]
+        )
+
         indikator_qs = list(
             Indikator.objects.filter(
                 kolom_set__tabel__bab__publikasi=self.master_publikasi,
@@ -96,6 +128,23 @@ class ManualImportTemplateBuilder:
         )
         if not indikator_qs:
             raise ValueError("Indikator master 2026 belum tersedia.")
+
+        # Map each indicator → first bab it belongs to
+        indikator_bab: dict[int, int] = {}
+        for ind in indikator_qs:
+            bab_ids = (
+                KolomTabel.objects.filter(indikator=ind)
+                .values_list("tabel__bab__nomor", flat=True)
+                .distinct()
+            )
+            if bab_ids:
+                indikator_bab[ind.id] = list(bab_ids)[0]
+
+        # Build return map: bab_nomor → [indikator_ids]
+        bab_map: dict[int, list[int]] = {}
+        for ind_id, bab_nomor in indikator_bab.items():
+            bab_map.setdefault(bab_nomor, []).append(ind_id)
+
         for ind in indikator_qs:
             ws.append(
                 [
@@ -104,56 +153,70 @@ class ManualImportTemplateBuilder:
                     ind.nama,
                     ind.satuan or "",
                     ind.tipe_nilai or "",
+                    indikator_bab.get(ind.id, ""),
                 ]
             )
+
         ws.column_dimensions["A"].width = 16
         ws.column_dimensions["B"].width = 24
         ws.column_dimensions["C"].width = 40
         ws.column_dimensions["D"].width = 18
         ws.column_dimensions["E"].width = 14
+        ws.column_dimensions["F"].width = 12
         ws.protection.sheet = True
+        return bab_map
 
-    def _build_data_sheet(
+    def _build_bab_data_sheet(
         self,
         ws,
-        ws_wilayah: Any,
-        ws_indikator: Any,
+        bab: Any,
+        indikator_ids: list[int],
     ) -> None:
+        """Build one data sheet for a single bab.
+
+        Columns: wilayah_id, nama_wilayah, indikator_1, indikator_2, …
+        """
+        indikators = list(
+            Indikator.objects.filter(id__in=indikator_ids).order_by("nama")
+        )
+
+        # Header row
         headers = ["wilayah_id", "nama_wilayah"]
-        for col_idx in range(3, ws_indikator.max_column + 1):
-            headers.append(ws_indikator.cell(row=1, column=col_idx).value or f"kol_{col_idx}")
+        for ind in indikators:
+            headers.append(ind.nama)
         ws.append(headers)
 
-        wilayah_ids: list[int] = []
-        for row_idx in range(2, ws_wilayah.max_row + 1):
-            cell = ws_wilayah.cell(row=row_idx, column=1).value
-            if isinstance(cell, int):
-                wilayah_ids.append(cell)
-
+        # Pre-fill wilayah rows
+        wilayah_ids = list(
+            Wilayah.objects.filter(
+                jenis__in=[Wilayah.Jenis.KABUPATEN, Wilayah.Jenis.KECAMATAN]
+            )
+            .order_by("id")
+            .values_list("id", flat=True)
+        )
         wilayah_lookup = {
-            w.id: w.nama for w in Wilayah.objects.filter(id__in=wilayah_ids)
+            w.id: w.nama
+            for w in Wilayah.objects.filter(id__in=wilayah_ids)
         }
-        indikator_ids: list[int] = []
-        for row_idx in range(2, ws_indikator.max_row + 1):
-            cell = ws_indikator.cell(row=row_idx, column=1).value
-            if isinstance(cell, int):
-                indikator_ids.append(cell)
 
         for idx, wilayah_id in enumerate(wilayah_ids, start=2):
             ws.cell(row=idx, column=1, value=wilayah_id)
-            ws.cell(row=idx, column=2, value=wilayah_lookup.get(wilayah_id))
+            ws.cell(row=idx, column=2, value=wilayah_lookup.get(wilayah_id, ""))
 
+        # Dropdown validation for wilayah_id column
+        last_row = 1 + len(wilayah_ids)
         data_validation = DataValidation(
             type="list",
-            formula1="=_WILAYAH_!$A$2:$A$40",
+            formula1=f"=_WILAYAH_!$A$2:$A${last_row}",
             allow_blank=False,
             showErrorMessage=True,
             errorTitle="Wilayah tidak valid",
             error="Pilih wilayah_id dari daftar master.",
         )
         ws.add_data_validation(data_validation)
-        data_validation.add(f"A2:A{1 + len(wilayah_ids)}")
+        data_validation.add(f"A2:A{last_row}")
 
+        # Style header row
         header_fill = PatternFill("solid", fgColor="D9E6F2")
         for cell in ws[1]:
             if cell.value:
