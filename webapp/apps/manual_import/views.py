@@ -557,7 +557,7 @@ def commit(request, pk: str):
 
         ImportLog.objects.create(
             upload=upload,
-            user=request.user,
+            user=request.user if request.user.is_authenticated else None,
             publication_year=upload.publication_year,
             master_source_year=MASTER_YEAR,
             mode="strict",
