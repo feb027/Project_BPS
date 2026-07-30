@@ -14,15 +14,19 @@ from rest_framework.response import Response
 from .models import ImportUpload, ImportLog
 from .services import load_workbook_from_upload, ManualImportTemplateBuilder
 from apps.katalog.models import Publikasi, Bab, Tabel, KolomTabel
-from apps.referensi.models import Indikator, Wilayah
+from apps.referensi.models import Indikator, Wilayah, Rincian
 from apps.data.models import Fakta
 
 
 MASTER_YEAR = 2026
 
+# Real kecamatan (IDs 1-39) + official kabupaten (ID 40)
+_KECAMATAN_IDS = list(range(1, 40))
+_KABUPATEN_IDS = [40]
+
 
 def _error(reason: str, code: str = "invalid"):
-    return {"valid": False, "errors": [{"code": code, "detail": reason}]}
+    return {"valid": False, "errors": [{"code": code, "detail": reason}], "warnings": []}
 
 
 def _ok():
@@ -37,9 +41,10 @@ def _read_required_sheet(workbook, name: str):
 
 
 def _collect_wilayah_master():
+    """Return only the 39 real kecamatan + 1 kabupaten."""
     wilayah_qs = list(
-        Wilayah.objects.filter(jenis__in=[Wilayah.Jenis.KABUPATEN, Wilayah.Jenis.KECAMATAN])
-        .order_by("-dibuat_pada")
+        Wilayah.objects.filter(id__in=_KECAMATAN_IDS + _KABUPATEN_IDS)
+        .order_by("id")
     )
     wilayah_map: dict[int, dict[str, Any]] = {}
     for w in wilayah_qs:
@@ -49,6 +54,12 @@ def _collect_wilayah_master():
             "jenis": w.jenis,
         }
     return wilayah_map
+
+
+def _collect_rincian_master():
+    """Return all rincian items as a dict for validation."""
+    rincian_qs = list(Rincian.objects.all().order_by("id"))
+    return {r.id: {"id": r.id, "nama": r.nama} for r in rincian_qs}
 
 
 def _collect_indikator_master():
@@ -84,11 +95,13 @@ def _safe_numeric(value: Any):
         return None
 
 
-def _extract_bab_sheet(bab_nomor: int, ws, indikator_map: dict, wilayah_map: dict):
-    """Validate and extract data from one bab data sheet.
+def _extract_table_sheet(
+    tabel_id: int, ws, indikator_map: dict, wilayah_map: dict, rincian_map: dict,
+):
+    """Validate and extract data from one per-table data sheet (T_0101_...).
 
-    Returns a dict with the same shape as the per-bab portion of the payload:
-      {valid, errors, warnings, summary, data_rows, header, indikator_header_indexes}
+    Returns {valid, errors, warnings, summary, data_rows, header, indikator_header_indexes}
+    handling both wilayah-id and rincian-id based rows.
     """
     errors = []
     warnings_list = []
@@ -97,85 +110,78 @@ def _extract_bab_sheet(bab_nomor: int, ws, indikator_map: dict, wilayah_map: dic
     for idx, value in enumerate(headers_row, start=1):
         header.append((idx, (value or "").strip()))
 
-    wilayah_header_idx = next(((i, v) for i, v in header if v == "wilayah_id"), None)
-    nama_wilayah_header_idx = next(((i, v) for i, v in header if v == "nama_wilayah"), None)
-    if not wilayah_header_idx or not nama_wilayah_header_idx:
-        return _error("Header harus memiliki 'wilayah_id' dan 'nama_wilayah'.", "invalid_structure")
+    # Determine if this is a wilayah-based or rincian-based sheet
+    row_id_col = next(((i, v) for i, v in header if v in ("wilayah_id", "rincian_id")), None)
+    row_name_col = next(((i, v) for i, v in header if v in ("nama_wilayah", "nama_rincian")), None)
+    if not row_id_col or not row_name_col:
+        return _error("Header harus memiliki 'wilayah_id'/'rincian_id' dan nama terkait.", "invalid_structure")
+
+    is_rincian_sheet = row_id_col[1] == "rincian_id"
 
     indikator_header_indexes = [
-        (idx, label) for idx, label in header if label not in ("", "wilayah_id", "nama_wilayah")
+        (idx, label) for idx, label in header
+        if label not in ("", "wilayah_id", "nama_wilayah", "rincian_id", "nama_rincian")
     ]
     if not indikator_header_indexes:
         return _error("Tidak ada indikator di header.", "invalid_structure")
 
-    wilayah_set = set(wilayah_map.keys())
-    kabupaten_ids = {wid for wid, info in wilayah_map.items() if info["jenis"] == Wilayah.Jenis.KABUPATEN}
-    kabupaten_id = next(
-        (wid for wid, info in wilayah_map.items()
-         if info["nama"] == "Kabupaten Tasikmalaya" and info["jenis"] == Wilayah.Jenis.KABUPATEN),
-        None,
-    )
+    row_id_set = set(rincian_map.keys()) if is_rincian_sheet else set(wilayah_map.keys())
 
     unmatched_labels = []
-    for label, idx in [(label, idx) for idx, label in indikator_header_indexes]:
+    for _, label in indikator_header_indexes:
         matched_id = next((i for i, info in indikator_map.items() if info["nama"] == label), None)
         if matched_id is None:
             unmatched_labels.append(label)
 
     if unmatched_labels:
-        # strict mode: unknown indicators are fatal errors
         detail = "Indikator tak dikenali: " + ", ".join(unmatched_labels[:10])
         errors.append({"code": "unknown_indicator", "detail": detail})
 
-    present_wilayah_ids = set()
-    seen_wilayah = set()
+    seen_ids = set()
     data_rows = []
     for row in ws.iter_rows(min_row=2, values_only=True):
-        wilayah_value = row[wilayah_header_idx[0] - 1] if wilayah_header_idx and len(row) >= wilayah_header_idx[0] else None
-        if wilayah_value in (None, ""):
+        row_value = row[row_id_col[0] - 1] if row_id_col and len(row) >= row_id_col[0] else None
+        if row_value in (None, ""):
             continue
         try:
-            wilayah_id = int(wilayah_value)
+            row_id = int(row_value)
         except Exception:
-            errors.append({"code": "invalid_wilayah", "detail": f"wilayah_id tidak valid: {wilayah_value}"})
+            errors.append({"code": "invalid_id", "detail": f"ID tidak valid: {row_value}"})
             continue
 
-        if wilayah_id not in wilayah_set:
-            errors.append({"code": "unknown_wilayah", "detail": f"wilayah_id {wilayah_id} tidak ditemukan di master."})
+        if row_id not in row_id_set:
+            errors.append({
+                "code": "unknown_id",
+                "detail": f"{'rincian' if is_rincian_sheet else 'wilayah'}_id {row_id} tidak ditemukan di master.",
+            })
             continue
 
-        if wilayah_id in seen_wilayah:
-            if "duplicate_wilayah" not in [e.get("code") for e in errors]:
-                errors.append({"code": "duplicate_wilayah", "detail": f"Ada duplikat wilayah_id={wilayah_id} di DATA."})
-        seen_wilayah.add(wilayah_id)
-        present_wilayah_ids.add(wilayah_id)
+        if row_id in seen_ids:
+            if "duplicate_id" not in [e.get("code") for e in errors]:
+                errors.append({"code": "duplicate_id", "detail": f"Ada duplikat id={row_id} di DATA."})
+        seen_ids.add(row_id)
 
-        row_data = {
-            "wilayah_id": wilayah_id,
-            "nama_wilayah": wilayah_map[wilayah_id]["nama"],
+        row_data: dict[str, Any] = {
+            "row_id": row_id,
+            "row_name": row[row_name_col[0] - 1] if row_name_col and len(row) >= row_name_col[0] else "",
             "values": {},
+            "is_rincian": is_rincian_sheet,
         }
         for idx, label in indikator_header_indexes:
             value = row[idx - 1] if idx <= len(row) else None
             row_data["values"][label] = value
         data_rows.append(row_data)
 
-    if kabupaten_ids and kabupaten_id not in present_wilayah_ids:
-        warnings_list.append({"code": "missing_kabupaten", "detail": "Baris Kabupaten Tasikmalaya tidak ditemukan."})
-
     hard_errors = [e for e in errors if e.get("code") != "unknown_indicator"]
 
-    valid = len(hard_errors) == 0
-
     return {
-        "valid": valid,
+        "valid": len(hard_errors) == 0,
         "errors": hard_errors,
         "warnings": warnings_list,
         "summary": {
             "header_columns": len(header),
             "indikator_columns": len(indikator_header_indexes),
-            "wilayah_present": len(present_wilayah_ids),
-            "wilayah_required": len(kabupaten_ids) + len([w for w in wilayah_map if wilayah_map[w]["jenis"] == Wilayah.Jenis.KECAMATAN]),
+            "rows_present": len(seen_ids),
             "data_rows": len(data_rows),
             "unmatched_indicator_labels": unmatched_labels,
         },
@@ -186,12 +192,13 @@ def _extract_bab_sheet(bab_nomor: int, ws, indikator_map: dict, wilayah_map: dic
 
 
 def _extract_upload_payload(workbook, publication_year: int):
-    ws_wilayah = _read_required_sheet(workbook, "_WILAYAH_")
-    ws_indikator = _read_required_sheet(workbook, "_INDIKATOR_")
     ws_meta = _read_required_sheet(workbook, "_METADATA_")
+    ws_wilayah = _read_required_sheet(workbook, "_WILAYAH_")
+    ws_rincian = _read_required_sheet(workbook, "_RINCIAN_")
+    ws_indikator = _read_required_sheet(workbook, "_INDIKATOR_")
 
-    if not all([ws_wilayah, ws_indikator, ws_meta]):
-        return _error("Template Excel tidak lengkap. Butuh _METADATA_, _WILAYAH_, _INDIKATOR_.")
+    if not all([ws_meta, ws_wilayah, ws_rincian, ws_indikator]):
+        return _error("Template Excel tidak lengkap. Butuh _METADATA_, _WILAYAH_, _RINCIAN_, _INDIKATOR_.")
 
     meta = {}
     for row in ws_meta.iter_rows(min_row=2, values_only=True):
@@ -202,43 +209,67 @@ def _extract_upload_payload(workbook, publication_year: int):
         return _error("Template bukan keluaran master 2026.", "bad_template")
 
     wilayah_map = _collect_wilayah_master()
+    rincian_map = _collect_rincian_master()
     indikator_map = _collect_indikator_master()
 
-    # Find all bab data sheets (any sheet not in the reserved set)
-    reserved = {"_METADATA_", "_WILAYAH_", "_INDIKATOR_"}
-    bab_sheets = []
+    # Find all T_ data sheets
+    reserved = {"_METADATA_", "_WILAYAH_", "_INDIKATOR_", "_RINCIAN_"}
+    table_sheets = []
     for name in workbook.sheetnames:
         if name not in reserved:
-            bab_nomor = ManualImportTemplateBuilder.parse_bab_from_sheet(name)
-            if bab_nomor is not None:
-                bab_sheets.append((bab_nomor, name, workbook[name]))
+            table_sheets.append((name, workbook[name]))
 
-    if not bab_sheets:
-        return _error("Tidak ada sheet data BAB_xx ditemukan di template.", "invalid_structure")
+    if not table_sheets:
+        return _error("Tidak ada sheet data T_xx ditemukan di template.", "invalid_structure")
+
+    # Build a {indikator_name → tabel_id} lookup from the _INDIKATOR_ sheet
+    ind_name_to_tabel: dict[str, int] = {}
+    for row in ws_indikator.iter_rows(min_row=2, values_only=True):
+        if row and row[0] is not None and len(row) >= 5:
+            ind_name = str(row[1]).strip() if row[1] else ""
+            tabel_id = row[4]
+            if ind_name and tabel_id:
+                ind_name_to_tabel[ind_name] = int(tabel_id)
 
     all_errors = []
     all_warnings = []
     total_data_rows = 0
     total_indikator = 0
-    per_bab: dict[int, dict] = {}
+    per_table: dict[int, dict] = {}
 
-    # Build bab lookup
-    bab_lookup = {}
-    for b in Bab.objects.filter(
-        publikasi__tahun_terbit=MASTER_YEAR
-    ).values("nomor", "nama"):
-        bab_lookup[b["nomor"]] = b["nama"]
+    for sheet_name, ws in table_sheets:
+        # Determine tabel_id from the _INDIKATOR_ mapping by matching headers
+        headers_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), [])
+        header_labels = {(str(v).strip() if v else "") for v in headers_row}
+        # Find tabel_id by matching indicator columns
+        matched_tabel_id = None
+        for label in header_labels:
+            if label and label not in ("", "wilayah_id", "nama_wilayah", "rincian_id", "nama_rincian"):
+                tid = ind_name_to_tabel.get(label)
+                if tid is not None:
+                    matched_tabel_id = tid
+                    break
 
-    for bab_nomor, sheet_name, ws in bab_sheets:
-        bab_result = _extract_bab_sheet(bab_nomor, ws, indikator_map, wilayah_map)
-        bab_result["bab_nama"] = bab_lookup.get(bab_nomor, f"Bab {bab_nomor}")
-        bab_result["bab_nomor"] = bab_nomor
+        if matched_tabel_id is None:
+            # Try to match by looking at the sheet name pattern
+            bab_nomor = ManualImportTemplateBuilder.parse_bab_from_sheet(sheet_name)
+            if bab_nomor is not None:
+                all_warnings.append({
+                    "code": "unmatched_sheet",
+                    "detail": f"Sheet '{sheet_name}' tidak bisa dicocokkan dengan tabel. Dilewati.",
+                })
+            continue
 
-        per_bab[bab_nomor] = bab_result
-        total_data_rows += bab_result["summary"]["data_rows"]
-        total_indikator += bab_result["summary"]["indikator_columns"]
-        all_errors.extend(bab_result["errors"])
-        all_warnings.extend(bab_result["warnings"])
+        table_result = _extract_table_sheet(
+            matched_tabel_id, ws, indikator_map, wilayah_map, rincian_map
+        )
+        table_result["tabel_id"] = matched_tabel_id
+
+        per_table.setdefault(matched_tabel_id, table_result)
+        total_data_rows += table_result["summary"]["data_rows"]
+        total_indikator += table_result["summary"]["indikator_columns"]
+        all_errors.extend(table_result["errors"])
+        all_warnings.extend(table_result["warnings"])
 
     hard_errors = [e for e in all_errors]
 
@@ -255,12 +286,13 @@ def _extract_upload_payload(workbook, publication_year: int):
         "summary": {
             "publication_year": publication_year,
             "master_source_year": MASTER_YEAR,
-            "babs_count": len(per_bab),
+            "tables_count": len(per_table),
             "total_data_rows": total_data_rows,
             "total_indikator_columns": total_indikator,
         },
-        "babs": per_bab,
+        "tables": per_table,
         "wilayah_map": wilayah_map,
+        "rincian_map": rincian_map,
         "indikator_map": indikator_map,
         "mode": "strict",
     }
@@ -279,7 +311,17 @@ def generate_template(request):
     except Exception:
         return Response({"error": "publication_year harus angka."}, status=status.HTTP_400_BAD_REQUEST)
 
-    builder = ManualImportTemplateBuilder(publication_year=publication_year)
+    bab_id = request.data.get("bab_id")
+    if bab_id is not None:
+        try:
+            bab_id = int(bab_id)
+        except (ValueError, TypeError):
+            return Response({"error": "bab_id harus angka."}, status=status.HTTP_400_BAD_REQUEST)
+
+    builder = ManualImportTemplateBuilder(
+        publication_year=publication_year,
+        bab_id=bab_id,
+    )
     workbook = builder.build()
 
     workbook.save(f"/tmp/manual_import_template_{publication_year}.xlsx")
@@ -337,30 +379,30 @@ def upload(request):
     }
     if payload["valid"]:
         upload_obj.status = ImportUpload.Status.VALIDATED
-        # Count total rows across all bab sheets
-        total_rows = sum(b["summary"]["data_rows"] for b in payload["babs"].values())
-        total_ind = sum(b["summary"]["indikator_columns"] for b in payload["babs"].values())
+        # Count total rows across all table sheets
+        total_rows = sum(t["summary"]["data_rows"] for t in payload["tables"].values())
+        total_ind = sum(t["summary"]["indikator_columns"] for t in payload["tables"].values())
         upload_obj.preview_summary = {
             "data_rows": total_rows,
             "indikator_count": total_ind,
-            "babs_count": len(payload["babs"]),
+            "tables_count": len(payload["tables"]),
         }
     else:
         upload_obj.status = ImportUpload.Status.REJECTED
     upload_obj.processed_at = timezone.now()
     upload_obj.save()
 
-    # Build per-bab preview (first 50 rows per bab)
-    preview_babs = {}
-    for bab_nomor, bab_result in payload["babs"].items():
-        preview_babs[str(bab_nomor)] = {
-            "bab_nama": bab_result["bab_nama"],
-            "summary": bab_result["summary"],
-            "valid": bab_result["valid"],
-            "errors": bab_result["errors"],
-            "warnings": bab_result["warnings"],
-            "preview_rows": bab_result["data_rows"][:50],
-            "preview_row_count": len(bab_result["data_rows"]),
+    # Build per-table preview (first 50 rows per table)
+    preview_tables = {}
+    for tabel_id, table_result in payload["tables"].items():
+        preview_tables[str(tabel_id)] = {
+            "tabel_id": tabel_id,
+            "summary": table_result["summary"],
+            "valid": table_result["valid"],
+            "errors": table_result["errors"],
+            "warnings": table_result["warnings"],
+            "preview_rows": table_result["data_rows"][:50],
+            "preview_row_count": len(table_result["data_rows"]),
         }
 
     preview = {
@@ -374,7 +416,7 @@ def upload(request):
             "warnings": payload["warnings"],
         },
         "summary": payload["summary"],
-        "babs": preview_babs,
+        "tables": preview_tables,
     }
     return Response({"upload_id": upload_obj.id, "preview": preview}, status=status.HTTP_200_OK)
 
@@ -412,6 +454,7 @@ def commit(request, pk: str):
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     wilayah_map = payload["wilayah_map"]
+    rincian_map = payload["rincian_map"]
     indikator_map = payload["indikator_map"]
 
     master_publikasi = Publikasi.objects.get(tahun_terbit=MASTER_YEAR)
@@ -422,32 +465,37 @@ def commit(request, pk: str):
     tables_affected = []
 
     with transaction.atomic():
-        for bab_nomor, bab_result in payload["babs"].items():
-            if not bab_result["valid"] or not bab_result["data_rows"]:
+        for tabel_id, table_result in payload["tables"].items():
+            if not table_result["valid"] or not table_result["data_rows"]:
                 continue
 
+            # Find the master table to determine tipe_baris
             try:
-                target_bab = Bab.objects.get(publikasi=master_publikasi, nomor=bab_nomor)
-            except Bab.DoesNotExist:
+                master_tabel = Tabel.objects.get(pk=tabel_id)
+            except Tabel.DoesNotExist:
                 continue
 
-            # Create one table per bab for imported data
+            target_bab = master_tabel.bab
+
+            # Create one target table per source table for the new year
             table_title = f"Imported Manual {upload.publication_year}"
             target_tabel, _ = Tabel.objects.get_or_create(
                 bab=target_bab,
                 judul=table_title,
                 defaults={
-                    "tipe_baris": Tabel.TipeBaris.KECAMATAN,
-                    "nomor_tabel": f"99.{bab_nomor}",
-                    "nama_ringkas": f"IM {upload.publication_year} Bab {bab_nomor}",
+                    "tipe_baris": master_tabel.tipe_baris,
+                    "nomor_tabel": f"99.{master_tabel.bab.nomor}.{master_tabel.nomor_tabel or '0'}",
+                    "nama_ringkas": f"IM {upload.publication_year}",
                 },
             )
 
-            data_rows = bab_result["data_rows"]
-            indikator_header_indexes = bab_result["indikator_header_indexes"]
+            data_rows = table_result["data_rows"]
+            indikator_header_indexes = table_result["indikator_header_indexes"]
 
             for row in data_rows:
-                wilayah_id = row["wilayah_id"]
+                row_id = row["row_id"]
+                is_rincian = row.get("is_rincian", False)
+
                 for _, label in indikator_header_indexes:
                     indikator_id = next(
                         (i for i, info in indikator_map.items() if info["nama"] == label),
@@ -462,23 +510,34 @@ def commit(request, pk: str):
                     kolom, _ = KolomTabel.objects.get_or_create(
                         tabel=target_tabel,
                         indikator_id=indikator_id,
-                        defaults={"urutan": 1},  # placeholder; gets recalculated below
+                        defaults={"urutan": 1},
                     )
 
-                    Fakta.objects.create(
-                        tabel=target_tabel,
-                        wilayah=Wilayah.objects.get(id=wilayah_id),
-                        kolom=kolom,
-                        tahun=upload.publication_year,
-                        nilai_num=nilai_num,
-                        nilai_teks=nilai_teks or "-",
-                    )
+                    if is_rincian:
+                        Fakta.objects.create(
+                            tabel=target_tabel,
+                            wilayah=None,
+                            rincian=Rincian.objects.get(id=row_id),
+                            kolom=kolom,
+                            tahun=upload.publication_year,
+                            nilai_num=nilai_num,
+                            nilai_teks=nilai_teks or "-",
+                        )
+                    else:
+                        Fakta.objects.create(
+                            tabel=target_tabel,
+                            wilayah=Wilayah.objects.get(id=row_id),
+                            kolom=kolom,
+                            tahun=upload.publication_year,
+                            nilai_num=nilai_num,
+                            nilai_teks=nilai_teks or "-",
+                        )
                     total_faktas_inserted += 1
 
             tables_affected.append({
                 "tabel_id": target_tabel.id,
                 "judul": target_tabel.judul,
-                "bab_nomor": bab_nomor,
+                "bab_nomor": master_tabel.bab.nomor,
                 "faktas": len(data_rows) * len(indikator_header_indexes),
             })
 
@@ -514,10 +573,18 @@ def commit(request, pk: str):
 
 def page(request: HttpRequest):
     credential = request.META.get("REMOTE_USER") or ""
+    bab_list = list(
+        Bab.objects.filter(publikasi__tahun_terbit=MASTER_YEAR)
+        .order_by("nomor")
+        .values("id", "nomor", "nama")
+    )
     return TemplateResponse(
         request,
         "manual_import/page.html",
-        {"api_basic_auth": credential},
+        {
+            "api_basic_auth": credential,
+            "bab_list": bab_list,
+        },
     )
 
 

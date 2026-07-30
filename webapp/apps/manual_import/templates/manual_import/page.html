@@ -10,7 +10,7 @@
       <h2 class="manual-import__title">Import Manual</h2>
       <p class="manual-import__subtitle">
         Unggah file Excel hasil pengisian manual untuk divalidasi dan disimpan ke dalam sistem.<br>
-        Template terdiri dari satu sheet per Bab — isi sheet yang sesuai, upload, lalu commit.
+        Pilih Bab, unduh template, isi data per-tabel, upload, lalu commit.
       </p>
     </div>
     <div class="manual-import__actions">
@@ -26,6 +26,15 @@
 
   <div class="manual-import__form">
     <div class="field">
+      <label class="field__label" for="bab_id">Pilih Bab</label>
+      <select id="bab_id" class="field__select">
+        <option value="">-- Semua Bab --</option>
+        {% for bab in bab_list %}
+        <option value="{{ bab.id }}">BAB {{ bab.nomor }} — {{ bab.nama }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
       <label class="field__label" for="publication_year">Publication Year</label>
       <input id="publication_year" type="number" value="2027" min="2010" max="2099" />
     </div>
@@ -37,7 +46,7 @@
     <h3 class="manual-import__preview-title">Preview</h3>
     <div id="preview-validation" class="manual-import__validation"></div>
     <div id="preview-summary" class="manual-import__summary"></div>
-    <div id="preview-babs" class="manual-import__babs"></div>
+    <div id="preview-tables" class="manual-import__tables"></div>
     <div class="manual-import__commit-bar">
       <button id="btn-commit" type="button" class="btn btn--danger">Commit Import</button>
       <span class="manual-import__hint">Aksi ini akan menulis data baru ke dalam database.</span>
@@ -104,15 +113,23 @@
       return;
     }
 
-    showStatus('Menyiapkan template per-bab...', 'info');
+    // Collect bab_id from dropdown
+    var babSelect = document.getElementById('bab_id');
+    var babId = babSelect ? babSelect.value : '';
+    if (!babId || babId === '') babId = null;
+
+    showStatus('Menyiapkan template...', 'info');
     try {
+      var body = { publication_year: Number(year) };
+      if (babId) body.bab_id = Number(babId);
+
       var response = await fetch(API_BASE + '/generate-template/', {
         method: 'POST',
         headers: Object.assign({
           'Content-Type': 'application/json',
         }, authHeaders()),
         credentials: 'include',
-        body: JSON.stringify({ publication_year: Number(year) }),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
@@ -200,7 +217,7 @@
 
     var rows = [
       { label: 'Publication Year', value: summary.publication_year },
-      { label: 'Jumlah Bab', value: summary.babs_count },
+      { label: 'Jumlah Tabel', value: summary.tables_count },
       { label: 'Total Data Rows', value: summary.total_data_rows },
       { label: 'Total Indikator', value: summary.total_indikator_columns },
       { label: 'Master Source Year', value: summary.master_source_year },
@@ -215,41 +232,41 @@
     container.innerHTML = html;
   }
 
-  function renderBabPreviews(babs) {
-    var container = document.getElementById('preview-babs');
-    if (!container || !babs) return;
+  function renderTablePreviews(tables) {
+    var container = document.getElementById('preview-tables');
+    if (!container || !tables) return;
 
-    var babKeys = Object.keys(babs);
-    if (babKeys.length === 0) {
-      container.innerHTML = '<p class="empty">Tidak ada data bab.</p>';
+    var tableKeys = Object.keys(tables);
+    if (tableKeys.length === 0) {
+      container.innerHTML = '<p class="empty">Tidak ada data tabel.</p>';
       container.hidden = false;
       return;
     }
 
-    var html = '<h4 style="margin: 20px 0 12px; font-size: 15px;">Detail Per Bab</h4>';
-    babKeys.forEach(function (key) {
-      var bab = babs[key];
-      var s = bab.summary || {};
+    var html = '<h4 style="margin: 20px 0 12px; font-size: 15px;">Detail Per Tabel</h4>';
+    tableKeys.forEach(function (key) {
+      var table = tables[key];
+      var s = table.summary || {};
       html += '<div class="bab-card" style="border: 1px solid #E2E8F0; border-radius: 6px; padding: 14px 16px; margin-bottom: 10px; background: #fff;">';
       html += '<div style="display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 14px;">';
-      html += '<span>' + escapeHtml(bab.bab_nama || 'Bab ' + key) + '</span>';
-      html += '<span class="badge ' + (bab.valid ? 'badge--ada' : 'badge--perlu_cek') + '">' + (bab.valid ? 'Valid' : 'Error') + '</span>';
+      html += '<span>Tabel #' + escapeHtml(key) + '</span>';
+      html += '<span class="badge ' + (table.valid ? 'badge--ada' : 'badge--perlu_cek') + '">' + (table.valid ? 'Valid' : 'Error') + '</span>';
       html += '</div>';
       html += '<div style="display: flex; gap: 16px; margin-top: 8px; font-size: 13px; color: #64748B;">';
       html += '<span>Baris: ' + s.data_rows + '</span>';
       html += '<span>Indikator: ' + s.indikator_columns + '</span>';
-      html += '<span>Wilayah: ' + s.wilayah_present + '/' + s.wilayah_required + '</span>';
+      html += '<span>Baris: ' + s.rows_present + '</span>';
       html += '</div>';
-      if (bab.errors && bab.errors.length) {
+      if (table.errors && table.errors.length) {
         html += '<div style="margin-top: 6px; font-size: 12px; color: #EF4444;">';
-        bab.errors.forEach(function (e) {
+        table.errors.forEach(function (e) {
           html += '<div>⚠ ' + escapeHtml(e.detail || e.code) + '</div>';
         });
         html += '</div>';
       }
-      if (bab.warnings && bab.warnings.length) {
+      if (table.warnings && table.warnings.length) {
         html += '<div style="margin-top: 4px; font-size: 12px; color: #D97706;">';
-        bab.warnings.forEach(function (w) {
+        table.warnings.forEach(function (w) {
           html += '<div>⚠ ' + escapeHtml(w.detail || w.code) + '</div>';
         });
         html += '</div>';
@@ -301,7 +318,7 @@
 
     renderValidation(data.preview.validation);
     renderSummary(data.preview.summary);
-    renderBabPreviews(data.preview.babs);
+    renderTablePreviews(data.preview.tables);
     preview.hidden = false;
 
     var btnCommit = document.getElementById('btn-commit');

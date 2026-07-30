@@ -1,12 +1,12 @@
 from io import BytesIO
-from openpyxl import Workbook, load_workbook
+from openpyxl import load_workbook
 
 import pytest
 from django.urls import reverse
 from rest_framework.test import APIClient
 
 from apps.katalog.models import Publikasi, Bab, Tabel, KolomTabel
-from apps.referensi.models import Indikator, Wilayah
+from apps.referensi.models import Indikator, Wilayah, Rincian
 from apps.manual_import.services import ManualImportTemplateBuilder
 from apps.manual_import.views import _extract_upload_payload
 
@@ -51,15 +51,30 @@ def master_data():
         urutan=1,
         defaults={"indikator": ind},
     )
-    # Ensure the FK is set (might already be set)
     if kolom.indikator_id is None:
         kolom.indikator = ind
         kolom.save()
 
-    Wilayah.objects.get_or_create(nama="Kabupaten Tasikmalaya", jenis=Wilayah.Jenis.KABUPATEN)
-    Wilayah.objects.get_or_create(nama="Kecamatan A", jenis=Wilayah.Jenis.KECAMATAN)
+    # Real kecamatan (1-39) + kabupaten (40)
+    kecamatan_names = [
+        "Cipatujah", "Karangnunggal", "Cikalong", "Pancatengah", "Cikatomas",
+        "Cibalong", "Parungponteng", "Bantarkalong", "Bojongasih", "Culamega",
+        "Bojonggambir", "Sodonghilir", "Taraju", "Salawu", "Puspahiang",
+        "Tanjungjaya", "Sukaraja", "Salopa", "Jatiwaras", "Cineam",
+        "Karangjaya", "Manonjaya", "Gunungtanjung", "Singaparna", "Sukarame",
+        "Mangunreja", "Cigalontang", "Leuwisari", "Sariwangi", "Padakembang",
+        "Sukaratu", "Cisayong", "Sukahening", "Rajapolah", "Jamanis",
+        "Ciawi", "Kadipaten", "Pagerageung", "Sukaresik",
+    ]
+    for i, nama in enumerate(kecamatan_names, start=1):
+        _ensure_wilayah(i, nama, Wilayah.Jenis.KECAMATAN)
+    _ensure_wilayah(40, "Kabupaten Tasikmalaya", Wilayah.Jenis.KABUPATEN)
 
     return {"pub": pub, "bab": bab, "tabel": tabel, "indikator": ind}
+
+
+def _ensure_wilayah(id_val, nama, jenis):
+    Wilayah.objects.update_or_create(id=id_val, defaults={"nama": nama, "jenis": jenis})
 
 
 @pytest.mark.django_db
@@ -70,7 +85,7 @@ def test_generate_template_returns_xlsx(api_client, admin_user, master_data):
 
     response = api_client.post(
         reverse("manual_import:generate_template"),
-        data={"publication_year": 2027},
+        data={"publication_year": 2027, "bab_id": master_data["bab"].id},
         format="json",
     )
     assert response.status_code == 200, response.content.decode("utf-8")[:1000]
@@ -84,31 +99,35 @@ def test_generate_template_returns_xlsx(api_client, admin_user, master_data):
     sheet_names = wb.sheetnames
     assert "_METADATA_" in sheet_names
     assert "_WILAYAH_" in sheet_names
+    assert "_RINCIAN_" in sheet_names
     assert "_INDIKATOR_" in sheet_names
-    # Should have at least one BAB_ sheet
-    bab_sheets = [s for s in sheet_names if s.startswith("BAB_")]
-    assert len(bab_sheets) >= 1
+    # Should have at least one T_ (table) sheet
+    table_sheets = [s for s in sheet_names if s.startswith("T_")]
+    assert len(table_sheets) >= 1
 
-    # Check the BAB sheet has correct headers
-    bab_ws = wb[bab_sheets[0]]
-    headers = [cell.value for cell in bab_ws[1]]
-    assert "wilayah_id" in headers
-    assert "nama_wilayah" in headers
+    # Check the table sheet has correct headers
+    table_ws = wb[table_sheets[0]]
+    headers = [cell.value for cell in table_ws[1]]
+    assert "wilayah_id" in headers or "rincian_id" in headers
+    assert "nama_wilayah" in headers or "nama_rincian" in headers
 
 
 @pytest.mark.django_db
-def test_generate_template_per_bab_structure(master_data):
-    """Verify the template has one sheet per bab with correct naming."""
-    builder = ManualImportTemplateBuilder(publication_year=2027)
+def test_generate_template_per_table_structure(master_data):
+    """Verify the template has one sheet per table with correct naming."""
+    builder = ManualImportTemplateBuilder(publication_year=2027, bab_id=master_data["bab"].id)
     wb = builder.build()
-    bab_sheets = sorted([s for s in wb.sheetnames if s.startswith("BAB_")])
-    assert len(bab_sheets) >= 1
-    assert bab_sheets[0].startswith("BAB_01_")
+    table_sheets = sorted([s for s in wb.sheetnames if s.startswith("T_")])
+    assert len(table_sheets) >= 1
+    assert table_sheets[0].startswith("T_01")
 
-    # Verify _INDIKATOR_ has bab_nomor column
-    ind_ws = wb["_INDIKATOR_"]
-    headers = [cell.value for cell in ind_ws[1]]
-    assert "bab_nomor" in headers
+    # Verify _WILAYAH_ has only 39 kecamatan + 1 kabupaten
+    wil_ws = wb["_WILAYAH_"]
+    data_rows = sum(1 for _ in wil_ws.iter_rows(min_row=2, values_only=True) if _[0] is not None)
+    assert data_rows == 40, f"Expected 40 wilayah rows (39 kec + 1 kab), got {data_rows}"
+
+    # Verify _RINCIAN_ exists
+    assert "_RINCIAN_" in wb.sheetnames
 
 
 @pytest.mark.django_db
@@ -126,14 +145,16 @@ def test_extract_upload_payload_return_shape():
         "errors": [],
         "warnings": [{"code": "unknown_indicator", "detail": "foo"}],
         "summary": {},
-        "babs": {},
+        "tables": {},
         "wilayah_map": {},
+        "rincian_map": {},
         "indikator_map": {},
         "mode": "strict",
     }
     assert payload["valid"] is True
     assert payload["mode"] == "strict"
-    assert "babs" in payload
+    assert "tables" in payload
+    assert "rincian_map" in payload
 
 
 @pytest.mark.django_db
@@ -143,34 +164,35 @@ def test_full_upload_commit_flow(api_client, admin_user, master_data):
     admin_user.save(update_fields=["is_staff"])
     api_client.force_authenticate(user=admin_user)
 
+    bab_id = master_data["bab"].id
+
     # 1. Generate template
     gen_resp = api_client.post(
         reverse("manual_import:generate_template"),
-        data={"publication_year": 2027},
+        data={"publication_year": 2027, "bab_id": bab_id},
         format="json",
     )
     assert gen_resp.status_code == 200
 
     wb = load_workbook(BytesIO(gen_resp.content))
-    # Fill in some data in the first BAB sheet
-    bab_sheets = [s for s in wb.sheetnames if s.startswith("BAB_")]
-    assert len(bab_sheets) >= 1
-    bab_ws = wb[bab_sheets[0]]
+    # Fill in some data in the first T_ sheet
+    table_sheets = [s for s in wb.sheetnames if s.startswith("T_")]
+    assert len(table_sheets) >= 1
+    table_ws = wb[table_sheets[0]]
 
     # Find the indicator column
-    headers = [cell.value for cell in bab_ws[1]]
+    headers = [cell.value for cell in table_ws[1]]
     ind_col_idx = None
     for idx, h in enumerate(headers, start=1):
-        if h and h not in ("wilayah_id", "nama_wilayah"):
+        if h and h not in ("wilayah_id", "nama_wilayah", "rincian_id", "nama_rincian"):
             ind_col_idx = idx
             break
 
     if ind_col_idx:
         # Fill data into first data row
-        for row in bab_ws.iter_rows(min_row=2, max_row=3):
-            wilayah_id_cell = row[0]
-            if wilayah_id_cell.value is not None:
-                # Set a value for the indicator
+        for row in table_ws.iter_rows(min_row=2, max_row=3):
+            id_cell = row[0]
+            if id_cell.value is not None:
                 row[ind_col_idx - 1].value = 12345
 
     # 2. Upload
