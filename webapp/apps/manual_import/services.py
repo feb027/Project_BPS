@@ -7,7 +7,7 @@ from typing import Any
 from django.utils import timezone
 
 from openpyxl import Workbook, load_workbook
-from openpyxl.styles import Font, PatternFill, Protection
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Protection, Side
 from openpyxl.worksheet.datavalidation import DataValidation
 
 from apps.data.models import Fakta
@@ -200,15 +200,48 @@ class ManualImportTemplateBuilder:
         dv.add(f"A2:A{last_row}")
 
         # ── Style ───────────────────────────────────────────────────
-        header_fill = PatternFill("solid", fgColor="D9E6F2")
-        for cell in ws[1]:
-            if cell.value:
-                cell.font = Font(bold=True)
-                cell.fill = header_fill
-                cell.protection = Protection(locked=True)
+        thin_border = Border(
+            left=Side(style="thin", color="C0C0C0"),
+            right=Side(style="thin", color="C0C0C0"),
+            top=Side(style="thin", color="C0C0C0"),
+            bottom=Side(style="thin", color="C0C0C0"),
+        )
+        header_fill = PatternFill("solid", fgColor="1F4E79")  # dark blue
+        header_font = Font(bold=True, color="FFFFFF", size=11)
+        center_align = Alignment(
+            horizontal="center", vertical="center", wrap_text=True
+        )
+        left_align = Alignment(horizontal="left", vertical="center")
 
-        ws.column_dimensions["A"].width = 14
-        ws.column_dimensions["B"].width = 36
+        # Style header row
+        for cell in ws[1]:
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = center_align
+            cell.border = thin_border
+            cell.protection = Protection(locked=True)
+
+        # Style data rows: alternating light gray for readability
+        alt_fill = PatternFill("solid", fgColor="F2F7FB")  # very light blue
+        for row_idx, row in enumerate(ws.iter_rows(min_row=2), start=2):
+            for col_idx, cell in enumerate(row):
+                cell.border = thin_border
+                cell.alignment = center_align
+                cell.protection = Protection(locked=False)
+                if row_idx % 2 == 0:
+                    cell.fill = alt_fill
+                # First column (ID) stays bold
+                if col_idx == 0:
+                    cell.font = Font(bold=True, size=11)
+                # Second column (nama) left-aligned
+                if col_idx == 1:
+                    cell.alignment = Alignment(
+                        horizontal="left", vertical="center"
+                    )
+                # Indicator columns: set number format
+                if col_idx >= 2:
+                    cell.number_format = "#,##0.00"
+
         ws.freeze_panes = "A2"
 
         # ── Auto-fit remaining (indicator) columns ──────────────────

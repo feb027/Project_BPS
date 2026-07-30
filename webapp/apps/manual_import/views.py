@@ -328,8 +328,18 @@ def generate_template(request):
     with open(f"/tmp/manual_import_template_{publication_year}.xlsx", "rb") as f:
         data = f.read()
 
+    # Build descriptive filename
+    bab_label = ""
+    if bab_id is not None:
+        try:
+            bab = Bab.objects.get(pk=bab_id)
+            bab_label = f"_bab{bab.nomor}"
+        except Bab.DoesNotExist:
+            pass
+
+    filename = f"template_bps_master_{MASTER_YEAR}{bab_label}_{publication_year}.xlsx"
     response = HttpResponse(data, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    response["Content-Disposition"] = f"attachment; filename=template_bps_master_{MASTER_YEAR}_{publication_year}.xlsx"
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
 
 
