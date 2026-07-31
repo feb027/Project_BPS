@@ -1,8 +1,9 @@
-import { Search, FileText, BarChart3, Loader2, Table2, PanelLeft } from "lucide-react"
+import { Search, FileText, BarChart3, Loader2, Table2, PanelLeft, Plus, Check } from "lucide-react"
 import type { Dispatch, SetStateAction } from "react"
 import { useSearch } from "../../lib/api"
 import { InlineTimeSeriesAnswer } from "../features/InlineTimeSeriesAnswer"
 import { cleanTitle } from "../../lib/utils"
+import type { CompareItem } from "../features/CompareModal"
 
 type SelectedItem = {id?: number, nomor_tabel?: string, type: 'tabel' | 'indikator' | 'series', title: string, initialFilter?: string, initialFilters?: string[], seriesObservations?: any[], subjectName?: string}
 
@@ -11,6 +12,8 @@ interface MainAreaProps {
   setSelectedItem: Dispatch<SetStateAction<SelectedItem | null>>
   browseOpen?: boolean
   onToggleBrowse?: () => void
+  inCompare: (nomorTabel: string) => boolean
+  onToggleCompare: (item: CompareItem) => void
 }
 
 type EmptyPanelProps = {
@@ -41,7 +44,7 @@ function EmptyPanel({ title, description, icon = "table" }: EmptyPanelProps) {
   )
 }
 
-function RawResultCard({ children, icon, accent = "primary", onClick }: { children: React.ReactNode, icon: React.ReactNode, accent?: "primary" | "accent", onClick: () => void }) {
+function RawResultCard({ children, icon, accent = "primary", onClick, action }: { children: React.ReactNode, icon: React.ReactNode, accent?: "primary" | "accent", onClick: () => void, action?: React.ReactNode }) {
   const accentClass = accent === "primary" ? "bg-primary/80" : "bg-accent/80"
   const iconClass = accent === "primary" ? "bg-secondary/10 text-secondary" : "bg-accent/10 text-accent"
 
@@ -51,6 +54,7 @@ function RawResultCard({ children, icon, accent = "primary", onClick }: { childr
       className="group bg-background border border-border rounded-lg p-5 hover:border-primary/50 hover:shadow-md transition-all duration-200 cursor-pointer flex flex-col gap-4 relative overflow-hidden"
     >
       <div className={`absolute top-0 left-0 w-1 h-full ${accentClass} scale-y-0 group-hover:scale-y-100 transition-transform origin-bottom`}></div>
+      {action && <div className="absolute right-3 top-3 z-10">{action}</div>}
       <div className="flex items-start gap-4">
         <div className={`mt-1 h-10 w-10 rounded-md flex items-center justify-center shrink-0 ${iconClass}`}>
           {icon}
@@ -61,7 +65,7 @@ function RawResultCard({ children, icon, accent = "primary", onClick }: { childr
   )
 }
 
-export function MainArea({ query, setSelectedItem, browseOpen, onToggleBrowse }: MainAreaProps) {
+export function MainArea({ query, setSelectedItem, browseOpen, onToggleBrowse, inCompare, onToggleCompare }: MainAreaProps) {
   const { data, isLoading, error } = useSearch(query)
 
   const detectedWilayah = data?.detected_wilayah?.nama as string | undefined
@@ -216,6 +220,37 @@ export function MainArea({ query, setSelectedItem, browseOpen, onToggleBrowse }:
                         icon={<FileText className="h-5 w-5" />}
                         accent="accent"
                         onClick={() => openTabel(tab.id, cleanTitle(tab.judul))}
+                        action={
+                          tab.nomor_tabel ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                onToggleCompare({
+                                  nomor_tabel: String(tab.nomor_tabel),
+                                  title: cleanTitle(tab.judul),
+                                })
+                              }}
+                              title={
+                                inCompare(String(tab.nomor_tabel))
+                                  ? "Hapus dari perbandingan"
+                                  : "Tambah ke perbandingan"
+                              }
+                              aria-pressed={inCompare(String(tab.nomor_tabel))}
+                              className={`inline-flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
+                                inCompare(String(tab.nomor_tabel))
+                                  ? "bg-accent border-accent text-white"
+                                  : "border-border bg-background text-muted-foreground hover:border-accent hover:text-accent"
+                              }`}
+                            >
+                              {inCompare(String(tab.nomor_tabel)) ? (
+                                <Check className="h-4 w-4" />
+                              ) : (
+                                <Plus className="h-4 w-4" />
+                              )}
+                            </button>
+                          ) : undefined
+                        }
                       >
                         <h3 className="text-lg font-semibold text-foreground group-hover:text-primary transition-colors">{cleanTitle(tab.judul)}</h3>
                         <div className="flex items-center gap-3 mt-1.5">

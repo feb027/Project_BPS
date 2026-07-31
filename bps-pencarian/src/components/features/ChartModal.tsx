@@ -36,7 +36,7 @@ const COMPACT_UNITS: [number, string][] = [
   [1e6, "Jt"],
   [1e3, "Rb"],
 ]
-function formatCompactNumber(value: number | string | null | undefined, unit?: string) {
+export function formatCompactNumber(value: number | string | null | undefined, unit?: string) {
   if (value === null || value === undefined || value === "") return "-"
   const numeric = Number(value)
   if (Number.isNaN(numeric)) return String(value)
@@ -77,7 +77,7 @@ function getValue(row: any) {
   return row.nilai ?? row.nilai_num
 }
 
-const chartColors = [
+export const chartColors = [
   "#2563eb", "#ea580c", "#16a34a", "#ca8a04", "#9333ea",
   "#0891b2", "#db2777", "#0d9488", "#c2410c", "#7c3aed",
   "#0369a1", "#b91c1c", "#15803d", "#a16207", "#6d28d9",
@@ -105,7 +105,7 @@ export function canonRincian(name: string | undefined): string {
   return n && n !== "-" ? toTitleCase(n) : n
 }
 
-function metricKey(row: CatalogSeriesRow) {
+export function metricKey(row: CatalogSeriesRow) {
   const unit = normUnit(row.unit)
   return `${canonicalMetricName(row.subject_name)}${unit ? ` (${unit})` : ""}`
 }

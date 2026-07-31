@@ -9,9 +9,12 @@ import {
   FileBarChart,
   Eye,
   X,
+  Plus,
+  Check,
 } from "lucide-react"
 import { useCatalog, type CatalogTable } from "../../lib/api"
 import { cleanTitle } from "../../lib/utils"
+import type { CompareItem } from "./CompareModal"
 
 export interface CatalogSelection {
   nomor_tabel: string
@@ -22,6 +25,9 @@ interface CatalogBrowserProps {
   onOpenTabel: (selection: CatalogSelection) => void
   fill?: boolean
   onClose?: () => void
+  compareItems: CompareItem[]
+  inCompare: (nomorTabel: string) => boolean
+  onToggleCompare: (item: CompareItem) => void
 }
 
 function tipeLabel(tipe: string) {
@@ -34,9 +40,13 @@ function tipeLabel(tipe: string) {
 function TableCard({
   tabel,
   onOpen,
+  inCompare,
+  onToggleCompare,
 }: {
   tabel: CatalogTable
   onOpen: (selection: CatalogSelection) => void
+  inCompare: boolean
+  onToggleCompare: () => void
 }) {
   const punyaData = tabel.jumlah_baris > 0
   const rentang =
@@ -46,17 +56,40 @@ function TableCard({
       ? `${tabel.rentang_tahun[0]}–${tabel.rentang_tahun[1]}`
       : null
 
+  const selection: CatalogSelection = {
+    nomor_tabel: tabel.nomor_tabel,
+    title: cleanTitle(tabel.nama_ringkas || tabel.judul),
+  }
+
   return (
-    <button
-      type="button"
-      onClick={() =>
-        onOpen({
-          nomor_tabel: tabel.nomor_tabel,
-          title: cleanTitle(tabel.nama_ringkas || tabel.judul),
-        })
-      }
-      className="group w-full text-left rounded-md border border-border bg-background p-3 hover:border-primary/50 hover:bg-primary/[0.03] transition-colors duration-150 flex items-start gap-3"
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpen(selection)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault()
+          onOpen(selection)
+        }
+      }}
+      className="group relative w-full text-left rounded-md border border-border bg-background p-3 hover:border-primary/50 hover:bg-primary/[0.03] transition-colors duration-150 flex items-start gap-3 cursor-pointer"
     >
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          onToggleCompare()
+        }}
+        title={inCompare ? "Hapus dari perbandingan" : "Tambah ke perbandingan"}
+        aria-pressed={inCompare}
+        className={`absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-md border transition-colors ${
+          inCompare
+            ? "bg-accent border-accent text-white"
+            : "border-border bg-background text-muted-foreground opacity-0 group-hover:opacity-100 hover:border-accent hover:text-accent focus:opacity-100"
+        }`}
+      >
+        {inCompare ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+      </button>
       <div className="mt-0.5 h-8 w-8 shrink-0 rounded-md bg-accent/10 text-accent flex items-center justify-center">
         <FileBarChart className="h-4 w-4" />
       </div>
@@ -98,11 +131,11 @@ function TableCard({
           Lihat grafik →
         </span>
       )}
-    </button>
+    </div>
   )
 }
 
-export function CatalogBrowser({ onOpenTabel, fill, onClose }: CatalogBrowserProps) {
+export function CatalogBrowser({ onOpenTabel, fill, onClose, inCompare, onToggleCompare }: CatalogBrowserProps) {
   const { data, error, isLoading } = useCatalog(null)
   const [openBabs, setOpenBabs] = useState<Record<number, boolean>>({})
 
@@ -196,6 +229,13 @@ export function CatalogBrowser({ onOpenTabel, fill, onClose }: CatalogBrowserPro
                             key={tabel.nomor_tabel}
                             tabel={tabel}
                             onOpen={onOpenTabel}
+                            inCompare={inCompare(tabel.nomor_tabel)}
+                            onToggleCompare={() =>
+                              onToggleCompare({
+                                nomor_tabel: tabel.nomor_tabel,
+                                title: cleanTitle(tabel.nama_ringkas || tabel.judul),
+                              })
+                            }
                           />
                         ))
                       )}

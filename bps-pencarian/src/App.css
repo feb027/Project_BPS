@@ -1,1 +1,40 @@
 /* App specific styles if any */
+
+/* Dual-thumb year range slider (YearRangeSlider.tsx).
+   Pseudo-element thumbs cannot be styled via inline style, so they live here. */
+.yr-slider input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  pointer-events: none;
+}
+.yr-slider input[type="range"]:disabled {
+  opacity: 0.4;
+}
+.yr-slider input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: hsl(var(--primary));
+  border: 2px solid hsl(var(--background));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.yr-slider input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: hsl(var(--primary));
+  border: 2px solid hsl(var(--background));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  pointer-events: auto;
+}

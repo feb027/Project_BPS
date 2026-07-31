@@ -1,10 +1,12 @@
-import { useState, useDeferredValue, Suspense, lazy } from "react"
+import { useState, useDeferredValue, Suspense, lazy, useCallback, useEffect } from "react"
 import { Sidebar } from "./Sidebar"
 import { MainArea } from "./MainArea"
 import { CatalogBrowser, type CatalogSelection } from "../features/CatalogBrowser"
-import { Loader2 } from "lucide-react"
+import { Loader2, Columns2, Trash2 } from "lucide-react"
+import type { CompareItem } from "../features/CompareModal"
 
 const ChartModal = lazy(() => import("../features/ChartModal").then((module) => ({ default: module.ChartModal })))
+const CompareModal = lazy(() => import("../features/CompareModal").then((module) => ({ default: module.CompareModal })))
 
 type SelectedItem = {
   nomor_tabel?: string
@@ -15,6 +17,25 @@ type SelectedItem = {
   initialFilters?: string[]
   seriesObservations?: any[]
   subjectName?: string
+}
+
+const COMPARE_KEY = "bps_compare_basket"
+const MAX_COMPARE = 6
+
+function loadCompareBasket(): CompareItem[] {
+  try {
+    const raw = localStorage.getItem(COMPARE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((c) => c && typeof c.nomor_tabel === "string" && typeof c.title === "string")
+        .slice(0, MAX_COMPARE)
+    }
+  } catch {
+    /* ignore corrupt storage */
+  }
+  return []
 }
 
 export function SplitPaneLayout() {
@@ -30,6 +51,41 @@ export function SplitPaneLayout() {
   // kept mounted and animated, not unmounted) so the results get the full
   // width. They can slide it back with the header toggle or the panel's X.
   const [showBrowse, setShowBrowse] = useState(false)
+
+  // Multi-table comparison basket (persisted across visits).
+  const [compareItems, setCompareItems] = useState<CompareItem[]>(loadCompareBasket)
+  const [compareOpen, setCompareOpen] = useState(false)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(COMPARE_KEY, JSON.stringify(compareItems))
+    } catch {
+      /* ignore quota / private mode errors */
+    }
+  }, [compareItems])
+
+  const toggleCompare = useCallback((item: CompareItem) => {
+    setCompareItems((prev) => {
+      const exists = prev.some((c) => c.nomor_tabel === item.nomor_tabel)
+      if (exists) return prev.filter((c) => c.nomor_tabel !== item.nomor_tabel)
+      if (prev.length >= MAX_COMPARE) return prev
+      return [...prev, item]
+    })
+  }, [])
+
+  const removeCompare = useCallback((nomorTabel: string) => {
+    setCompareItems((prev) => prev.filter((c) => c.nomor_tabel !== nomorTabel))
+  }, [])
+
+  const clearCompare = useCallback(() => {
+    setCompareItems([])
+    setCompareOpen(false)
+  }, [])
+
+  const inCompare = useCallback(
+    (nomorTabel: string) => compareItems.some((c) => c.nomor_tabel === nomorTabel),
+    [compareItems]
+  )
 
   const openTabel = (selection: CatalogSelection) =>
     setSelectedItem({
@@ -59,6 +115,9 @@ export function SplitPaneLayout() {
             onOpenTabel={openTabel}
             fill={!hasQuery}
             onClose={hasQuery ? () => setShowBrowse(false) : undefined}
+            compareItems={compareItems}
+            inCompare={inCompare}
+            onToggleCompare={toggleCompare}
           />
         </div>
       </div>
@@ -69,7 +128,36 @@ export function SplitPaneLayout() {
             setSelectedItem={setSelectedItem}
             browseOpen={showBrowse}
             onToggleBrowse={() => setShowBrowse((v) => !v)}
+            inCompare={inCompare}
+            onToggleCompare={toggleCompare}
           />
+        </div>
+      )}
+
+      {compareItems.length > 0 && !compareOpen && (
+        <div className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2">
+          <div className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 shadow-lg animate-in slide-in-from-bottom-4 duration-200">
+            <Columns2 className="h-4 w-4 text-accent" />
+            <span className="text-xs font-semibold text-foreground whitespace-nowrap">
+              {compareItems.length} tabel dipilih
+            </span>
+            <div className="mx-1 h-5 w-px bg-border" />
+            <button
+              type="button"
+              onClick={() => setCompareOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3.5 py-1.5 text-xs font-semibold text-white hover:opacity-90 transition-opacity"
+            >
+              Bandingkan
+            </button>
+            <button
+              type="button"
+              onClick={clearCompare}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+              aria-label="Bersihkan pilihan"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -82,6 +170,25 @@ export function SplitPaneLayout() {
           }
         >
           <ChartModal item={selectedItem} onClose={() => setSelectedItem(null)} />
+        </Suspense>
+      )}
+
+      {compareOpen && (
+        <Suspense
+          fallback={
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          }
+        >
+          <CompareModal
+            items={compareItems}
+            onClose={() => setCompareOpen(false)}
+            onRemove={(nomorTabel) => {
+              removeCompare(nomorTabel)
+              if (compareItems.length <= 1) setCompareOpen(false)
+            }}
+          />
         </Suspense>
       )}
     </div>
