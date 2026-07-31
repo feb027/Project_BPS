@@ -471,6 +471,7 @@ def commit(request, pk: str):
     from django.db import transaction
 
     total_faktas_inserted = 0
+    total_faktas_diperbarui = 0
     total_skipped = 0
     tables_affected = []
 
@@ -549,25 +550,35 @@ def commit(request, pk: str):
                             )
 
                         if is_rincian:
-                            Fakta.objects.create(
+                            _, dibuat = Fakta.objects.update_or_create(
                                 tabel=target_tabel,
+                                kolom=kolom,
                                 wilayah=None,
                                 rincian=Rincian.objects.get(id=row_id),
-                                kolom=kolom,
                                 tahun=upload.publication_year,
-                                nilai_num=nilai_num,
-                                nilai_teks=nilai_teks or "-",
+                                defaults={
+                                    "nilai_num": nilai_num,
+                                    "nilai_teks": nilai_teks or "-",
+                                    "dibuat_oleh": request.user if request.user.is_authenticated else None,
+                                },
                             )
                         else:
-                            Fakta.objects.create(
+                            _, dibuat = Fakta.objects.update_or_create(
                                 tabel=target_tabel,
-                                wilayah=Wilayah.objects.get(id=row_id),
                                 kolom=kolom,
+                                wilayah=Wilayah.objects.get(id=row_id),
+                                rincian=None,
                                 tahun=upload.publication_year,
-                                nilai_num=nilai_num,
-                                nilai_teks=nilai_teks or "-",
+                                defaults={
+                                    "nilai_num": nilai_num,
+                                    "nilai_teks": nilai_teks or "-",
+                                    "dibuat_oleh": request.user if request.user.is_authenticated else None,
+                                },
                             )
-                        total_faktas_inserted += 1
+                        if dibuat:
+                            total_faktas_inserted += 1
+                        else:
+                            total_faktas_diperbarui += 1
 
                 tables_affected.append({
                     "tabel_id": target_tabel.id,
@@ -598,8 +609,10 @@ def commit(request, pk: str):
         return Response({
             "status": "committed",
             "faktas_inserted": total_faktas_inserted,
+            "faktas_diperbarui": total_faktas_diperbarui,
             "skipped_rows": total_skipped,
             "tables_affected": tables_affected,
+            "publikasi_id": target_publikasi.id,
         })
 
     except Exception as e:

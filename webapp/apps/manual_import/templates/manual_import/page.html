@@ -42,6 +42,36 @@
 
   <div id="status" class="manual-import__status" hidden></div>
 
+  <style>
+    #status {
+      margin: 16px 0;
+      padding: 14px 18px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.45;
+      border: 1px solid transparent;
+    }
+    #status.status--success {
+      background: #ECFDF5;
+      color: #065F46;
+      border-color: #A7F3D0;
+    }
+    #status.status--error {
+      background: #FEF2F2;
+      color: #991B1B;
+      border-color: #FECACA;
+    }
+    #status.status--info {
+      background: #EFF6FF;
+      color: #1E40AF;
+      border-color: #BFDBFE;
+    }
+    #btn-commit:disabled {
+      cursor: wait;
+    }
+  </style>
+
   <div id="preview" class="manual-import__preview" hidden>
     <h3 class="manual-import__preview-title">Preview</h3>
     <div id="preview-validation" class="manual-import__validation"></div>
@@ -105,6 +135,7 @@
     statusEl.hidden = false;
     statusEl.className = 'manual-import__status status status--' + (type || 'info');
     statusEl.textContent = message;
+    statusEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
   // --- Template download ---
@@ -383,6 +414,14 @@
 
   // --- Commit ---
   async function commitImport(uploadId) {
+    var btnCommit = document.getElementById('btn-commit');
+    var originalText = btnCommit ? btnCommit.textContent : '';
+    if (btnCommit) {
+      btnCommit.disabled = true;
+      btnCommit.textContent = 'Menyimpan...';
+      btnCommit.style.opacity = '0.65';
+      btnCommit.style.cursor = 'wait';
+    }
     try {
       var response = await fetch(API_BASE + '/commit/' + uploadId + '/', {
         method: 'POST',
@@ -395,13 +434,41 @@
       try { data = JSON.parse(text); } catch (_) {}
       if (!response.ok) {
         showStatus('Commit gagal: ' + (data.error || text || response.status), 'error');
+        if (btnCommit) {
+          btnCommit.disabled = false;
+          btnCommit.textContent = originalText;
+          btnCommit.style.opacity = '';
+          btnCommit.style.cursor = '';
+        }
         return;
       }
 
-      showStatus('Commit berhasil: ' + (data.faktas_inserted || 0) + ' baris tersimpan.', 'success');
+      var pesan = 'Commit berhasil: ' + (data.faktas_inserted || 0) + ' baris baru tersimpan';
+      if (data.faktas_diperbarui) {
+        pesan += ', ' + data.faktas_diperbarui + ' diperbarui';
+      }
+      showStatus(pesan + '. Mengalihkan ke tabel data...', 'success');
+
+      // Redirect ke halaman tabel/publikasi data yang baru di-import
+      setTimeout(function () {
+        var tables = data.tables_affected || [];
+        if (tables.length === 1 && tables[0].tabel_id) {
+          window.location.href = '/data/tabel/' + tables[0].tabel_id + '/';
+        } else if (data.publikasi_id) {
+          window.location.href = '/data/pub/' + data.publikasi_id + '/';
+        } else {
+          window.location.reload();
+        }
+      }, 1200);
     } catch (err) {
       console.error('[manual_import] commit error', err);
       showStatus('Terjadi kesalahan saat commit.', 'error');
+      if (btnCommit) {
+        btnCommit.disabled = false;
+        btnCommit.textContent = originalText;
+        btnCommit.style.opacity = '';
+        btnCommit.style.cursor = '';
+      }
     }
   }
 

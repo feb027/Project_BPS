@@ -225,6 +225,35 @@ def test_full_upload_commit_flow(api_client, admin_user, master_data):
     assert commit_data["status"] == "committed"
     assert commit_data["faktas_inserted"] > 0
 
+    # Data harus masuk ke publikasi tahun target (bukan master)
+    from apps.katalog.models import Publikasi, Tabel
+    from apps.data.models import Fakta
+
+    pub = Publikasi.objects.filter(tahun_terbit=2027).first()
+    assert pub is not None, "Publikasi 2027 harus dibuat"
+    tabel = Tabel.objects.filter(bab__publikasi=pub).first()
+    assert tabel is not None, "Tabel harus dibuat di publikasi 2027"
+    n_fakta_1 = Fakta.objects.filter(tabel=tabel).count()
+    assert n_fakta_1 > 0
+
+    # Idempotensi: upload file yang sama lagi -> commit -> tidak boleh dobel
+    xlsx_bytes.seek(0)
+    upload2 = api_client.post(
+        reverse("manual_import:upload"),
+        data={"file": xlsx_bytes, "publication_year": "2027"},
+        format="multipart",
+    )
+    assert upload2.status_code == 200, upload2.content.decode()[:500]
+    commit2 = api_client.post(
+        reverse("manual_import:commit", args=[upload2.json()["upload_id"]]),
+        data={},
+        format="json",
+    )
+    assert commit2.status_code == 200, commit2.content.decode()[:500]
+    assert commit2.json()["faktas_diperbarui"] > 0
+    n_fakta_2 = Fakta.objects.filter(tabel=tabel).count()
+    assert n_fakta_2 == n_fakta_1, f"Fakta dobel! {n_fakta_1} -> {n_fakta_2}"
+
 
 def _load_workbook(stream):
     """Helper: openpyxl load_workbook from a stream."""
