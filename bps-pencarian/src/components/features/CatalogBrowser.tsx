@@ -9,7 +9,6 @@ import {
   FileBarChart,
   Eye,
   X,
-  Search,
 } from "lucide-react"
 import { useCatalog, type CatalogTable } from "../../lib/api"
 import { cleanTitle } from "../../lib/utils"
@@ -106,36 +105,11 @@ function TableCard({
 export function CatalogBrowser({ onOpenTabel, fill, onClose }: CatalogBrowserProps) {
   const { data, error, isLoading } = useCatalog(null)
   const [openBabs, setOpenBabs] = useState<Record<number, boolean>>({})
-  const [filterQuery, setFilterQuery] = useState("")
-  const [filterTipe, setFilterTipe] = useState<string>("all")
 
   const toggleBab = (id: number) =>
     setOpenBabs((current) => ({ ...current, [id]: !current[id] }))
 
   const babs = data?.babs ?? []
-
-  const normQuery = filterQuery.trim().toLowerCase()
-  const matchesFilter = (tabel: CatalogTable) => {
-    if (filterTipe !== "all" && tabel.tipe_baris !== filterTipe) return false
-    if (!normQuery) return true
-    const haystack = `${tabel.nomor_tabel} ${tabel.nama_ringkas || ""} ${tabel.judul}`.toLowerCase()
-    return normQuery.split(/\s+/).every((term) => haystack.includes(term))
-  }
-
-  const filteredBabs = babs
-    .map((bab) => ({
-      ...bab,
-      tabel: bab.tabel.filter(matchesFilter),
-    }))
-    .filter((bab) => bab.tabel.length > 0)
-
-  const totalTerfilter = filteredBabs.reduce((sum, bab) => sum + bab.tabel.length, 0)
-  const tipeOptions = [
-    { value: "all", label: "Semua" },
-    { value: "kecamatan", label: "Per Kecamatan" },
-    { value: "kabupaten", label: "Per Kabupaten" },
-    { value: "kategori", label: "Per Kategori" },
-  ]
 
   return (
     <aside className={`${fill ? "flex-1 min-w-0" : "w-96 shrink-0"} border-r border-border bg-card/40 flex flex-col h-full overflow-hidden`}>
@@ -161,40 +135,6 @@ export function CatalogBrowser({ onOpenTabel, fill, onClose }: CatalogBrowserPro
         <p className="mt-1 text-xs text-muted-foreground">
           Pilih bab lalu tabel untuk langsung melihat grafik time-series (gabungan semua tahun terbit).
         </p>
-
-        <div className="mt-3">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="text"
-              value={filterQuery}
-              onChange={(e) => setFilterQuery(e.target.value)}
-              placeholder="Cari tabel…"
-              className="w-full h-8 pl-8 pr-3 rounded-md border border-input bg-background text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
-          </div>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {tipeOptions.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => setFilterTipe(opt.value)}
-                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors border ${
-                  filterTipe === opt.value
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-background text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-          {(normQuery || filterTipe !== "all") && (
-            <p className="mt-2 text-[11px] text-muted-foreground">
-              {totalTerfilter} tabel cocok
-            </p>
-          )}
-        </div>
       </div>
 
       <div className="flex-1 min-w-0 overflow-y-auto px-4 py-4">
@@ -208,14 +148,14 @@ export function CatalogBrowser({ onOpenTabel, fill, onClose }: CatalogBrowserPro
             <AlertTriangle className="h-8 w-8 mb-3" />
             <p className="text-sm font-medium">Gagal memuat katalog.</p>
           </div>
-        ) : filteredBabs.length === 0 ? (
+        ) : babs.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground px-6">
             <Layers className="h-8 w-8 mb-3" />
-            <p className="text-sm">Tidak ada tabel yang cocok dengan filter.</p>
+            <p className="text-sm">Katalog belum tersedia.</p>
           </div>
         ) : (
           <div className="space-y-3">
-            {filteredBabs.map((bab) => {
+            {babs.map((bab) => {
               const isOpen = openBabs[bab.id] ?? bab.nomor === 1
               return (
                 <section

@@ -15,9 +15,25 @@ export function Sidebar({ query, setQuery }: SidebarProps) {
       </div>
       
       <div className="p-6 flex-1 overflow-y-auto">
-        <div className="flex flex-col gap-3">
-          <h2 className="text-sm font-medium text-foreground tracking-wide">PENCARIAN</h2>
-          <SearchInput query={query} setQuery={setQuery} />
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-3">
+            <h2 className="text-sm font-medium text-foreground tracking-wide">PENCARIAN</h2>
+            <SearchInput query={query} setQuery={setQuery} />
+          </div>
+          
+          <div className="flex flex-col gap-3">
+            <h2 className="text-sm font-medium text-foreground tracking-wide">FILTER KATEGORI</h2>
+            <div className="space-y-2">
+              <label className="flex items-center gap-3 p-2 rounded-md hover:bg-accent/10 cursor-pointer transition-colors group">
+                <input type="checkbox" className="w-4 h-4 rounded border-border text-primary focus:ring-primary/20 bg-background" defaultChecked />
+                <span className="text-sm text-foreground/80 group-hover:text-foreground">Data Indikator</span>
+              </label>
+              <label className="flex items-center gap-3 p-2 rounded-md hover:bg-accent/10 cursor-pointer transition-colors group">
+                <input type="checkbox" className="w-4 h-4 rounded border-border text-primary focus:ring-primary/20 bg-background" defaultChecked />
+                <span className="text-sm text-foreground/80 group-hover:text-foreground">Tabel Dinamis</span>
+              </label>
+            </div>
+          </div>
         </div>
       </div>
       
