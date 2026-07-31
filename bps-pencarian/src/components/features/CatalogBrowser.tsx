@@ -207,12 +207,6 @@ export function CatalogBrowser({ onOpenTabel, fill, onClose }: CatalogBrowserPro
           </div>
         )}
       </div>
-
-      <div className="border-t border-border px-4 py-3">
-        <p className="text-[10px] uppercase tracking-widest text-muted-foreground text-center">
-          Hanya baca • Tidak ada aksi edit
-        </p>
-      </div>
     </aside>
   )
 }
