@@ -157,17 +157,37 @@ def _extract_table_sheet(
 
     row_id_set = set(rincian_map.keys()) if is_rincian_sheet else set(wilayah_map.keys())
 
-    # Map label header -> (indikator_id, tahun) agar commit tahu kolom mana + tahun berapa
-    label_indikator: dict[str, tuple[int | None, int | None]] = {}
-    for _, label in indikator_header_indexes:
+    # Kolom master untuk tabel ini, urut by urutan — dipakai untuk resolve
+    # tahun posisional saat header identik ("Sarana Perdagangan (Tahun)" x3):
+    # kemunculan ke-N indikator X di template -> kolom master ke-N indikator X.
+    master_koloms = list(
+        KolomTabel.objects.filter(tabel_id=tabel_id).order_by("urutan")
+    )
+    master_by_ind: dict[int, list[Any]] = {}
+    for mk in master_koloms:
+        master_by_ind.setdefault(mk.indikator_id, []).append(mk)
+
+    # Map index kolom header -> (indikator_id, tahun). Tahun di-resolve dari
+    # master per posisi kalau label "(Tahun)" (tahun=None dari label).
+    label_indikator: dict[int, tuple[int | None, int | None]] = {}
+    ind_seen: dict[int, int] = {}
+    header_labels: dict[int, str] = {}
+    for idx, label in indikator_header_indexes:
         nama, tahun = _split_label_tahun(label)
         matched_id = next((i for i, info in indikator_map.items() if info["nama"] == nama), None)
-        label_indikator[label] = (matched_id, tahun)
+        header_labels[idx] = label
+        if matched_id is not None and tahun is None:
+            pos = ind_seen.get(matched_id, 0)
+            ind_seen[matched_id] = pos + 1
+            mks = master_by_ind.get(matched_id, [])
+            if pos < len(mks) and mks[pos].tahun is not None:
+                tahun = mks[pos].tahun
+        label_indikator[idx] = (matched_id, tahun)
 
     unmatched_labels = []
-    for label, (matched_id, _tahun) in label_indikator.items():
+    for idx, (matched_id, _tahun) in label_indikator.items():
         if matched_id is None:
-            unmatched_labels.append(label)
+            unmatched_labels.append(header_labels[idx])
 
     if unmatched_labels:
         detail = "Indikator tak dikenali: " + ", ".join(unmatched_labels[:10])
@@ -203,9 +223,11 @@ def _extract_table_sheet(
             "values": {},
             "is_rincian": is_rincian_sheet,
         }
-        for idx, label in indikator_header_indexes:
+        for idx, _label in indikator_header_indexes:
             value = row[idx - 1] if idx <= len(row) else None
-            row_data["values"][label] = value
+            # key by column INDEX (bukan label) — header bisa identik
+            # ("Sarana Perdagangan (Tahun)" x3), label nggak bisa jadi key.
+            row_data["values"][idx] = value
         data_rows.append(row_data)
 
     hard_errors = [e for e in errors if e.get("code") != "unknown_indicator"]
@@ -225,6 +247,7 @@ def _extract_table_sheet(
         "header": header,
         "indikator_header_indexes": indikator_header_indexes,
         "label_indikator": label_indikator,
+        "header_labels": header_labels,
     }
 
 
@@ -485,6 +508,8 @@ def upload(request):
             "warnings": table_result["warnings"],
             "preview_rows": table_result["data_rows"][:50],
             "preview_row_count": len(table_result["data_rows"]),
+            "indikator_header_indexes": table_result["indikator_header_indexes"],
+            "header_labels": table_result["header_labels"],
         }
 
     preview = {
@@ -592,12 +617,12 @@ def commit(request, pk: str):
                     row_id = row["row_id"]
                     is_rincian = row.get("is_rincian", False)
 
-                    for _, label in indikator_header_indexes:
-                        indikator_id, label_tahun = label_indikator.get(label, (None, None))
+                    for idx, _label in indikator_header_indexes:
+                        indikator_id, label_tahun = label_indikator.get(idx, (None, None))
                         if indikator_id is None:
                             total_skipped += 1
                             continue
-                        raw_value = row["values"].get(label)
+                        raw_value = row["values"].get(idx)
                         nilai_num = _safe_numeric(raw_value)
                         # Sel kosong -> 0 (bukan None / string "None")
                         if raw_value in (None, ""):

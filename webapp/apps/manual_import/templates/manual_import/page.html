@@ -438,11 +438,14 @@
         html += '<div style="overflow-x:auto">';
         html += '<table class="pv-table">';
 
-        var colKeys = Object.keys(previewRows[0].values);
+        var colKeys = (table.indikator_header_indexes || []).map(function (pair) { return pair[0]; });
+        var colLabels = (table.indikator_header_indexes || []).map(function (pair) { return pair[1]; });
+        var hasCols = colKeys.length > 0;
         html += '<thead><tr>';
         html += '<th>' + (isRincian ? 'ID Rincian' : 'ID Wilayah') + '</th>';
         html += '<th>' + (isRincian ? 'Nama Rincian' : 'Nama Wilayah') + '</th>';
-        colKeys.forEach(function (ck) {
+        if (!hasCols) colKeys = Object.keys(previewRows[0].values || {});
+        (hasCols ? colLabels : colKeys).forEach(function (ck) {
           html += '<th class="num">' + escapeHtml(ck) + '</th>';
         });
         html += '</tr></thead><tbody>';
@@ -451,8 +454,8 @@
           html += '<tr>';
           html += '<td class="num" style="font-weight:600;color:var(--ink-2)">' + escapeHtml(String(row.row_id)) + '</td>';
           html += '<td>' + escapeHtml(String(row.row_name || '')) + '</td>';
-          colKeys.forEach(function (ck) {
-            var val = row.values[ck];
+          colKeys.forEach(function (idx) {
+            var val = row.values ? row.values[idx] : undefined;
             var isEmpty = val === null || val === undefined || val === '';
             html += '<td class="num ' + (isEmpty ? 'empty-val' : '') + '">' + (isEmpty ? '—' : escapeHtml(String(val))) + '</td>';
           });
