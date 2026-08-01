@@ -205,7 +205,7 @@ def tabel_create(request, bab_pk):
                 tabel=tabel, urutan=urut, indikator=ind,
                 satuan=satuan, tahun=tahun or None, tipe_nilai=tipe)
         messages.success(request, f"Tabel {tabel.nomor_tabel} dibuat. Silakan isi datanya.")
-        return redirect("data:tabel_isi", pk=tabel.pk)
+        return redirect("data:tabel_detail", pk=tabel.pk)
 
     crumb = [
         {"label": "Data", "url": "/data/"},

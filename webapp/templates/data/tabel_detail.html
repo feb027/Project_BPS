@@ -11,7 +11,7 @@
   {% else %}
     <button class="btn btn--ghost" style="border:1px solid var(--line); opacity:0.5; cursor:not-allowed;" disabled><i data-lucide="arrow-left" style="width:16px;height:16px;"></i> Prev</button>
   {% endif %}
-  
+
   {% if tabel.next_tabel %}
     <a href="{% url 'data:tabel_detail' tabel.next_tabel.pk %}" class="btn btn--ghost" style="border:1px solid var(--line);">Next <i data-lucide="arrow-right" style="width:16px;height:16px;"></i></a>
   {% else %}
@@ -22,11 +22,10 @@
 <div class="toolbar">
   <p class="hint" style="margin:0; font-size:14px; font-weight:500;">{{ tabel.judul }}{% if tabel.sumber %}<br><span style="color:var(--muted); font-size:12px; font-weight:normal;">Sumber: {{ tabel.sumber }}</span>{% endif %}</p>
   {% if edit %}
-    <span class="badge badge--perlu_cek" style="display:inline-flex; align-items:center; gap:6px;"><i data-lucide="alert-circle" style="width:14px;height:14px;"></i> Mode Edit — desimal gunakan titik (.), baris bisa diubah/dihapus</span>
+    <span class="badge badge--perlu_cek" style="display:inline-flex; align-items:center; gap:6px;"><i data-lucide="alert-circle" style="width:14px;height:14px;"></i> Mode Edit — desimal gunakan titik (.), baris/kolom bisa ditambah atau dihapus</span>
   {% else %}
     <span style="display:flex; gap:10px; flex-wrap:wrap;">
-      <a class="btn btn--accent" href="{% url 'data:tabel_isi' tabel.pk %}"><i data-lucide="plus-circle" style="width:16px;height:16px;"></i> Isi / Tambah Data</a>
-      <a class="btn btn--ghost" href="?edit=1"><i data-lucide="edit-3" style="width:16px;height:16px;"></i> Edit Nilai</a>
+      <a class="btn btn--accent" href="?edit=1"><i data-lucide="edit-3" style="width:16px;height:16px;"></i> Edit Nilai</a>
       <a class="btn btn--ghost" href="{% url 'katalog:tabel_edit' tabel.pk %}"><i data-lucide="settings" style="width:16px;height:16px;"></i> Pengaturan</a>
       <a class="btn btn--danger" href="{% url 'katalog:tabel_delete' tabel.pk %}"><i data-lucide="trash-2" style="width:16px;height:16px;"></i> Hapus</a>
     </span>
@@ -68,21 +67,22 @@
   .cell-edit { width:100%; text-align:center; padding:8px; border:1px solid transparent; border-radius:4px; font-variant-numeric:tabular-nums; background:transparent; transition: all 0.2s; font-family:var(--mono); }
   .cell-edit:hover { border-color:var(--line); background:#fff; }
   .cell-edit:focus { border-color:var(--accent-2); outline:none; background:#fff; box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
+  .btn--sm { font-size:12px; padding:4px 10px; }
 </style>
 <div class="panel data-table-wrapper" style="padding:0; margin-top:16px;">
-  {% if baris %}
-  <table class="data-table wide" style="margin:0;">
+  {% if baris or baris_total or edit %}
+  <table class="data-table wide" style="margin:0;" id="tabel-data">
     <thead>
       <tr>
         <th class="rowhead">{{ label_baris }}</th>
         {% for k in koloms %}
-          <th>
+          <th data-kol="{{ forloop.counter0 }}" data-kid="{{ k.id|unlocalize }}">
             {% if edit %}
               <div style="font-size:11px; color:var(--muted); margin-bottom:4px; font-weight:600;">{{ k.indikator.nama }}</div>
                 <div style="display:flex; flex-direction:column; gap:4px; align-items:center;">
                   <input type="text" name="kol-{{ k.id|unlocalize }}-satuan" value="{% if k.satuan and k.satuan != '-' %}{{ k.satuan }}{% endif %}" placeholder="Satuan" style="width:80px; padding:4px; font-size:11px; border:1px solid var(--line); border-radius:4px; text-align:center;">
                   <input type="text" name="kol-{{ k.id|unlocalize }}-tahun" value="{% if k.tahun %}{{ k.tahun|unlocalize }}{% endif %}" placeholder="Tahun" style="width:80px; padding:4px; font-size:11px; border:1px solid var(--line); border-radius:4px; text-align:center;">
-                  <button type="button" class="btn btn--sm btn--ghost" style="color:var(--danger); border-color:transparent; margin-top:2px;" title="Hapus kolom ini" onclick="if(confirm('Hapus kolom &laquo;{{ k.indikator.nama }}&raquo; beserta semua nilainya?')) { document.getElementById('delkol-{{ k.id|unlocalize }}').value='1'; this.closest('th').style.display='none'; }"><i data-lucide="trash-2" style="width:13px;height:13px;"></i></button>
+                  <button type="button" class="btn btn--sm btn--ghost" style="color:var(--danger); border-color:transparent; margin-top:2px;" title="Hapus kolom ini" onclick="if(confirm('Hapus kolom &laquo;{{ k.indikator.nama }}&raquo; beserta semua nilainya?')) { document.getElementById('delkol-{{ k.id|unlocalize }}').value='1'; document.querySelectorAll('[data-kol=&quot;{{ forloop.counter0 }}&quot;]').forEach(function(el){ el.style.display='none'; }); }"><i data-lucide="trash-2" style="width:13px;height:13px;"></i></button>
                   <input type="hidden" name="delkol-{{ k.id|unlocalize }}" id="delkol-{{ k.id|unlocalize }}" value="0">
                 </div>
               {% else %}
@@ -90,12 +90,12 @@
             {% endif %}
           </th>
         {% endfor %}
-        {% if edit %}<th>Hapus</th>{% endif %}
+        {% if edit %}<th style="width:40px;">Hapus</th>{% endif %}
       </tr>
     </thead>
-    <tbody>
+    <tbody id="tbody-baris">
       {% for row in baris %}
-      <tr>
+      <tr data-sid="{{ row.id|unlocalize }}">
         <td class="rowhead">
           {% if edit %}
             <input type="text" name="row-{{ row.id|unlocalize }}-nama" value="{{ row.nama }}" class="cell-edit" style="width:200px; text-align:left; border:1px solid var(--line); background:#fff;">
@@ -104,7 +104,7 @@
           {% endif %}
         </td>
         {% for f in row.sel %}
-          <td>
+          <td data-kol="{{ forloop.counter0 }}">
             {% if f is None %}
               <span class="hint">·</span>
             {% elif edit %}
@@ -131,12 +131,12 @@
       {% endfor %}
     </tbody>
     {% if baris_total %}
-    <tfoot>
+    <tfoot id="tfoot-baris">
       {% for row in baris_total %}
-      <tr class="row-total">
+      <tr class="row-total" data-sid="{{ row.id|unlocalize }}">
         <td class="rowhead">{{ row.nama }} <span class="tag-total">TOTAL</span></td>
         {% for f in row.sel %}
-          <td>
+          <td data-kol="{{ forloop.counter0 }}">
             {% if f is None %}
               <span class="hint">·</span>
             {% elif edit %}
@@ -168,16 +168,127 @@
   {% else %}
   <div style="padding:40px 20px; text-align:center;">
     <i data-lucide="database" style="width:48px;height:48px;color:var(--line);margin-bottom:12px;"></i>
-    <p class="empty" style="margin:0;padding:0;">Belum ada data. Gunakan <a href="{% url 'data:tabel_isi' tabel.pk %}" style="font-weight:600;">Isi / Tambah Data</a>.</p>
+    <p class="empty" style="margin:0;padding:0;">Belum ada data. Gunakan <a href="?edit=1" style="font-weight:600;">Edit Nilai</a> untuk mengisi tabel.</p>
   </div>
   {% endif %}
 </div>
 
 {% if edit %}
+<div class="toolbar" style="margin-top:16px;">
+  <button type="button" class="btn btn--ghost" onclick="tambahBaris()"><i data-lucide="plus" style="width:15px;height:15px;"></i> Tambah Baris</button>
+  <button type="button" class="btn btn--ghost" onclick="tambahKolom()"><i data-lucide="plus" style="width:15px;height:15px;"></i> Tambah Kolom</button>
+  <span class="hint" style="margin:0; font-size:12px;">Baris &amp; kolom baru disimpan bersamaan dengan tombol Simpan Perubahan di bawah.</span>
+</div>
 <div class="toolbar" style="margin-top:24px; padding-top:16px; border-top:1px solid var(--line);">
   <button class="btn btn--accent" type="submit"><i data-lucide="save"></i> Simpan Perubahan</button>
   <a class="btn btn--ghost" href="{% url 'data:tabel_detail' tabel.pk %}">Batal</a>
 </div>
 {% endif %}
 </form>
+
+<script>
+(function () {
+  var rowNewSeq = 0;
+  var kolNewSeq = 0;
+
+  function namaKolomTerakhir() {
+    // Kolom baru terakhir punya atribut data-nk tertinggi di thead
+    var ths = document.querySelectorAll('#tabel-data thead th[data-nk]');
+    var max = -1;
+    ths.forEach(function (th) { var n = parseInt(th.getAttribute('data-nk'), 10); if (!isNaN(n) && n > max) max = n; });
+    return max + 1;
+  }
+
+  window.tambahBaris = function () {
+    var tbody = document.getElementById('tbody-baris');
+    if (!tbody) {
+      // Tabel belum punya baris: buat tbody jika tabel ada
+      var tbl = document.getElementById('tabel-data');
+      if (!tbl) return;
+      tbody = document.createElement('tbody');
+      tbody.id = 'tbody-baris';
+      tbl.appendChild(tbody);
+    }
+    var tr = document.createElement('tr');
+    tr.setAttribute('data-new', '1');
+
+    var tdNama = document.createElement('td');
+    tdNama.className = 'rowhead';
+    var inpNama = document.createElement('input');
+    inpNama.type = 'text';
+    inpNama.name = 'rownew-' + rowNewSeq + '-nama';
+    inpNama.placeholder = 'Nama baris baru';
+    inpNama.className = 'cell-edit';
+    inpNama.style.cssText = 'width:200px; text-align:left; border:1px solid var(--line); background:#fff;';
+    tdNama.appendChild(inpNama);
+    tr.appendChild(tdNama);
+
+    var cols = document.querySelectorAll('#tabel-data thead th[data-kid], #tabel-data thead th[data-nk]');
+    cols.forEach(function (th) {
+      var td = document.createElement('td');
+      var inp = document.createElement('input');
+      inp.type = 'text';
+      if (th.hasAttribute('data-kid')) {
+        inp.name = 'cellnew-' + rowNewSeq + '-' + th.getAttribute('data-kid');
+      } else {
+        inp.name = 'cellnew-' + rowNewSeq + '-NK' + th.getAttribute('data-nk');
+      }
+      inp.className = 'cell-edit';
+      td.appendChild(inp);
+      tr.appendChild(td);
+    });
+
+    var tdDel = document.createElement('td');
+    tdDel.style.cssText = 'text-align:center;';
+    var btnDel = document.createElement('button');
+    btnDel.type = 'button';
+    btnDel.className = 'btn btn--sm btn--ghost';
+    btnDel.style.cssText = 'color:var(--danger); border-color:transparent;';
+    btnDel.innerHTML = '<i data-lucide="x" style="width:14px;height:14px;"></i>';
+    btnDel.onclick = function () { tr.remove(); };
+    tdDel.appendChild(btnDel);
+    tr.appendChild(tdDel);
+
+    tbody.appendChild(tr);
+    rowNewSeq++;
+    if (window.lucide) { try { lucide.createIcons(); } catch (e) {} }
+  };
+
+  window.tambahKolom = function () {
+    var tbl = document.getElementById('tabel-data');
+    if (!tbl) return;
+    var theadRow = tbl.querySelector('thead tr');
+    var nk = namaKolomTerakhir();
+
+    var th = document.createElement('th');
+    th.setAttribute('data-nk', String(nk));
+    var div = document.createElement('div');
+    div.style.cssText = 'display:flex; flex-direction:column; gap:4px; align-items:center;';
+    div.innerHTML =
+      '<div style="font-size:11px; color:var(--muted); margin-bottom:2px; font-weight:600;">Kolom baru</div>' +
+      '<input type="text" name="kolnew-' + nk + '-nama" placeholder="Nama indikator" style="width:120px; padding:4px; font-size:11px; border:1px solid var(--line); border-radius:4px; text-align:center;">' +
+      '<input type="text" name="kolnew-' + nk + '-satuan" placeholder="Satuan" style="width:80px; padding:4px; font-size:11px; border:1px solid var(--line); border-radius:4px; text-align:center;">' +
+      '<input type="text" name="kolnew-' + nk + '-tahun" placeholder="Tahun" style="width:80px; padding:4px; font-size:11px; border:1px solid var(--line); border-radius:4px; text-align:center;">' +
+      '<button type="button" class="btn btn--sm btn--ghost" style="color:var(--danger); border-color:transparent; margin-top:2px;" title="Buang kolom baru ini" onclick="this.closest(\'th\').remove(); document.querySelectorAll(\'[data-nkcell=&quot;' + nk + '&quot;]\').forEach(function(el){ el.remove(); });"><i data-lucide="x" style="width:13px;height:13px;"></i></button>';
+    th.appendChild(div);
+    theadRow.insertBefore(th, theadRow.lastElementChild);
+
+    // Tambah sel untuk semua baris yang sudah ada (tbody + tfoot)
+    tbl.querySelectorAll('tbody tr, tfoot tr').forEach(function (tr) {
+      var sid = tr.getAttribute('data-sid');
+      var td = document.createElement('td');
+      td.setAttribute('data-nkcell', String(nk));
+      var inp = document.createElement('input');
+      inp.type = 'text';
+      inp.name = sid ? 'cellnew-' + sid + '-NK' + nk : 'cellnew-' + rowNewSeq + '-NK' + nk;
+      inp.className = 'cell-edit';
+      td.appendChild(inp);
+      tr.insertBefore(td, tr.lastElementChild);
+    });
+
+    kolNewSeq++;
+    if (window.lucide) { try { lucide.createIcons(); } catch (e) {} }
+  };
+})();
+</script>
 {% endblock %}

@@ -3,14 +3,13 @@ import re
 
 from django.contrib import messages
 from django.core.cache import cache
-from django.db.models import Count
+from django.db.models import Count, Max
 from django.shortcuts import get_object_or_404, redirect, render
 
 from apps.katalog.models import Bab, Publikasi, Tabel, KolomTabel
 from .models import Fakta
 from .services import ingest_long_rows
 from .exports import export_csv, export_xlsx
-from apps.ekstraksi.engine import KECAMATAN, clean_num
 
 
 def _slug(s):
@@ -106,7 +105,7 @@ def tabel_detail(request, pk):
     # ----- simpan (CRUD update/create) -----
     if request.method == "POST":
         diubah = 0
-        from apps.referensi.models import Wilayah, Rincian
+        from apps.referensi.models import Indikator, Wilayah, Rincian
         from apps.data.services import _jenis_wilayah
         
         # 1. Update Kolom Tahun dan Satuan
@@ -180,6 +179,119 @@ def tabel_detail(request, pk):
             # Muat ulang daftar kolom agar loop di bawah memakai data terbaru
             koloms = list(tabel.kolom_set.select_related("indikator").order_by("urutan"))
             diubah += len(hapus_kolom_ids)
+
+        # 2c. Tambah Kolom Baru ("Tambah Kolom" di Edit Nilai)
+        # Setiap kolom baru dikirim sebagai kolnew-<nk>-nama / -satuan / -tahun,
+        # dan nilainya sebagai cellnew-<subject>-NK<nk>.
+        kolom_baru_by_nk = {}
+        for key, val in request.POST.items():
+            m = re.match(r"^kolnew-(\d+)-nama$", key)
+            if not m:
+                continue
+            nama = val.strip()
+            if not nama:
+                continue
+            nk = int(m.group(1))
+            satuan = request.POST.get(f"kolnew-{nk}-satuan", "").strip()
+            tahun_raw = request.POST.get(f"kolnew-{nk}-tahun", "").strip()
+            tahun = None
+            if tahun_raw:
+                tm = re.search(r"\d{4}", tahun_raw)
+                if tm:
+                    tahun = int(tm.group(0))
+            ind, _ = Indikator.objects.get_or_create(
+                nama=nama, defaults={"satuan": satuan, "tipe_nilai": "numerik"}
+            )
+            urut = (KolomTabel.objects.filter(tabel=tabel).aggregate(m=Max("urutan"))["m"] or 0) + 1
+            kbaru = KolomTabel.objects.create(
+                tabel=tabel, urutan=urut, indikator=ind, satuan=satuan,
+                tahun=tahun, tipe_nilai="numerik",
+            )
+            kolom_baru_by_nk[nk] = kbaru
+            diubah += 1
+        if kolom_baru_by_nk:
+            koloms = list(tabel.kolom_set.select_related("indikator").order_by("urutan"))
+
+        # 2d. Tambah Baris Baru ("Tambah Baris" di Edit Nilai)
+        # Setiap baris baru dikirim sebagai rownew-<n>-nama; nilainya sebagai
+        # cellnew-<n>-<kolom_id> (kolom existing) atau cellnew-<n>-NK<nk>.
+        baris_baru_by_n = {}
+        for key, val in request.POST.items():
+            m = re.match(r"^rownew-(\d+)-nama$", key)
+            if not m:
+                continue
+            nama = val.strip()
+            if not nama:
+                continue
+            n = int(m.group(1))
+            if is_kategori:
+                ent, _ = Rincian.objects.get_or_create(nama=nama)
+            else:
+                ent, _ = Wilayah.objects.get_or_create(
+                    nama=nama, defaults={"jenis": _jenis_wilayah(nama)}
+                )
+            baris_baru_by_n[n] = ent
+            diubah += 1
+
+        # 2e. Isi nilai sel baris/kolom baru
+        # Format: cellnew-<n>-<kolom_id>  (baris baru, kolom existing)
+        #         cellnew-<n>-NK<nk>       (baris baru, kolom baru)
+        #         cellnew-<sid>-NK<nk>      (baris existing, kolom baru)
+        for key, val in request.POST.items():
+            if not key.startswith("cellnew-"):
+                continue
+            raw = val.strip()
+            if raw == "":
+                continue
+            rest = key[len("cellnew-"):]
+            sid_str, _, col_str = rest.rpartition("-")
+            if not sid_str or not col_str:
+                continue
+            # Tentukan kolom target
+            if col_str.startswith("NK"):
+                nk = int(col_str[2:])
+                kol = kolom_baru_by_nk.get(nk)
+                if kol is None:
+                    continue
+            else:
+                try:
+                    kol = KolomTabel.objects.filter(tabel=tabel, id=int(col_str)).first()
+                except ValueError:
+                    continue
+                if kol is None:
+                    continue
+            # Tentukan subjek (baris)
+            try:
+                sid = int(sid_str)
+            except ValueError:
+                continue
+            ent = baris_baru_by_n.get(sid)  # baris baru memakai index rownew
+            if ent is None:
+                # baris existing → sid adalah id wilayah/rincian
+                if is_kategori:
+                    ent = Rincian.objects.filter(id=sid).first()
+                else:
+                    ent = Wilayah.objects.filter(id=sid).first()
+                if ent is None:
+                    continue
+            tipe_teks = kol.tipe_nilai == "teks"
+            defaults = {}
+            if tipe_teks:
+                defaults = {"nilai_teks": raw, "flag": Fakta.Flag.ADA}
+            else:
+                num = _parse_angka(raw)
+                defaults = {
+                    "nilai_num": num,
+                    "nilai_teks": raw,
+                    "flag": Fakta.Flag.ADA if num is not None else Fakta.Flag.PERLU_CEK,
+                }
+            lookup = {"tabel": tabel, "kolom": kol, "tahun": kol.tahun}
+            if is_kategori:
+                lookup["rincian"] = ent
+            else:
+                lookup["wilayah"] = ent
+            Fakta.objects.update_or_create(**lookup, defaults=defaults)
+            diubah += 1
 
         # 3. Update Nilai Sel Fakta
         for f in Fakta.objects.filter(tabel=tabel).select_related("kolom"):
@@ -269,72 +381,9 @@ def tabel_detail(request, pk):
 
 def tabel_isi(request, pk):
     """Grid isian data. Tabel kecamatan: prefill 39 kecamatan + Total."""
-    tabel = get_object_or_404(Tabel.objects.select_related("bab__publikasi"), pk=pk)
-    koloms = list(tabel.kolom_set.select_related("indikator").order_by("urutan"))
-    is_kategori = tabel.tipe_baris == Tabel.TipeBaris.KATEGORI
-
-    if request.method == "POST":
-        n = int(request.POST.get("n_rows") or 0)
-        rows = []
-        for i in range(n):
-            nama = (request.POST.get(f"row-{i}-nama") or "").strip()
-            if not nama:
-                continue
-            for j, k in enumerate(koloms):
-                teks = (request.POST.get(f"cell-{i}-{j}") or "").strip()
-                num, _, flag = clean_num(teks)
-                base = {
-                    "bab": tabel.bab.nama, "nomor_tabel": tabel.nomor_tabel,
-                    "judul_tabel": tabel.judul, "indikator": k.indikator.nama,
-                    "satuan": k.satuan, "tahun": k.tahun or "",
-                    "nilai_num": num or "", "nilai_teks": teks, "flag": flag,
-                    "sumber": tabel.sumber,
-                }
-                if is_kategori:
-                    base["wilayah"] = "Kabupaten Tasikmalaya"
-                    base["rincian"] = nama
-                else:
-                    base["wilayah"] = nama
-                rows.append(base)
-        ingest_long_rows(rows, publikasi=tabel.bab.publikasi, user=request.user if request.user.is_authenticated else None)
-        messages.success(request, "Data tersimpan.")
-        cache.clear()
-        return redirect("data:tabel_detail", pk=pk)
-
-    # ---- prefill ----
-    fakta = Fakta.objects.filter(tabel=tabel).select_related("wilayah", "rincian")
-    nilai_map = {}  # (nama, kolom_id) -> teks
-    nama_ada = []
-    for f in fakta:
-        ent = f.rincian if is_kategori else f.wilayah
-        if ent is None:
-            continue
-        if ent.nama not in nama_ada:
-            nama_ada.append(ent.nama)
-        teks = f.nilai_teks or (str(f.nilai_num) if f.nilai_num is not None else "")
-        nilai_map[(ent.nama, f.kolom_id)] = teks
-
-    if is_kategori:
-        nama_baris = nama_ada  # yang sudah ada; baris baru via tombol
-    else:
-        nama_baris = list(KECAMATAN) + ["Kabupaten Tasikmalaya"]
-
-    baris = []
-    for nama in nama_baris:
-        sel = [nilai_map.get((nama, k.id), "") for k in koloms]
-        baris.append({"nama": nama, "sel": sel})
-
-    crumb = [
-        {"label": "Data", "url": "/data/"},
-        {"label": tabel.nama_tampil, "url": f"/data/tabel/{tabel.pk}/"},
-        {"label": "Isi Data", "url": ""},
-    ]
-    ctx = {
-        "tabel": tabel, "koloms": koloms, "baris": baris,
-        "is_kategori": is_kategori, "label_baris": "Rincian" if is_kategori else "Kecamatan",
-        "breadcrumb": crumb,
-    }
-    return render(request, "data/tabel_isi.html", ctx)
+    # Fitur ini digantikan oleh "Edit Nilai" (?edit=1 di tabel_detail).
+    # Pertahankan agar URL lama tidak 404; arahkan ke halaman tabel.
+    return redirect("data:tabel_detail", pk=pk)
 
 
 def mark_fakta_safe(request, pk):
