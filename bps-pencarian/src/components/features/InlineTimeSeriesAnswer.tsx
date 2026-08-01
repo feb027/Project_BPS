@@ -3,6 +3,9 @@ import { BarChart3, Download, ExternalLink, FileText } from "lucide-react"
 import {
   ResponsiveContainer,
   LineChart,
+  BarChart,
+  Bar,
+  LabelList,
   CartesianGrid,
   XAxis,
   YAxis,
@@ -142,6 +145,11 @@ export function InlineTimeSeriesAnswer({ match, subjectName, onOpenChart }: Inli
 
   const yearRange = first && latest ? `${first.tahun}–${latest.tahun}` : ""
 
+  // Kalau cuma 1 tahun unik, pakai bar chart dengan nilai tercetak di atas
+  // bar (line chart 1 titik hampir tak terlihat dan hilang di export PDF).
+  const uniqueYears = new Set(rows.map((row) => String(row.tahun)))
+  const isSingleYear = uniqueYears.size === 1
+
   const handleExportExcel = () => {
     if (!hasRows) return
     const exportRows = rows.map((row) => ({
@@ -275,46 +283,93 @@ export function InlineTimeSeriesAnswer({ match, subjectName, onOpenChart }: Inli
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5 flex-1 min-h-0">
           <div className="min-h-[420px] rounded-md border border-border bg-background p-4">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData} margin={{ top: 12, right: 16, left: 0, bottom: isComparison ? 28 : 8 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                <XAxis
-                  dataKey="tahun"
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
-                />
-                <YAxis
-                  axisLine={false}
-                  tickLine={false}
-                  width={72}
-                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
-                  tickFormatter={(value) => formatCompactNumber(value)}
-                />
-                <Tooltip
-                  formatter={(value, name) => [`${formatCompactNumber(value as number, unit)}`, String(name)]}
-                  labelFormatter={(label) => `Tahun ${label}`}
-                  contentStyle={{
-                    backgroundColor: "hsl(var(--card))",
-                    borderColor: "hsl(var(--border))",
-                    color: "hsl(var(--foreground))",
-                    borderRadius: "0.375rem",
-                  }}
-                />
-                {isComparison && <Legend wrapperStyle={{ paddingTop: 12 }} />}
-                {subjects.map((subject, index) => (
-                  <Line
-                    key={subject}
-                    type="monotone"
-                    dataKey={subject}
-                    name={subject}
-                    stroke={chartColors[index % chartColors.length]}
-                    strokeWidth={isComparison ? 2.5 : 3}
-                    activeDot={{ r: 6, strokeWidth: 0 }}
-                    dot={{ r: 4, strokeWidth: 0 }}
-                    connectNulls
+              {isSingleYear ? (
+                <BarChart data={chartData} margin={{ top: 24, right: 16, left: 0, bottom: isComparison ? 28 : 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                  <XAxis
+                    dataKey="tahun"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
                   />
-                ))}
-              </LineChart>
+                  <YAxis
+                    axisLine={false}
+                    tickLine={false}
+                    width={72}
+                    tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
+                    tickFormatter={(value) => formatCompactNumber(value)}
+                  />
+                  <Tooltip
+                    formatter={(value, name) => [`${formatCompactNumber(value as number, unit)}`, String(name)]}
+                    labelFormatter={(label) => `Tahun ${label}`}
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--card))",
+                      borderColor: "hsl(var(--border))",
+                      color: "hsl(var(--foreground))",
+                      borderRadius: "0.375rem",
+                    }}
+                  />
+                  {isComparison && <Legend wrapperStyle={{ paddingTop: 12 }} />}
+                  {subjects.map((subject, index) => (
+                    <Bar
+                      key={subject}
+                      dataKey={subject}
+                      name={subject}
+                      fill={chartColors[index % chartColors.length]}
+                      radius={[4, 4, 0, 0]}
+                      maxBarSize={72}
+                    >
+                      <LabelList
+                        dataKey={subject}
+                        position="top"
+                        formatter={(value) => formatCompactNumber(value as number, unit)}
+                        style={{ fill: "hsl(var(--muted-foreground))", fontSize: 12, fontWeight: 600 }}
+                      />
+                    </Bar>
+                  ))}
+                </BarChart>
+              ) : (
+                <LineChart data={chartData} margin={{ top: 12, right: 16, left: 0, bottom: isComparison ? 28 : 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                  <XAxis
+                    dataKey="tahun"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
+                  />
+                  <YAxis
+                    axisLine={false}
+                    tickLine={false}
+                    width={72}
+                    tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
+                    tickFormatter={(value) => formatCompactNumber(value)}
+                  />
+                  <Tooltip
+                    formatter={(value, name) => [`${formatCompactNumber(value as number, unit)}`, String(name)]}
+                    labelFormatter={(label) => `Tahun ${label}`}
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--card))",
+                      borderColor: "hsl(var(--border))",
+                      color: "hsl(var(--foreground))",
+                      borderRadius: "0.375rem",
+                    }}
+                  />
+                  {isComparison && <Legend wrapperStyle={{ paddingTop: 12 }} />}
+                  {subjects.map((subject, index) => (
+                    <Line
+                      key={subject}
+                      type="monotone"
+                      dataKey={subject}
+                      name={subject}
+                      stroke={chartColors[index % chartColors.length]}
+                      strokeWidth={isComparison ? 2.5 : 3}
+                      activeDot={{ r: 6, strokeWidth: 0 }}
+                      dot={{ r: 4, strokeWidth: 0 }}
+                      connectNulls
+                    />
+                  ))}
+                </LineChart>
+              )}
             </ResponsiveContainer>
           </div>
 

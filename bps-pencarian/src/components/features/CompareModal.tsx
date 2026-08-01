@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { X, Loader2, AlertTriangle, BarChart3, Plus, Check, FileSpreadsheet, FileText, ChevronDown } from "lucide-react"
-import { ResponsiveContainer, LineChart, CartesianGrid, XAxis, YAxis, Tooltip, Legend, Line } from "recharts"
+import { ResponsiveContainer, LineChart, BarChart, Bar, LabelList, CartesianGrid, XAxis, YAxis, Tooltip, Legend, Line } from "recharts"
 import * as XLSX from "xlsx"
 import html2canvas from "html2canvas-pro"
 import { exportProfessionalPdf } from "../../lib/pdfExport"
@@ -454,37 +454,75 @@ function CompareTableSection({ item, index, onRemove, yearRange, onReportRange, 
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={240}>
-            <LineChart data={chartData.points} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" />
-              <XAxis
-                dataKey="tahun"
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: "var(--color-muted-foreground)", fontSize: 11 }}
-              />
-              <YAxis
-                axisLine={false}
-                tickLine={false}
-                width={64}
-                tick={{ fill: "var(--color-muted-foreground)", fontSize: 11 }}
-                tickFormatter={(value) => formatCompactNumber(value)}
-              />
-              <Tooltip content={renderTooltip} />
-              <Legend wrapperStyle={{ paddingTop: 8, fontSize: 11 }} />
-              {chartData.lines.map((key, index) => (
-                <Line
-                  key={key}
-                  type="monotone"
-                  dataKey={key}
-                  name={key}
-                  stroke={chartColors[index % chartColors.length]}
-                  strokeWidth={2}
-                  activeDot={{ r: 4, strokeWidth: 0 }}
-                  dot={{ r: 2.5, strokeWidth: 0 }}
-                  connectNulls
+            {chartData.points.length === 1 ? (
+              <BarChart data={chartData.points} margin={{ top: 22, right: 12, left: 0, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" />
+                <XAxis
+                  dataKey="tahun"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "var(--color-muted-foreground)", fontSize: 11 }}
                 />
-              ))}
-            </LineChart>
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
+                  width={64}
+                  tick={{ fill: "var(--color-muted-foreground)", fontSize: 11 }}
+                  tickFormatter={(value) => formatCompactNumber(value)}
+                />
+                <Tooltip content={renderTooltip} />
+                <Legend wrapperStyle={{ paddingTop: 8, fontSize: 11 }} />
+                {chartData.lines.map((key, index) => (
+                  <Bar
+                    key={key}
+                    dataKey={key}
+                    name={key}
+                    fill={chartColors[index % chartColors.length]}
+                    radius={[4, 4, 0, 0]}
+                    maxBarSize={64}
+                  >
+                    <LabelList
+                      dataKey={key}
+                      position="top"
+                      formatter={(value) => formatCompactNumber(value as number)}
+                      style={{ fill: "var(--color-muted-foreground)", fontSize: 11, fontWeight: 600 }}
+                    />
+                  </Bar>
+                ))}
+              </BarChart>
+            ) : (
+              <LineChart data={chartData.points} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" />
+                <XAxis
+                  dataKey="tahun"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "var(--color-muted-foreground)", fontSize: 11 }}
+                />
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
+                  width={64}
+                  tick={{ fill: "var(--color-muted-foreground)", fontSize: 11 }}
+                  tickFormatter={(value) => formatCompactNumber(value)}
+                />
+                <Tooltip content={renderTooltip} />
+                <Legend wrapperStyle={{ paddingTop: 8, fontSize: 11 }} />
+                {chartData.lines.map((key, index) => (
+                  <Line
+                    key={key}
+                    type="monotone"
+                    dataKey={key}
+                    name={key}
+                    stroke={chartColors[index % chartColors.length]}
+                    strokeWidth={2}
+                    activeDot={{ r: 4, strokeWidth: 0 }}
+                    dot={{ r: 2.5, strokeWidth: 0 }}
+                    connectNulls
+                  />
+                ))}
+              </LineChart>
+            )}
           </ResponsiveContainer>
         )}
       </div>
