@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { X, Loader2, AlertTriangle, BarChart3, Plus, Check, FileSpreadsheet, FileText } from "lucide-react"
+import { X, Loader2, AlertTriangle, BarChart3, Plus, Check, FileSpreadsheet, FileText, ChevronDown } from "lucide-react"
 import { ResponsiveContainer, LineChart, CartesianGrid, XAxis, YAxis, Tooltip, Legend, Line } from "recharts"
 import * as XLSX from "xlsx"
 import html2canvas from "html2canvas-pro"
@@ -124,13 +124,45 @@ function CompareTableSection({ item, index, onRemove, yearRange, onReportRange, 
       Array.from(new Set(metricRows.map((r) => r.wilayah_nama).filter((v) => v && v !== "-"))).sort(),
     [metricRows]
   )
-  const useRincian = rincianVals.length >= 2 && rincianVals.length >= wilayahVals.length
-  const members = useMemo(() => {
-    if (useRincian) return rincianVals
-    // Per-kecamatan tables: default to the kabupaten total line only (clean).
-    if (wilayahVals.includes("Kabupaten Tasikmalaya")) return ["Kabupaten Tasikmalaya"]
-    return wilayahVals
-  }, [useRincian, rincianVals, wilayahVals])
+  // Dimension + member selection per section (mirrors ChartModal):
+  // user can pick Wilayah vs Rincian and tick which members to show.
+  const [dimension, setDimension] = useState<"wilayah" | "rincian">("wilayah")
+  const [selectedDim, setSelectedDim] = useState<Set<string>>(new Set())
+  const [dimDropdownOpen, setDimDropdownOpen] = useState(false)
+  const initDimRef = useRef(false)
+
+  useEffect(() => {
+    if (initDimRef.current || metricRows.length === 0) return
+    initDimRef.current = true
+    const useR = rincianVals.length >= 2 && rincianVals.length >= wilayahVals.length
+    setDimension(useR ? "rincian" : "wilayah")
+    const vals = useR ? rincianVals : wilayahVals
+    if (!useR && vals.includes("Kabupaten Tasikmalaya")) {
+      setSelectedDim(new Set(["Kabupaten Tasikmalaya"]))
+    } else {
+      setSelectedDim(new Set(vals))
+    }
+  }, [metricRows, rincianVals, wilayahVals])
+
+  const dimVals = useMemo(
+    () => (dimension === "rincian" ? rincianVals : wilayahVals),
+    [dimension, rincianVals, wilayahVals]
+  )
+  const isRincianDim = dimension === "rincian"
+  const members = useMemo(() => Array.from(selectedDim), [selectedDim])
+
+  const toggleDim = (v: string) =>
+    setSelectedDim((prev) => {
+      const next = new Set(prev)
+      if (next.has(v)) next.delete(v)
+      else next.add(v)
+      return next
+    })
+  const selectAllDim = () => setSelectedDim(new Set(dimVals))
+  const clearAllDim = () => setSelectedDim(new Set())
+
+  const DIM_LABEL: Record<"wilayah" | "rincian", string> = { wilayah: "Wilayah", rincian: "Rincian" }
+  const canSwitchDim = rincianVals.length >= 2 && wilayahVals.length >= 2
 
   // Pivot (year × member) within the shared year range.
   const chartData = useMemo(() => {
@@ -142,7 +174,7 @@ function CompareTableSection({ item, index, onRemove, yearRange, onReportRange, 
       if (typeof y !== "number") return
       if (lo !== null && y < lo) return
       if (hi !== null && y > hi) return
-      const dim = useRincian ? canonRincian(row.rincian_nama) : row.wilayah_nama
+      const dim = isRincianDim ? canonRincian(row.rincian_nama) : row.wilayah_nama
       if (!dim || dim === "-") return
       if (!members.includes(dim)) return
       const key = String(y)
@@ -151,7 +183,7 @@ function CompareTableSection({ item, index, onRemove, yearRange, onReportRange, 
     })
     const points = Object.values(byYear).sort((a, b) => Number(a.tahun) - Number(b.tahun))
     return { points, lines: members }
-  }, [metricRows, useRincian, members, yearRange])
+  }, [metricRows, isRincianDim, members, yearRange])
 
   const metricUnit = useMemo(() => {
     const r = metricRows.find((row) => row.unit)
@@ -179,19 +211,19 @@ function CompareTableSection({ item, index, onRemove, yearRange, onReportRange, 
         return true
       })
       .filter((row) => {
-        const dim = useRincian ? canonRincian(row.rincian_nama) : row.wilayah_nama
+        const dim = isRincianDim ? canonRincian(row.rincian_nama) : row.wilayah_nama
         return !!dim && dim !== "-" && members.includes(dim)
       })
       .map((row) => ({
         Tahun: row.tahun ?? "-",
-        [useRincian ? "Rincian" : "Wilayah"]: useRincian
+        [isRincianDim ? "Rincian" : "Wilayah"]: isRincianDim
           ? canonRincian(row.rincian_nama)
           : row.wilayah_nama,
         Nilai: row.nilai ?? row.nilai_teks ?? "-",
         Satuan: (row.unit || "").trim(),
         Status: row.flag || "ada",
       }))
-  }, [metricRows, useRincian, members, yearRange])
+  }, [metricRows, isRincianDim, members, yearRange])
 
   useEffect(() => {
     onRowsReady(index, { nomor: item.nomor_tabel, metric: selectedMetric, rows: sectionExportRows })
@@ -255,11 +287,111 @@ function CompareTableSection({ item, index, onRemove, yearRange, onReportRange, 
             ))}
           </select>
         )}
+
+        {/* Dimension switch (only when both dims are meaningful) */}
+        {canSwitchDim && (
+          <div className="flex items-center gap-0.5 rounded-md border border-border bg-background p-0.5">
+            {(["wilayah", "rincian"] as const).map((d) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => {
+                  setDimension(d)
+                  const vals = d === "rincian" ? rincianVals : wilayahVals
+                  setSelectedDim(
+                    d === "wilayah" && vals.includes("Kabupaten Tasikmalaya")
+                      ? new Set(["Kabupaten Tasikmalaya"])
+                      : new Set(vals)
+                  )
+                }}
+                className={`rounded px-2 py-1 text-[11px] font-semibold transition-colors ${
+                  dimension === d ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
+                }`}
+              >
+                {DIM_LABEL[d]}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Member multi-select */}
+        {dimVals.length > 1 && (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                setDimDropdownOpen(!dimDropdownOpen)
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground hover:bg-muted transition-colors"
+            >
+              {DIM_LABEL[dimension]} ({selectedDim.size}/{dimVals.length})
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${dimDropdownOpen ? "rotate-180" : ""}`} />
+            </button>
+            {dimDropdownOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setDimDropdownOpen(false)
+                  }}
+                />
+                <div
+                  className="absolute z-50 mt-1 w-64 max-h-72 rounded-md border border-border bg-card shadow-lg overflow-hidden"
+                  onClick={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between border-b border-border px-3 py-2">
+                    <span className="text-xs font-semibold text-foreground">
+                      Pilih {DIM_LABEL[dimension]}
+                    </span>
+                    <div className="flex gap-2">
+                      <button onClick={selectAllDim} className="text-[10px] font-semibold text-primary hover:underline">Semua</button>
+                      <button onClick={clearAllDim} className="text-[10px] font-semibold text-muted-foreground hover:underline">Hapus</button>
+                    </div>
+                  </div>
+                  <div className="overflow-auto max-h-[220px] p-2">
+                    {dimVals.map((v) => {
+                      const checked = selectedDim.has(v)
+                      return (
+                        <div
+                          key={v}
+                          role="button"
+                          tabIndex={0}
+                          aria-pressed={checked}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            toggleDim(v)
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              toggleDim(v)
+                            }
+                          }}
+                          className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50 cursor-pointer text-xs select-none"
+                        >
+                          <span className={`h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors ${checked ? "bg-primary border-primary" : "border-border bg-background"}`}>
+                            {checked && <Check className="h-3 w-3 text-primary-foreground" />}
+                          </span>
+                          <span className="text-foreground">{v}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         <button
           type="button"
           onClick={onRemove}
           className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
-          aria-label={`Hapus ${item.nomor_tabel} dari perbandingan`}
+          aria-label={`Hapus ${item.nomor_tabel} dari daftar`}
         >
           <X className="h-4 w-4" />
         </button>
@@ -375,33 +507,69 @@ export function CompareModal({ items, onClose, onRemove }: CompareModalProps) {
       const sheetName = `T${i + 1}_${e.nomor.replace(/[\\/?*[\]:]/g, "_")}`.slice(0, 31)
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(e.rows), sheetName)
     })
-    XLSX.writeFile(wb, `bandingkan_${items.length}_tabel.xlsx`)
+    XLSX.writeFile(wb, `lihat_${items.length}_tabel.xlsx`)
   }, [items.length])
 
   const exportPDF = useCallback(async () => {
     const entries = Object.values(rowsRef.current).filter((e) => e.rows.length > 0)
     if (entries.length === 0) return
+
+    // Capture EVERY section's chart and compose them into one tall canvas —
+    // html2canvas on the scrollable container itself only captures the
+    // visible viewport (so >2 tables used to lose their charts).
     let chartImageDataUrl: string | undefined
     if (sectionsRef.current) {
       try {
-        const canvas = await html2canvas(sectionsRef.current, {
-          scale: 2,
-          backgroundColor: "#ffffff",
-          useCORS: true,
-        })
-        chartImageDataUrl = canvas.toDataURL("image/png")
+        const sectionEls = Array.from(sectionsRef.current.querySelectorAll("section"))
+        const canvases: HTMLCanvasElement[] = []
+        for (const el of sectionEls) {
+          const c = await html2canvas(el as HTMLElement, {
+            scale: 2,
+            backgroundColor: "#ffffff",
+            useCORS: true,
+          })
+          canvases.push(c)
+        }
+        if (canvases.length) {
+          const maxW = Math.max(...canvases.map((c) => c.width))
+          const totalH = canvases.reduce((s, c) => s + c.height, 0)
+          const out = document.createElement("canvas")
+          out.width = maxW
+          out.height = totalH
+          const ctx = out.getContext("2d")
+          if (ctx) {
+            let y = 0
+            for (const c of canvases) {
+              ctx.drawImage(c, 0, y)
+              y += c.height
+            }
+            chartImageDataUrl = out.toDataURL("image/png")
+          }
+        }
       } catch {
         // Chart capture failed — export table-only PDF
       }
     }
+
     const yearText = effectiveRange ? `${effectiveRange[0]}–${effectiveRange[1]}` : ""
     await exportProfessionalPdf({
-      title: `Perbandingan ${items.length} Tabel`,
+      title: `Lihat ${items.length} Tabel`,
       subtitle: `Rentang tahun ${yearText || "-"} • ${entries.reduce((s, e) => s + e.rows.length, 0)} baris data`,
-      columns: ["Tabel", "Indikator", "Baris Data"],
-      rows: entries.map((e) => [e.nomor, e.metric, e.rows.length]),
-      fileName: `bandingkan_${items.length}_tabel`,
+      fileName: `lihat_${items.length}_tabel`,
       chartImageDataUrl,
+      // One data table per section with the actual values (not a useless
+      // summary of Tabel/Indikator/Baris Data).
+      detailTables: entries.map((e) => ({
+        title: `Tabel ${e.nomor} — ${e.metric}`,
+        columns: ["Tahun", "Wilayah/Rincian", "Nilai", "Satuan", "Status"],
+        rows: e.rows.map((r) => [
+          r.Tahun,
+          (r as Record<string, unknown>)["Wilayah"] ?? (r as Record<string, unknown>)["Rincian"] ?? "-",
+          r.Nilai,
+          r.Satuan,
+          r.Status,
+        ] as (string | number | null | undefined)[]),
+      })),
     })
   }, [items.length, effectiveRange])
 
@@ -413,16 +581,16 @@ export function CompareModal({ items, onClose, onRemove }: CompareModalProps) {
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div className="min-w-0 pr-12">
             <p className="text-xs font-semibold uppercase tracking-wide text-primary">
-              Perbandingan multi-tabel (gabungan semua publikasi)
+              Lihat beberapa tabel (gabungan semua publikasi)
             </p>
             <h2 className="mt-1 text-xl font-semibold text-foreground truncate">
-              Bandingkan {items.length} tabel
+              Lihat {items.length} Tabel
             </h2>
           </div>
           <button
             onClick={onClose}
             className="h-8 w-8 rounded-md flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors absolute right-4"
-            aria-label="Tutup perbandingan"
+            aria-label="Tutup tampilan"
           >
             <X className="h-5 w-5" />
           </button>
@@ -475,7 +643,7 @@ export function CompareModal({ items, onClose, onRemove }: CompareModalProps) {
           {items.length === 0 && (
             <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground">
               <AlertTriangle className="h-8 w-8 mb-3" />
-              <p className="text-sm">Tidak ada tabel untuk dibandingkan.</p>
+              <p className="text-sm">Tidak ada tabel untuk ditampilkan.</p>
             </div>
           )}
         </div>

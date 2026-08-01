@@ -190,7 +190,7 @@ export function MainArea({ query, setSelectedItem, browseOpen, onToggleBrowse, i
               <div className="flex flex-wrap items-center gap-3 rounded-md border border-accent/40 bg-accent/5 px-4 py-3">
                 <Columns2 className="h-4 w-4 shrink-0 text-accent" />
                 <p className="min-w-0 flex-1 text-sm text-foreground">
-                  Terdeteksi <strong>{multiTables.length} konsep</strong> — grafik perbandingan dibuka otomatis.
+                  Terdeteksi <strong>{multiTables.length} konsep</strong> — grafik dibuka otomatis.
                 </p>
                 <button
                   type="button"
@@ -205,7 +205,7 @@ export function MainArea({ query, setSelectedItem, browseOpen, onToggleBrowse, i
                   }
                   className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 transition-opacity"
                 >
-                  <Columns2 className="h-3.5 w-3.5" /> Bandingkan
+                  <Columns2 className="h-3.5 w-3.5" /> Lihat
                 </button>
               </div>
             )}
@@ -286,8 +286,8 @@ export function MainArea({ query, setSelectedItem, browseOpen, onToggleBrowse, i
                               }}
                               title={
                                 inCompare(String(tab.nomor_tabel))
-                                  ? "Hapus dari perbandingan"
-                                  : "Tambah ke perbandingan"
+                                  ? "Hapus dari daftar"
+                                  : "Tambah ke daftar"
                               }
                               aria-pressed={inCompare(String(tab.nomor_tabel))}
                               className={`inline-flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${

@@ -81,7 +81,7 @@ function TableCard({
           e.stopPropagation()
           onToggleCompare()
         }}
-        title={inCompare ? "Hapus dari perbandingan" : "Tambah ke perbandingan"}
+        title={inCompare ? "Hapus dari daftar" : "Tambah ke daftar"}
         aria-pressed={inCompare}
         className={`absolute right-2 top-2 z-10 inline-flex h-7 w-7 items-center justify-center rounded-md border shadow-sm transition-colors ${
           inCompare

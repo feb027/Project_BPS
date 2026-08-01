@@ -162,7 +162,7 @@ export function SplitPaneLayout() {
               onClick={() => setCompareOpen(true)}
               className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3.5 py-1.5 text-xs font-semibold text-white hover:opacity-90 transition-opacity"
             >
-              Bandingkan
+              Lihat
             </button>
             <button
               type="button"

@@ -89,21 +89,32 @@ function timestamp(): string {
 }
 
 // ─── Public API ─────────────────────────────────────────────────────
+export interface PdfExportTable {
+  /** Section/table title shown above the table (e.g. "Tabel 4.1.7 — Murid Jumlah") */
+  title?: string
+  /** Column headers */
+  columns: string[]
+  /** Data rows — values aligned to columns */
+  rows: (string | number | null | undefined)[][]
+}
+
 export interface PdfExportOptions {
   /** Main report title */
   title: string
   /** Optional subtitle (e.g. selected indicator) */
   subtitle?: string
-  /** Column headers */
-  columns: string[]
-  /** Data rows — values aligned to columns */
-  rows: (string | number | null | undefined)[][]
+  /** Main summary columns (optional when detailTables are used) */
+  columns?: string[]
+  /** Main summary rows (optional when detailTables are used) */
+  rows?: (string | number | null | undefined)[][]
   /** File name (without .pdf) */
   fileName: string
   /** Optional chart image as data URL (PNG) */
   chartImageDataUrl?: string
   /** Orientation override */
   orientation?: "portrait" | "landscape"
+  /** One data table per section (e.g. per compared table), rendered after the chart image */
+  detailTables?: PdfExportTable[]
 }
 
 export async function exportProfessionalPdf(opts: PdfExportOptions) {
@@ -115,10 +126,11 @@ export async function exportProfessionalPdf(opts: PdfExportOptions) {
     fileName,
     chartImageDataUrl,
     orientation,
+    detailTables,
   } = opts
 
   // Auto-detect orientation: ≥5 columns → landscape
-  const orient = orientation ?? (columns.length >= 5 ? "landscape" : "portrait")
+  const orient = orientation ?? ((columns?.length ?? 0) >= 5 ? "landscape" : "portrait")
   const pdf = new jsPDF(orient, "mm", "a4")
   const pageW = pdf.internal.pageSize.getWidth()
   const pageH = pdf.internal.pageSize.getHeight()
@@ -249,62 +261,117 @@ export async function exportProfessionalPdf(opts: PdfExportOptions) {
     cursorY += chartH + 6
   }
 
-  // ── Data table ──
+  // ── Data tables ──
   // Format numeric values with Indonesian locale
-  const formattedRows = rows.map((row) =>
+  const fmtRow = (row: (string | number | null | undefined)[]) =>
     row.map((cell) => {
       if (cell === null || cell === undefined) return "-"
       if (typeof cell === "number") return formatIdNumber(cell)
       return String(cell)
-    }),
-  )
+    })
 
-  autoTable(pdf, {
-    startY: cursorY,
-    head: [columns],
-    body: formattedRows,
-    styles: {
-      font: "helvetica",
-      fontSize: 8,
-      cellPadding: { top: 2.5, right: 3, bottom: 2.5, left: 3 },
-      textColor: [...DARK],
-      lineColor: [...BORDER],
-      lineWidth: 0.2,
-      overflow: "linebreak",
-    },
-    headStyles: {
-      fillColor: [...BPS_BLUE],
-      textColor: [...WHITE],
-      fontStyle: "bold",
-      fontSize: 8,
-      halign: "left",
-    },
-    alternateRowStyles: {
-      fillColor: [...GRAY_LIGHT],
-    },
-    columnStyles: {
-      // Auto-detect column alignment:
-      // - Year headers (e.g. "2017", "2018") → right-aligned
-      // - "Nilai" / "Value" / "Jumlah" → right-aligned + bold
-      // - First column (label) → left-aligned (default)
-      ...columns.reduce((acc, col, i) => {
-        const isYear = /^\d{4}$/.test(col.trim())
-        const isValue = /nilai|value|jumlah/i.test(col)
-        if (isYear || isValue) {
-          acc[i] = { halign: "right" as const, fontStyle: isValue ? "bold" as const : "normal" as const }
-        }
-        return acc
-      }, {} as Record<number, { halign: "right"; fontStyle: "bold" | "normal" }>),
-    },
-    didDrawPage: (data) => {
-      // Re-draw header on new pages
-      if (data.pageNumber > 1) {
-        drawHeader()
+  const columnAlignment = (cols: string[]) =>
+    cols.reduce((acc, col, i) => {
+      const isYear = /^\d{4}$/.test(col.trim())
+      const isValue = /nilai|value|jumlah/i.test(col)
+      if (isYear || isValue) {
+        acc[i] = { halign: "right" as const, fontStyle: isValue ? "bold" as const : "normal" as const }
       }
-    },
-    // Reserve space for header & footer on subsequent pages
-    margin: { top: headerHeight + 6, left: marginX, right: marginX, bottom: footerHeight + 4 },
-  })
+      return acc
+    }, {} as Record<number, { halign: "right"; fontStyle: "bold" | "normal" }>)
+
+  let lastTableY = cursorY
+
+  // Main summary table (when columns/rows provided)
+  if (columns && columns.length && rows) {
+    autoTable(pdf, {
+      startY: cursorY,
+      head: [columns],
+      body: rows.map(fmtRow),
+      styles: {
+        font: "helvetica",
+        fontSize: 8,
+        cellPadding: { top: 2.5, right: 3, bottom: 2.5, left: 3 },
+        textColor: [...DARK],
+        lineColor: [...BORDER],
+        lineWidth: 0.2,
+        overflow: "linebreak",
+      },
+      headStyles: {
+        fillColor: [...BPS_BLUE],
+        textColor: [...WHITE],
+        fontStyle: "bold",
+        fontSize: 8,
+        halign: "left",
+      },
+      alternateRowStyles: {
+        fillColor: [...GRAY_LIGHT],
+      },
+      columnStyles: columnAlignment(columns),
+      didDrawPage: (data) => {
+        if (data.pageNumber > 1) {
+          drawHeader()
+        }
+      },
+      margin: { top: headerHeight + 6, left: marginX, right: marginX, bottom: footerHeight + 4 },
+    })
+    // jspdf-autotable exposes the last-drawn table (incl. finalY) on the doc
+    // object — its return value is void.
+    lastTableY = (pdf as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? lastTableY
+  }
+
+  // Detail data tables — one per section (e.g. per compared table)
+  if (detailTables && detailTables.length) {
+    for (const t of detailTables) {
+      if (!t.columns.length) continue
+      let startY = lastTableY + 10
+      if (startY > pageH - footerHeight - 40) {
+        pdf.addPage()
+        drawHeader()
+        startY = headerHeight + 10
+      }
+      if (t.title) {
+        pdf.setFont("helvetica", "bold")
+        pdf.setFontSize(10)
+        pdf.setTextColor(...DARK)
+        const titleLines = pdf.splitTextToSize(t.title, contentW)
+        pdf.text(titleLines, marginX, startY + 4)
+        startY += titleLines.length * 5 + 4
+      }
+      autoTable(pdf, {
+        startY,
+        head: [t.columns],
+        body: t.rows.map(fmtRow),
+        styles: {
+          font: "helvetica",
+          fontSize: 7.5,
+          cellPadding: { top: 2, right: 3, bottom: 2, left: 3 },
+          textColor: [...DARK],
+          lineColor: [...BORDER],
+          lineWidth: 0.2,
+          overflow: "linebreak",
+        },
+        headStyles: {
+          fillColor: [...BPS_BLUE],
+          textColor: [...WHITE],
+          fontStyle: "bold",
+          fontSize: 7.5,
+          halign: "left",
+        },
+        alternateRowStyles: {
+          fillColor: [...GRAY_LIGHT],
+        },
+        columnStyles: columnAlignment(t.columns),
+        didDrawPage: (data) => {
+          if (data.pageNumber > 1) {
+            drawHeader()
+          }
+        },
+        margin: { top: headerHeight + 6, left: marginX, right: marginX, bottom: footerHeight + 4 },
+      })
+      lastTableY = (pdf as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? lastTableY
+    }
+  }
 
   // ── Draw footer on all pages ──
   const totalPages = pdf.getNumberOfPages()
