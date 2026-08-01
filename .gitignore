@@ -23,6 +23,9 @@ DATA PUBLIKASI BPS.xlsx
 extract.py
 extract_bab2.py
 
+# Windows backup tooling binary (downloadable from rclone.org)
+scripts/rclone.exe
+
 # AI agent tooling (not part of the product repo)
 .agent/
 .agents/
