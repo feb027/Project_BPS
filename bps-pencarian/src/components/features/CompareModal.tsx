@@ -61,11 +61,14 @@ function CompareTableSection({ item, onRemove, yearRange, onReportRange }: Secti
     setSelectedMetric((cur) => {
       if (cur && metrics.includes(cur)) return cur
       if (item.metricHint) {
-        const base = (s: string) => (s || "").toLowerCase().replace(/\(.*\)/g, "").replace(/\s+/g, " ").trim()
-        const hintBase = base(item.metricHint)
+        // Order-insensitive word-set match: "Jumlah Murid (SMA)" must match
+        // metric "Murid Jumlah" (BPS names often reorder the words).
+        const base = (s: string) => (s || "").toLowerCase().replace(/\(.*\)/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim()
+        const hintWords = base(item.metricHint).split(" ").filter(Boolean)
         const byHint = metrics.find((m) => {
-          const mb = base(m)
-          return mb === hintBase || mb.includes(hintBase) || hintBase.includes(mb)
+          if (hintWords.length === 0) return false
+          const mWords = new Set(base(m).split(" ").filter(Boolean))
+          return hintWords.every((w) => mWords.has(w))
         })
         if (byHint) return byHint
       }
