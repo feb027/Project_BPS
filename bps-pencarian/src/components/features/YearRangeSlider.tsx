@@ -1,4 +1,4 @@
-import { useCallback } from "react"
+import { useCallback, useState } from "react"
 
 interface YearRangeSliderProps {
   min: number
@@ -15,6 +15,8 @@ interface YearRangeSliderProps {
  * under `.yr-slider` (WebKit + Mozilla pseudo-elements can't be set inline).
  */
 export function YearRangeSlider({ min, max, value, onChange, disabled }: YearRangeSliderProps) {
+  const [activeThumb, setActiveThumb] = useState<"lo" | "hi" | null>(null)
+
   const safeMin = Math.min(min, max)
   const safeMax = Math.max(min, max)
 
@@ -50,12 +52,16 @@ export function YearRangeSlider({ min, max, value, onChange, disabled }: YearRan
   const loPct = ((lo - safeMin) / span) * 100
   const hiPct = ((hi - safeMin) / span) * 100
 
+  // Dynamic z-index so overlapping thumbs don't trap each other
+  const loZ = activeThumb === "lo" ? 10 : lo === safeMax ? 3 : lo === hi ? 1 : 2
+  const hiZ = activeThumb === "hi" ? 10 : hi === safeMin ? 3 : lo === hi ? 2 : 1
+
   return (
     <div className="yr-slider min-w-[170px] max-w-[220px]">
       <div className="relative h-4">
         <div className="absolute top-1/2 h-1 w-full -translate-y-1/2 rounded-full bg-muted" />
         <div
-          className="absolute top-1/2 h-1 -translate-y-1/2 rounded-full bg-primary"
+          className="absolute top-1/2 h-1 -translate-y-1/2 rounded-full bg-primary transition-all duration-75"
           style={{ left: `${loPct}%`, width: `${Math.max(hiPct - loPct, 0)}%` }}
         />
         <input
@@ -67,8 +73,12 @@ export function YearRangeSlider({ min, max, value, onChange, disabled }: YearRan
           disabled={disabled}
           aria-label="Tahun awal"
           onChange={(e) => handleLo(Number(e.target.value))}
+          onMouseDown={() => setActiveThumb("lo")}
+          onTouchStart={() => setActiveThumb("lo")}
+          onFocus={() => setActiveThumb("lo")}
+          onBlur={() => setActiveThumb(null)}
           className="cursor-pointer"
-          style={{ zIndex: 2 }}
+          style={{ zIndex: loZ }}
         />
         <input
           type="range"
@@ -79,8 +89,12 @@ export function YearRangeSlider({ min, max, value, onChange, disabled }: YearRan
           disabled={disabled}
           aria-label="Tahun akhir"
           onChange={(e) => handleHi(Number(e.target.value))}
+          onMouseDown={() => setActiveThumb("hi")}
+          onTouchStart={() => setActiveThumb("hi")}
+          onFocus={() => setActiveThumb("hi")}
+          onBlur={() => setActiveThumb(null)}
           className="cursor-pointer"
-          style={{ zIndex: 1 }}
+          style={{ zIndex: hiZ }}
         />
       </div>
       <div className="mt-0.5 flex items-center justify-between text-[10px] font-medium text-muted-foreground leading-none">
@@ -91,3 +105,4 @@ export function YearRangeSlider({ min, max, value, onChange, disabled }: YearRan
     </div>
   )
 }
+
