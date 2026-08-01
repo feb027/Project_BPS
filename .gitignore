@@ -38,3 +38,6 @@ skills-lock.json
 .windsurf/
 
 .hermes/desktop-attachments/*.xlsx
+
+# Playwright MCP snapshots
+.playwright-mcp/
