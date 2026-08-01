@@ -36,7 +36,7 @@
     </div>
     <div class="field">
       <label class="field__label" for="publication_year">Publication Year</label>
-      <input id="publication_year" type="number" value="2027" min="2010" max="2099" />
+      <input id="publication_year" type="number" value="2027" min="2027" max="2099" />
     </div>
   </div>
 
@@ -168,7 +168,12 @@
 
       if (!response.ok) {
         var text = await response.text().catch(function () { return ''; });
-        showStatus('Gagal generate template: ' + (text || response.status), 'error');
+        var msg = text;
+        try {
+          var parsed = JSON.parse(text);
+          if (parsed && parsed.error) msg = parsed.error;
+        } catch (e) { /* not JSON — show raw */ }
+        showStatus('Gagal generate template: ' + (msg || response.status), 'error');
         return;
       }
 

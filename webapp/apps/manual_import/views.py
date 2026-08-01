@@ -319,13 +319,47 @@ def generate_template(request):
         except (ValueError, TypeError):
             return Response({"error": "bab_id harus angka."}, status=status.HTTP_400_BAD_REQUEST)
 
-    builder = ManualImportTemplateBuilder(
-        publication_year=publication_year,
-        bab_id=bab_id,
-    )
-    workbook = builder.build()
+    if publication_year <= MASTER_YEAR:
+        return Response(
+            {
+                "error": (
+                    f"Template hanya bisa dibuat untuk tahun di atas {MASTER_YEAR} "
+                    f"(master). Tahun {publication_year} sudah tercakup data master, "
+                    "tidak perlu diimpor manual."
+                )
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
-    workbook.save(f"/tmp/manual_import_template_{publication_year}.xlsx")
+    try:
+        builder = ManualImportTemplateBuilder(
+            publication_year=publication_year,
+            bab_id=bab_id,
+        )
+        workbook = builder.build()
+        workbook.save(f"/tmp/manual_import_template_{publication_year}.xlsx")
+    except IndexError:
+        # openpyxl "At least one sheet must be visible" → bab tanpa tabel di master
+        return Response(
+            {
+                "error": (
+                    "Tidak ada tabel untuk bab ini di master "
+                    f"{MASTER_YEAR}. Pilih bab lain atau 'Semua Bab'."
+                )
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    except ValueError as e:
+        return Response(
+            {"error": f"Tahun publikasi tidak valid: {e}"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    except Exception as e:
+        return Response(
+            {"error": f"Gagal menyiapkan template ({type(e).__name__}): {e}"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     with open(f"/tmp/manual_import_template_{publication_year}.xlsx", "rb") as f:
         data = f.read()
 
