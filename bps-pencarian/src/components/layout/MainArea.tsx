@@ -139,7 +139,7 @@ export function MainArea({ query, setSelectedItem, browseOpen, onToggleBrowse, i
 
   return (
     <main className="flex-1 bg-muted/20 overflow-y-auto w-full relative">
-      <header className="h-16 border-b border-border bg-card flex items-center justify-between px-8 sticky top-0 z-10 shadow-sm">
+      <header className="h-16 border-b border-border bg-card flex items-center justify-between px-4 md:px-8 sticky top-0 z-10 shadow-sm">
         <div className="flex items-center gap-4">
           <div className="h-8 w-8 rounded bg-primary/10 flex items-center justify-center text-primary">
             <Search className="h-4 w-4" />
@@ -159,7 +159,7 @@ export function MainArea({ query, setSelectedItem, browseOpen, onToggleBrowse, i
         )}
       </header>
 
-      <div className="p-8 max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
         {query.length < 2 ? (
           <EmptyPanel
             icon="search"

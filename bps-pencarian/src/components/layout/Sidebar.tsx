@@ -1,5 +1,6 @@
 
 import { SearchInput } from "../features/SearchInput"
+import { JenisDataChips } from "../features/JenisDataChips"
 
 interface SidebarProps {
   query: string
@@ -8,16 +9,9 @@ interface SidebarProps {
   onFilterTipe: (tipe: string) => void
 }
 
-const TIPE_OPTIONS = [
-  { value: "all", label: "Semua" },
-  { value: "kecamatan", label: "Per Kecamatan" },
-  { value: "kabupaten", label: "Per Kabupaten" },
-  { value: "kategori", label: "Per Kategori" },
-]
-
 export function Sidebar({ query, setQuery, filterTipe, onFilterTipe }: SidebarProps) {
   return (
-    <aside className="w-80 shrink-0 border-r border-border bg-card/50 backdrop-blur-sm flex flex-col h-full shadow-sm z-10 transition-all duration-300">
+    <aside className="hidden md:flex md:w-80 shrink-0 border-r border-border bg-card/50 backdrop-blur-sm flex-col h-full shadow-sm z-10 transition-all duration-300">
       <div className="p-6 border-b border-border flex flex-col gap-1">
         <h1 className="text-xl font-semibold tracking-tight text-primary">Data Publikasi BPS</h1>
         <p className="text-xs text-muted-foreground">Sistem Pencarian & Ekstraksi Time-Series</p>
@@ -35,23 +29,7 @@ export function Sidebar({ query, setQuery, filterTipe, onFilterTipe }: SidebarPr
             <p className="text-xs text-muted-foreground -mt-1">
               Saring tabel di katalog dan hasil pencarian.
             </p>
-            <div className="flex flex-wrap gap-1.5">
-              {TIPE_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => onFilterTipe(opt.value)}
-                  aria-pressed={filterTipe === opt.value}
-                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors border ${
-                    filterTipe === opt.value
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-background text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
+            <JenisDataChips filterTipe={filterTipe} onFilterTipe={onFilterTipe} />
           </div>
         </div>
       </div>

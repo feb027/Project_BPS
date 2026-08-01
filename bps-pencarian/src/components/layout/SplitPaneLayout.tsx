@@ -2,7 +2,9 @@ import { useState, useDeferredValue, Suspense, lazy, useCallback, useEffect } fr
 import { Sidebar } from "./Sidebar"
 import { MainArea } from "./MainArea"
 import { CatalogBrowser, type CatalogSelection } from "../features/CatalogBrowser"
-import { Loader2, Columns2, Trash2 } from "lucide-react"
+import { SearchInput } from "../features/SearchInput"
+import { JenisDataChips } from "../features/JenisDataChips"
+import { Loader2, Columns2, Trash2, PanelLeft } from "lucide-react"
 import type { CompareItem } from "../features/CompareModal"
 
 const ChartModal = lazy(() => import("../features/ChartModal").then((module) => ({ default: module.ChartModal })))
@@ -110,49 +112,81 @@ export function SplitPaneLayout() {
   const browseOpen = hasQuery ? showBrowse : true
 
   // No query: browse fills the whole main view. Querying: the panel is a
-  // fixed-width rail that animates width + slide.
+  // fixed-width rail that animates width + slide. On mobile (<md) the rail is
+  // full width and the Sidebar is replaced by the mobile header.
   const wrapperClass = hasQuery
-    ? `shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out motion-reduce:transition-none ${browseOpen ? "w-96" : "w-0"}`
+    ? `shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out motion-reduce:transition-none ${browseOpen ? "w-full md:w-96" : "w-0"}`
     : "flex-1 min-w-0"
   const innerClass = hasQuery
-    ? `h-full w-96 transition-transform duration-300 ease-in-out motion-reduce:transition-none ${browseOpen ? "translate-x-0" : "-translate-x-full"}`
+    ? `h-full w-full md:w-96 transition-transform duration-300 ease-in-out motion-reduce:transition-none ${browseOpen ? "translate-x-0" : "-translate-x-full"}`
     : "h-full"
 
   return (
-    <div className="flex h-screen w-full bg-background overflow-hidden text-foreground">
-      <Sidebar query={query} setQuery={setQuery} filterTipe={filterTipe} onFilterTipe={setFilterTipe} />
-      <div className={wrapperClass}>
-        <div className={innerClass}>
-          <CatalogBrowser
-            onOpenTabel={openTabel}
-            fill={!hasQuery}
-            onClose={hasQuery ? () => setShowBrowse(false) : undefined}
-            compareItems={compareItems}
-            inCompare={inCompare}
-            onToggleCompare={toggleCompare}
-            filterTipe={filterTipe}
-          />
+    <div className="flex h-screen w-full flex-col bg-background overflow-hidden text-foreground">
+      {/* Mobile header (hidden on md+) — replaces the Sidebar on small screens */}
+      <div className="md:hidden border-b border-border bg-card px-4 py-2.5 flex flex-col gap-2 z-20 shrink-0">
+        <div className="flex items-center gap-3">
+          <h1 className="text-sm font-semibold tracking-tight text-primary whitespace-nowrap">
+            Data BPS
+          </h1>
+          <div className="flex-1 min-w-0">
+            <SearchInput query={query} setQuery={setQuery} />
+          </div>
+          {hasQuery && (
+            <button
+              type="button"
+              onClick={() => setShowBrowse((v) => !v)}
+              aria-pressed={showBrowse}
+              className="shrink-0 inline-flex items-center gap-1 rounded-md border border-border bg-background px-2.5 py-2 text-xs font-semibold text-foreground hover:bg-muted transition-colors"
+            >
+              <PanelLeft className="h-3.5 w-3.5" />
+              {showBrowse ? "Hasil" : "Jelajahi"}
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground shrink-0">
+            Jenis Data:
+          </span>
+          <JenisDataChips filterTipe={filterTipe} onFilterTipe={setFilterTipe} />
         </div>
       </div>
-      {hasQuery && (
-        <div className="flex-1 overflow-hidden relative flex flex-col">
-          <MainArea
-            query={deferredQuery}
-            setSelectedItem={setSelectedItem}
-            browseOpen={showBrowse}
-            onToggleBrowse={() => setShowBrowse((v) => !v)}
-            inCompare={inCompare}
-            onToggleCompare={toggleCompare}
-            onAutoCompare={autoCompare}
-            filterTipe={filterTipe}
-          />
+
+      <div className="flex flex-1 min-h-0">
+        <Sidebar query={query} setQuery={setQuery} filterTipe={filterTipe} onFilterTipe={setFilterTipe} />
+        <div className={wrapperClass}>
+          <div className={innerClass}>
+            <CatalogBrowser
+              onOpenTabel={openTabel}
+              fill={!hasQuery}
+              onClose={hasQuery ? () => setShowBrowse(false) : undefined}
+              compareItems={compareItems}
+              inCompare={inCompare}
+              onToggleCompare={toggleCompare}
+              filterTipe={filterTipe}
+            />
+          </div>
         </div>
-      )}
+        {hasQuery && (
+          <div className="flex-1 overflow-hidden relative flex flex-col">
+            <MainArea
+              query={deferredQuery}
+              setSelectedItem={setSelectedItem}
+              browseOpen={showBrowse}
+              onToggleBrowse={() => setShowBrowse((v) => !v)}
+              inCompare={inCompare}
+              onToggleCompare={toggleCompare}
+              onAutoCompare={autoCompare}
+              filterTipe={filterTipe}
+            />
+          </div>
+        )}
+      </div>
 
       {compareItems.length > 0 && !compareOpen && (
-        <div className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2">
+        <div className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2 max-w-[calc(100vw-1.5rem)]">
           <div className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 shadow-lg animate-in slide-in-from-bottom-4 duration-200">
-            <Columns2 className="h-4 w-4 text-accent" />
+            <Columns2 className="h-4 w-4 shrink-0 text-accent" />
             <span className="text-xs font-semibold text-foreground whitespace-nowrap">
               {compareItems.length} tabel dipilih
             </span>
