@@ -346,6 +346,16 @@ def _quick_topic_matches(query, limit=12):
         points = 0
         if indicator_name == query_norm:
             points += 120
+        # Whole-phrase matches beat mere keyword overlap: "luas daerah"
+        # must rank "Luas Daerah Menurut Kecamatan" (tabel 1.1.1, indikator
+        # "Luas Wilayah") above "Luas Panen Komoditas Daerah", whose name
+        # merely contains both words. A table title carrying the full query
+        # phrase is the strongest signal after an exact indicator-name
+        # match; an indicator name containing the phrase is second.
+        if query_norm in titles:
+            points += 100
+        if query_norm in indicator_name and indicator_name != query_norm:
+            points += 90
         if all(term in indicator_name for term in terms):
             points += 80
         if all(term in haystack for term in terms):
