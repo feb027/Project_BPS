@@ -496,14 +496,63 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
       }))
   }, [allRows, selectedMetric, selectedDim, dimension, yearFilter])
 
+  // Pivot for the on-screen table tab: one row per member, one column per
+  // year, unit merged into each value cell (same shape as the exports).
+  const tablePivot = useMemo(() => {
+    if (selectedDim.size === 0) {
+      return { header: [DIM_LABEL[dimension]] as string[], body: [] as { member: string; cells: string[] }[] }
+    }
+    const filtered = allRows
+      .filter((row) => metricKey(row) === selectedMetric)
+      .filter((row) => selectedDim.has(dimensionValue(row, dimension)))
+      .filter(yearFilter)
+    const unit = normUnit(filtered.find((r) => r.unit)?.unit)
+    const years = Array.from(new Set(filtered.map((r) => String(r.tahun)).filter(Boolean))).sort()
+    const members = Array.from(selectedDim).sort()
+    const lookup: Record<string, Record<string, number | string | null>> = {}
+    for (const r of filtered) {
+      const m = dimensionValue(r, dimension)
+      const y = String(r.tahun)
+      if (!lookup[m]) lookup[m] = {}
+      lookup[m][y] = getValue(r)
+    }
+    return {
+      header: [DIM_LABEL[dimension], ...years],
+      body: members.map((m) => ({
+        member: m,
+        cells: years.map((y) => {
+          const v = lookup[m]?.[y]
+          return v !== null && v !== undefined && v !== "" ? formatCompactNumber(v, unit) : "-"
+        }),
+      })),
+    }
+  }, [allRows, selectedMetric, selectedDim, dimension, yearFilter])
+
   const handleExportExcel = useCallback(() => {
     if (exportRows.length === 0) return
-    const worksheet = XLSX.utils.json_to_sheet(exportRows)
+    const dimLabel = dimension === "wilayah" ? "Wilayah" : "Rincian"
+    const years = Array.from(new Set(exportRows.map((r) => String(r.Tahun)))).sort()
+    const members = Array.from(new Set(exportRows.map((r) => String(r[dimLabel as keyof typeof r] ?? "-")))).sort()
+    const lookup: Record<string, Record<string, number | string>> = {}
+    for (const r of exportRows) {
+      const m = String(r[dimLabel as keyof typeof r] ?? "-")
+      const y = String(r.Tahun)
+      if (!lookup[m]) lookup[m] = {}
+      lookup[m][y] = r.Nilai
+    }
+    const unit = exportRows.find((r) => r.Satuan)?.Satuan || ""
+    const cell = (v: number | string | undefined) =>
+      v === null || v === undefined || v === ""
+        ? "-"
+        : `${typeof v === "number" ? new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(v) : v}${unit ? ` ${unit}` : ""}`
+    const header = [dimLabel, ...years]
+    const body = members.map((m) => [m, ...years.map((y) => cell(lookup[m]?.[y]))])
+    const worksheet = XLSX.utils.aoa_to_sheet([header, ...body])
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, worksheet, "Data")
     const sel = selectedDim.size > 0 ? `_${Array.from(selectedDim).join("-")}` : ""
     XLSX.writeFile(workbook, `${safeFileName(item.title)}${sel}.xlsx`)
-  }, [exportRows, item.title, selectedDim])
+  }, [exportRows, item.title, selectedDim, dimension])
 
   const handleExportPDF = useCallback(async () => {
     if (exportRows.length === 0) return
@@ -931,35 +980,39 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
               ) : (
                 <div className="rounded-md border border-border bg-background overflow-hidden flex-1">
                   <div className="max-h-[58vh] overflow-auto">
-                    <table className="w-full min-w-[760px] text-sm">
+                    <table className="w-full text-sm">
                       <thead className="sticky top-0 bg-background z-10 shadow-[0_1px_0_hsl(var(--border))]">
                         <tr>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tahun</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">{DIM_LABEL[dimension]}</th>
-                          <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Nilai</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Rincian</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            {DIM_LABEL[dimension]}
+                          </th>
+                          {tablePivot.header.slice(1).map((year) => (
+                            <th
+                              key={year}
+                              className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap"
+                            >
+                              {year}
+                            </th>
+                          ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {allRows
-                          .filter((row: any) => metricKey(row) === selectedMetric)
-                          .filter((row: any) => selectedDim.has(dimensionValue(row, dimension)))
-                          .filter((row: any) => yearFilter(row))
-                          .map((row: any) => (
-                            <tr key={row.id} className="border-b border-border last:border-0 hover:bg-muted/30">
-                              <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.tahun ?? "-"}</td>
-                              <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap">{dimensionValue(row, dimension) || "-"}</td>
-                              <td className="px-4 py-3 text-right font-semibold text-foreground whitespace-nowrap">
-                                {formatCompactNumber(getValue(row), row.unit && normUnit(row.unit) ? normUnit(row.unit) : undefined)}
+                        {tablePivot.body.map((row) => (
+                          <tr key={row.member} className="border-b border-border last:border-0 hover:bg-muted/30">
+                            <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap">{row.member}</td>
+                            {row.cells.map((cell, i) => (
+                              <td
+                                key={i}
+                                className="px-4 py-3 text-right font-semibold text-foreground whitespace-nowrap"
+                              >
+                                {cell}
                               </td>
-                              <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.rincian_nama && row.rincian_nama !== "-" ? row.rincian_nama : "-"}</td>
-                              <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.flag || "ada"}</td>
-                            </tr>
-                          ))}
-                        {selectedDim.size === 0 && (
+                            ))}
+                          </tr>
+                        ))}
+                        {tablePivot.body.length === 0 && (
                           <tr>
-                            <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                            <td colSpan={Math.max(tablePivot.header.length, 2)} className="px-4 py-8 text-center text-sm text-muted-foreground">
                               Pilih minimal satu {DIM_LABEL[dimension].toLowerCase()} untuk menampilkan tabel.
                             </td>
                           </tr>
