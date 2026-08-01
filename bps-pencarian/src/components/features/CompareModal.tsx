@@ -5,7 +5,7 @@ import * as XLSX from "xlsx"
 import html2canvas from "html2canvas-pro"
 import { exportProfessionalPdf } from "../../lib/pdfExport"
 import { useCatalogSeries, type CatalogSeriesRow } from "../../lib/api"
-import { cleanTitle } from "../../lib/utils"
+import { shortTitleForExport } from "../../lib/utils"
 import { YearRangeSlider } from "./YearRangeSlider"
 import { canonRincian, chartColors, formatCompactNumber, metricKey } from "./ChartModal"
 
@@ -63,6 +63,38 @@ export interface SectionExportRows {
   title: string
   metric: string
   rows: Record<string, unknown>[]
+}
+
+const fmtVal = (v: unknown) => {
+  if (v === null || v === undefined || v === "") return "-"
+  const n = Number(v)
+  if (Number.isNaN(n)) return String(v)
+  return new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(n)
+}
+
+// Pivot export rows: one row per member (wilayah/rincian), one column per
+// year — far easier to read than long-format rows that repeat the year for
+// every member. The satuan is merged into each value cell.
+function buildPivot(rows: Record<string, unknown>[]) {
+  if (!rows.length) return { header: ["Wilayah / Rincian"], body: [] as string[][], unit: "" }
+  const first = rows[0]
+  const dimKey = first && first["Wilayah"] ? "Wilayah" : "Rincian"
+  const unit = String((rows.find((r) => r.Satuan)?.Satuan) || "").trim()
+  const years = Array.from(new Set(rows.map((r) => String(r.Tahun)))).sort()
+  const members = Array.from(new Set(rows.map((r) => String(r[dimKey] ?? "-")))).sort()
+  const lookup: Record<string, Record<string, unknown>> = {}
+  for (const r of rows) {
+    const m = String(r[dimKey] ?? "-")
+    const y = String(r.Tahun)
+    if (!lookup[m]) lookup[m] = {}
+    lookup[m][y] = r.Nilai
+  }
+  const cell = (v: unknown) => `${fmtVal(v)}${unit ? ` ${unit}` : ""}`
+  return {
+    header: ["Wilayah / Rincian", ...years],
+    body: members.map((m) => [m, ...years.map((y) => cell(lookup[m]?.[y] ?? "-"))]),
+    unit,
+  }
 }
 
 function CompareTableSection({ item, index, onRemove, yearRange, onReportRange, onRowsReady }: SectionProps) {
@@ -278,7 +310,7 @@ function CompareTableSection({ item, index, onRemove, yearRange, onReportRange, 
       <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
         <span className="font-mono text-xs font-semibold text-primary">{item.nomor_tabel}</span>
         <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground" title={item.title}>
-          {cleanTitle(item.title)}
+          {shortTitleForExport(item.title)}
         </h3>
         {metrics.length > 1 && (
           <select
@@ -502,18 +534,27 @@ export function CompareModal({ items, onClose, onRemove }: CompareModalProps) {
     setSel([Math.max(mn, mx - 4), mx])
   }, [dataBounds])
 
+  const rangeStr = effectiveRange ? `${effectiveRange[0]}-${effectiveRange[1]}` : "semua-tahun"
+
   const exportExcel = useCallback(() => {
     const entries = Object.values(rowsRef.current).filter((e) => e.rows.length > 0)
     if (entries.length === 0) return
     const wb = XLSX.utils.book_new()
-    const summary = entries.map((e) => ({ Tabel: e.nomor, Metrik: e.metric, "Baris Data": e.rows.length }))
+    const summary = entries.map((e, i) => ({
+      No: i + 1,
+      Tabel: e.nomor,
+      Judul: shortTitleForExport(e.title),
+      Indikator: e.metric,
+      "Baris Data": e.rows.length,
+    }))
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), "Ringkasan")
     entries.forEach((e, i) => {
       const sheetName = `T${i + 1}_${e.nomor.replace(/[\\/?*[\]:]/g, "_")}`.slice(0, 31)
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(e.rows), sheetName)
+      const pivot = buildPivot(e.rows)
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([pivot.header, ...pivot.body]), sheetName)
     })
-    XLSX.writeFile(wb, `lihat_${items.length}_tabel.xlsx`)
-  }, [items.length])
+    XLSX.writeFile(wb, `data_bps_tasikmalaya_${rangeStr}_${entries.length}tabel.xlsx`)
+  }, [rangeStr])
 
   const exportPDF = useCallback(async () => {
     const entries = Object.values(rowsRef.current).filter((e) => e.rows.length > 0)
@@ -540,27 +581,28 @@ export function CompareModal({ items, onClose, onRemove }: CompareModalProps) {
       }
     }
 
-    const yearText = effectiveRange ? `${effectiveRange[0]}–${effectiveRange[1]}` : ""
+    const totalRows = entries.reduce((s, e) => s + e.rows.length, 0)
+    const tabelList = entries.map((e) => e.nomor).join(", ")
     await exportProfessionalPdf({
-      title: `Lihat ${items.length} Tabel`,
-      subtitle: `Rentang tahun ${yearText || "-"} • ${entries.reduce((s, e) => s + e.rows.length, 0)} baris data`,
-      fileName: `lihat_${items.length}_tabel`,
-      // One full section per table: real table title (no 'Tabel' prefix),
-      // big chart, and the actual values without the Status column.
-      chartSections: entries.map((e, i) => ({
-        title: `${e.nomor} — ${e.title}`,
-        subtitle: `Indikator: ${e.metric}`,
-        chartImageDataUrl: chartUrls[i],
-        columns: ["Tahun", "Wilayah/Rincian", "Nilai", "Satuan"],
-        rows: e.rows.map((r) => [
-          r.Tahun,
-          (r as Record<string, unknown>)["Wilayah"] ?? (r as Record<string, unknown>)["Rincian"] ?? "-",
-          r.Nilai,
-          r.Satuan,
-        ] as (string | number | null | undefined)[]),
-      })),
+      title: "Data BPS Kabupaten Tasikmalaya",
+      subtitle: `Rentang tahun ${rangeStr.replace("-", "–")} • ${entries.length} tabel (${tabelList}) • ${totalRows} baris data`,
+      fileName: `data_bps_tasikmalaya_${rangeStr}_${entries.length}tabel`,
+      orientation: "landscape",
+      // One full section per table: real table title (no 'Tabel' prefix, cut
+      // at 'di Kabupaten Tasikmalaya'), big chart, and a readable pivot
+      // (member x year) with the satuan merged into the values.
+      chartSections: entries.map((e, i) => {
+        const pivot = buildPivot(e.rows)
+        return {
+          title: `${e.nomor} — ${shortTitleForExport(e.title)}`,
+          subtitle: `Indikator: ${e.metric}${pivot.unit ? ` • Satuan: ${pivot.unit}` : ""}`,
+          chartImageDataUrl: chartUrls[i],
+          columns: pivot.header,
+          rows: pivot.body,
+        }
+      }),
     })
-  }, [items.length, effectiveRange])
+  }, [rangeStr])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
