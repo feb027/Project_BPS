@@ -90,11 +90,24 @@ function timestamp(): string {
 
 // ─── Public API ─────────────────────────────────────────────────────
 export interface PdfExportTable {
-  /** Section/table title shown above the table (e.g. "Tabel 4.1.7 — Murid Jumlah") */
+  /** Section/table title shown above the table (e.g. "4.1.7 — Jumlah Sekolah, Guru, dan Murid SMA") */
   title?: string
   /** Column headers */
   columns: string[]
   /** Data rows — values aligned to columns */
+  rows: (string | number | null | undefined)[][]
+}
+
+export interface PdfExportChartSection {
+  /** Section title (table number + full title) */
+  title?: string
+  /** Optional indicator label shown under the title */
+  subtitle?: string
+  /** Chart image for THIS section (PNG data URL) */
+  chartImageDataUrl?: string
+  /** Data table columns */
+  columns: string[]
+  /** Data table rows */
   rows: (string | number | null | undefined)[][]
 }
 
@@ -103,9 +116,9 @@ export interface PdfExportOptions {
   title: string
   /** Optional subtitle (e.g. selected indicator) */
   subtitle?: string
-  /** Main summary columns (optional when detailTables are used) */
+  /** Main summary columns (optional when detailTables/chartSections are used) */
   columns?: string[]
-  /** Main summary rows (optional when detailTables are used) */
+  /** Main summary rows (optional when detailTables/chartSections are used) */
   rows?: (string | number | null | undefined)[][]
   /** File name (without .pdf) */
   fileName: string
@@ -115,6 +128,8 @@ export interface PdfExportOptions {
   orientation?: "portrait" | "landscape"
   /** One data table per section (e.g. per compared table), rendered after the chart image */
   detailTables?: PdfExportTable[]
+  /** Full per-section pages: each with its own (big) chart image + data table */
+  chartSections?: PdfExportChartSection[]
 }
 
 export async function exportProfessionalPdf(opts: PdfExportOptions) {
@@ -127,6 +142,7 @@ export async function exportProfessionalPdf(opts: PdfExportOptions) {
     chartImageDataUrl,
     orientation,
     detailTables,
+    chartSections,
   } = opts
 
   // Auto-detect orientation: ≥5 columns → landscape
@@ -223,42 +239,32 @@ export async function exportProfessionalPdf(opts: PdfExportOptions) {
   cursorY += 6
 
   // ── Chart image (if provided) ──
-  if (chartImageDataUrl) {
-    const chartMaxW = contentW
-    const chartMaxH = orient === "landscape" ? 80 : 100
-
-    // Determine aspect ratio from the data URL by loading into an Image
+  const drawChartImage = async (dataUrl: string, maxH: number) => {
     const img = new Image()
-    img.src = chartImageDataUrl
+    img.src = dataUrl
     await new Promise<void>((resolve) => {
       img.onload = () => resolve()
       img.onerror = () => resolve()
     })
-
+    if (!img.naturalWidth || !img.naturalHeight) return cursorY
     const aspect = img.naturalWidth / img.naturalHeight
-    let chartW = chartMaxW
+    let chartW = contentW
     let chartH = chartW / aspect
-    if (chartH > chartMaxH) {
-      chartH = chartMaxH
+    if (chartH > maxH) {
+      chartH = maxH
       chartW = chartH * aspect
     }
-
-    // Check if chart fits on current page, otherwise add a new page
     if (cursorY + chartH + 10 > pageH - footerHeight) {
       pdf.addPage()
       drawHeader()
       cursorY = headerHeight + 8
     }
+    pdf.addImage(dataUrl, "PNG", marginX + (contentW - chartW) / 2, cursorY, chartW, chartH)
+    return cursorY + chartH + 6
+  }
 
-    pdf.addImage(
-      chartImageDataUrl,
-      "PNG",
-      marginX + (contentW - chartW) / 2,
-      cursorY,
-      chartW,
-      chartH,
-    )
-    cursorY += chartH + 6
+  if (chartImageDataUrl) {
+    cursorY = await drawChartImage(chartImageDataUrl, orient === "landscape" ? 80 : 100)
   }
 
   // ── Data tables ──
@@ -370,6 +376,77 @@ export async function exportProfessionalPdf(opts: PdfExportOptions) {
         margin: { top: headerHeight + 6, left: marginX, right: marginX, bottom: footerHeight + 4 },
       })
       lastTableY = (pdf as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? lastTableY
+    }
+  }
+
+  // ── Full per-section pages: big chart + data table each ──
+  if (chartSections && chartSections.length) {
+    for (const sec of chartSections) {
+      // Section title (start on a fresh page if not enough room left)
+      if (cursorY > pageH - footerHeight - 45) {
+        pdf.addPage()
+        drawHeader()
+        cursorY = headerHeight + 8
+      }
+      if (sec.title) {
+        pdf.setFont("helvetica", "bold")
+        pdf.setFontSize(12)
+        pdf.setTextColor(...DARK)
+        const titleLines = pdf.splitTextToSize(sec.title, contentW)
+        pdf.text(titleLines, marginX, cursorY + 4)
+        cursorY += titleLines.length * 6 + 4
+      }
+      if (sec.subtitle) {
+        pdf.setFont("helvetica", "normal")
+        pdf.setFontSize(9)
+        pdf.setTextColor(...GRAY_MED)
+        const subLines = pdf.splitTextToSize(sec.subtitle, contentW)
+        pdf.text(subLines, marginX, cursorY + 2)
+        cursorY += subLines.length * 4 + 3
+      }
+
+      // Big chart for this section (up to ~120mm tall — far larger than the
+      // old single composed image that shrank every chart)
+      if (sec.chartImageDataUrl) {
+        cursorY = await drawChartImage(sec.chartImageDataUrl, 120)
+      }
+
+      // Data table for this section (auto-paginates to following pages)
+      if (sec.columns.length) {
+        autoTable(pdf, {
+          startY: cursorY,
+          head: [sec.columns],
+          body: sec.rows.map(fmtRow),
+          styles: {
+            font: "helvetica",
+            fontSize: 8,
+            cellPadding: { top: 2, right: 3, bottom: 2, left: 3 },
+            textColor: [...DARK],
+            lineColor: [...BORDER],
+            lineWidth: 0.2,
+            overflow: "linebreak",
+          },
+          headStyles: {
+            fillColor: [...BPS_BLUE],
+            textColor: [...WHITE],
+            fontStyle: "bold",
+            fontSize: 8,
+            halign: "left",
+          },
+          alternateRowStyles: {
+            fillColor: [...GRAY_LIGHT],
+          },
+          columnStyles: columnAlignment(sec.columns),
+          didDrawPage: (data) => {
+            if (data.pageNumber > 1) {
+              drawHeader()
+            }
+          },
+          margin: { top: headerHeight + 6, left: marginX, right: marginX, bottom: footerHeight + 4 },
+        })
+        cursorY = (pdf as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? cursorY
+      }
+      cursorY += 10
     }
   }
 

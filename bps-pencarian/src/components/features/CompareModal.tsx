@@ -55,11 +55,12 @@ interface SectionProps {
   onRemove: () => void
   yearRange: [number, number] | null
   onReportRange: (min: number, max: number) => void
-  onRowsReady: (index: number, payload: { nomor: string; metric: string; rows: Record<string, unknown>[] }) => void
+  onRowsReady: (index: number, payload: { nomor: string; title: string; metric: string; rows: Record<string, unknown>[] }) => void
 }
 
 export interface SectionExportRows {
   nomor: string
+  title: string
   metric: string
   rows: Record<string, unknown>[]
 }
@@ -221,13 +222,17 @@ function CompareTableSection({ item, index, onRemove, yearRange, onReportRange, 
           : row.wilayah_nama,
         Nilai: row.nilai ?? row.nilai_teks ?? "-",
         Satuan: (row.unit || "").trim(),
-        Status: row.flag || "ada",
       }))
   }, [metricRows, isRincianDim, members, yearRange])
 
   useEffect(() => {
-    onRowsReady(index, { nomor: item.nomor_tabel, metric: selectedMetric, rows: sectionExportRows })
-  }, [index, item.nomor_tabel, selectedMetric, sectionExportRows, onRowsReady])
+    onRowsReady(index, {
+      nomor: item.nomor_tabel,
+      title: item.title,
+      metric: selectedMetric,
+      rows: sectionExportRows,
+    })
+  }, [index, item.nomor_tabel, item.title, selectedMetric, sectionExportRows, onRowsReady])
 
   const renderTooltip = (props: any) => {
     const { active, payload, label } = props
@@ -514,40 +519,24 @@ export function CompareModal({ items, onClose, onRemove }: CompareModalProps) {
     const entries = Object.values(rowsRef.current).filter((e) => e.rows.length > 0)
     if (entries.length === 0) return
 
-    // Capture EVERY section's chart and compose them into one tall canvas —
-    // html2canvas on the scrollable container itself only captures the
-    // visible viewport (so >2 tables used to lose their charts).
-    let chartImageDataUrl: string | undefined
-    if (sectionsRef.current) {
+    // Capture EVERY section's chart individually (html2canvas on the
+    // scrollable container only renders the visible viewport). Each chart
+    // stays its own image so the PDF can render them BIG, one per section —
+    // not scaled down into a single composed thumbnail.
+    const sectionEls = sectionsRef.current
+      ? Array.from(sectionsRef.current.querySelectorAll("section"))
+      : []
+    const chartUrls: (string | undefined)[] = []
+    for (const el of sectionEls) {
       try {
-        const sectionEls = Array.from(sectionsRef.current.querySelectorAll("section"))
-        const canvases: HTMLCanvasElement[] = []
-        for (const el of sectionEls) {
-          const c = await html2canvas(el as HTMLElement, {
-            scale: 2,
-            backgroundColor: "#ffffff",
-            useCORS: true,
-          })
-          canvases.push(c)
-        }
-        if (canvases.length) {
-          const maxW = Math.max(...canvases.map((c) => c.width))
-          const totalH = canvases.reduce((s, c) => s + c.height, 0)
-          const out = document.createElement("canvas")
-          out.width = maxW
-          out.height = totalH
-          const ctx = out.getContext("2d")
-          if (ctx) {
-            let y = 0
-            for (const c of canvases) {
-              ctx.drawImage(c, 0, y)
-              y += c.height
-            }
-            chartImageDataUrl = out.toDataURL("image/png")
-          }
-        }
+        const canvas = await html2canvas(el as HTMLElement, {
+          scale: 2,
+          backgroundColor: "#ffffff",
+          useCORS: true,
+        })
+        chartUrls.push(canvas.toDataURL("image/png"))
       } catch {
-        // Chart capture failed — export table-only PDF
+        chartUrls.push(undefined)
       }
     }
 
@@ -556,18 +545,18 @@ export function CompareModal({ items, onClose, onRemove }: CompareModalProps) {
       title: `Lihat ${items.length} Tabel`,
       subtitle: `Rentang tahun ${yearText || "-"} • ${entries.reduce((s, e) => s + e.rows.length, 0)} baris data`,
       fileName: `lihat_${items.length}_tabel`,
-      chartImageDataUrl,
-      // One data table per section with the actual values (not a useless
-      // summary of Tabel/Indikator/Baris Data).
-      detailTables: entries.map((e) => ({
-        title: `Tabel ${e.nomor} — ${e.metric}`,
-        columns: ["Tahun", "Wilayah/Rincian", "Nilai", "Satuan", "Status"],
+      // One full section per table: real table title (no 'Tabel' prefix),
+      // big chart, and the actual values without the Status column.
+      chartSections: entries.map((e, i) => ({
+        title: `${e.nomor} — ${e.title}`,
+        subtitle: `Indikator: ${e.metric}`,
+        chartImageDataUrl: chartUrls[i],
+        columns: ["Tahun", "Wilayah/Rincian", "Nilai", "Satuan"],
         rows: e.rows.map((r) => [
           r.Tahun,
           (r as Record<string, unknown>)["Wilayah"] ?? (r as Record<string, unknown>)["Rincian"] ?? "-",
           r.Nilai,
           r.Satuan,
-          r.Status,
         ] as (string | number | null | undefined)[]),
       })),
     })
