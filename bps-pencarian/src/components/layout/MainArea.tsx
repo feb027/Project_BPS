@@ -118,6 +118,7 @@ export function MainArea({ query, setSelectedItem, browseOpen, onToggleBrowse, i
     ? detectedWilayahs
     : (quickObservationSubjects.length > 0 ? quickObservationSubjects : quickComparisonSubjects)
   const hasDirectAnswer = Boolean(primaryQuickMatch && directAnswerSubject)
+  const tooGeneric = data?.search_hint === "too_generic"
   const resultCount = (tabelResults?.length ?? 0) + (data?.indikator?.length ?? 0)
   const hasData = Boolean(data && (resultCount > 0 || quickMatches.length > 0))
 
@@ -209,7 +210,16 @@ export function MainArea({ query, setSelectedItem, browseOpen, onToggleBrowse, i
                 </button>
               </div>
             )}
-            {hasDirectAnswer && primaryQuickMatch && directAnswerSubject ? (
+            {tooGeneric ? (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 p-5">
+                <h3 className="text-base font-semibold text-amber-900">Pencarian terlalu umum</h3>
+                <p className="mt-1.5 text-sm text-amber-800">
+                  Kata kunci <strong>“{query}”</strong> terlalu umum — hasilnya bisa menampilkan data yang
+                  tidak kamu maksud. Tambahkan kata kunci lain, misalnya: <em>jumlah penduduk</em>,{" "}
+                  <em>luas wilayah</em>, <em>produksi padi</em>, atau nama kecamatan.
+                </p>
+              </div>
+            ) : hasDirectAnswer && primaryQuickMatch && directAnswerSubject ? (
               <InlineTimeSeriesAnswer
                 match={primaryQuickMatch}
                 subjectName={directAnswerSubject}

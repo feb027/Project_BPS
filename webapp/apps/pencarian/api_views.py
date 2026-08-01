@@ -163,6 +163,18 @@ def _merge_by_id(primary, extra):
 
 SHORT_INTENT_TERMS = {"ra", "tk", "sd", "mi", "ma"}
 QUERY_STOPWORDS = {"di", "ke", "dan", "yang", "untuk", "dari"}
+# Single-word queries that are too generic to answer directly. Searching
+# "jumlah" or "penduduk" would surface an arbitrary first match (e.g.
+# "Jumlah Air") because the word appears in hundreds of indicator names.
+# The API signals this to the frontend via search_hint="too_generic" so it
+# can show a "coba lebih spesifik" message instead of a misleading card.
+GENERIC_SEARCH_TERMS = {
+    "jumlah", "total", "banyak", "banyaknya", "data", "indikator", "tabel",
+    "publikasi", "tahun", "wilayah", "kecamatan", "kabupaten", "kota",
+    "provinsi", "penduduk", "luas", "produksi", "nilai", "jenis", "rincian",
+    "satuan", "rata", "rata-rata", "daftar", "rekapitulasi", "persentase",
+    "perkembangan", "angka",
+}
 
 
 def _query_terms(query):
@@ -1281,7 +1293,17 @@ class FacetedSearchAPIView(APIView):
             if detected_wilayahs else None
         )
         search_query = _query_without_wilayahs(query, detected_wilayahs)
-        quick_matches = _quick_match_cascade(search_query, detected_wilayah, detected_wilayahs)
+        query_terms = _query_terms(search_query)
+        too_generic = len(query_terms) == 1 and query_terms[0] in GENERIC_SEARCH_TERMS
+        if too_generic:
+            # "jumlah" / "penduduk" / "luas" alone are too generic to answer
+            # directly — any single match (e.g. "Jumlah Air") is misleading.
+            # Skip the quick-match cascade; the frontend shows a "coba lebih
+            # spesifik" hint instead. Table/indicator candidates below still
+            # list everything that contains the term.
+            quick_matches = []
+        else:
+            quick_matches = _quick_match_cascade(search_query, detected_wilayah, detected_wilayahs)
 
         # Multi-concept queries ("murid sma + guru sma", "murid sma dan guru
         # sma"): run the matcher per concept and return the top match of each
@@ -1354,6 +1376,7 @@ class FacetedSearchAPIView(APIView):
             "interpreted_query": search_query,
             "quick_matches": quick_matches,
             "multi_concepts": multi_concepts,
+            "search_hint": "too_generic" if too_generic else None,
         })
 
 class TimeSeriesAPIView(APIView):
