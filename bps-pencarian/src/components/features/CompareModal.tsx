@@ -275,12 +275,12 @@ function CompareTableSection({ item, index, onRemove, yearRange, onReportRange, 
     return (
       <div
         style={{
-          backgroundColor: "hsl(var(--card))",
-          border: "1px solid hsl(var(--border))",
+          backgroundColor: "var(--color-card)",
+          border: "1px solid var(--color-border)",
           borderRadius: "0.375rem",
           padding: "8px 10px",
           fontSize: "0.75rem",
-          color: "hsl(var(--foreground))",
+          color: "var(--color-foreground)",
           boxShadow: "0 4px 12px rgba(0,0,0,0.12)",
         }}
       >
@@ -455,18 +455,18 @@ function CompareTableSection({ item, index, onRemove, yearRange, onReportRange, 
         ) : (
           <ResponsiveContainer width="100%" height={240}>
             <LineChart data={chartData.points} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" />
               <XAxis
                 dataKey="tahun"
                 axisLine={false}
                 tickLine={false}
-                tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+                tick={{ fill: "var(--color-muted-foreground)", fontSize: 11 }}
               />
               <YAxis
                 axisLine={false}
                 tickLine={false}
                 width={64}
-                tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+                tick={{ fill: "var(--color-muted-foreground)", fontSize: 11 }}
                 tickFormatter={(value) => formatCompactNumber(value)}
               />
               <Tooltip content={renderTooltip} />

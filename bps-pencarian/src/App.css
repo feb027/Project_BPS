@@ -22,8 +22,8 @@
   width: 14px;
   height: 14px;
   border-radius: 9999px;
-  background: hsl(var(--primary));
-  border: 2px solid hsl(var(--background));
+  background: var(--color-primary);
+  border: 2px solid var(--color-background);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
   cursor: pointer;
   pointer-events: auto;
@@ -32,8 +32,8 @@
   width: 14px;
   height: 14px;
   border-radius: 9999px;
-  background: hsl(var(--primary));
-  border: 2px solid hsl(var(--background));
+  background: var(--color-primary);
+  border: 2px solid var(--color-background);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
   cursor: pointer;
   pointer-events: auto;

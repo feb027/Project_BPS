@@ -690,12 +690,12 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
     return (
       <div
         style={{
-          backgroundColor: "hsl(var(--card))",
-          border: "1px solid hsl(var(--border))",
+          backgroundColor: "var(--color-card)",
+          border: "1px solid var(--color-border)",
           borderRadius: "0.375rem",
           padding: "8px 10px",
           fontSize: "0.75rem",
-          color: "hsl(var(--foreground))",
+          color: "var(--color-foreground)",
           boxShadow: "0 4px 12px rgba(0,0,0,0.12)",
         }}
       >
@@ -942,18 +942,18 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                   ) : (
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={chartData.points} margin={{ top: 12, right: 16, left: 0, bottom: 8 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" />
                         <XAxis
                           dataKey="tahun"
                           axisLine={false}
                           tickLine={false}
-                          tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
+                          tick={{ fill: "var(--color-muted-foreground)", fontSize: 12 }}
                         />
                         <YAxis
                           axisLine={false}
                           tickLine={false}
                           width={72}
-                          tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
+                          tick={{ fill: "var(--color-muted-foreground)", fontSize: 12 }}
                           tickFormatter={(value) => formatCompactNumber(value)}
                         />
                         <Tooltip
@@ -981,7 +981,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                 <div className="rounded-md border border-border bg-background overflow-hidden flex-1">
                   <div className="max-h-[58vh] overflow-auto">
                     <table className="w-full text-sm">
-                      <thead className="sticky top-0 bg-background z-10 shadow-[0_1px_0_hsl(var(--border))]">
+                      <thead className="sticky top-0 bg-background z-10 shadow-[0_1px_0_var(--color-border)]">
                         <tr>
                           <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                             {DIM_LABEL[dimension]}
