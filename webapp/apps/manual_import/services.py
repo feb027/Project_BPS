@@ -171,7 +171,12 @@ class ManualImportTemplateBuilder:
             headers = ["wilayah_id", "nama_wilayah"]
 
         for k in koloms:
-            headers.append(k.indikator.nama)
+            nama = k.indikator.nama
+            # Kolom per-tahun (e.g. "Sarana Perdagangan" dengan tahun 2023/2024/2025)
+            # harus punya header unik agar tidak bertabrakan saat import ulang.
+            if k.tahun:
+                nama = f"{nama} ({k.tahun})"
+            headers.append(nama)
         ws.append(headers)
 
         # ── Rows ────────────────────────────────────────────────────

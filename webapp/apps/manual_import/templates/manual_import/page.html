@@ -4,85 +4,154 @@
 {% block heading %}Import Manual{% endblock %}
 
 {% block content %}
-<div class="manual-import">
-  <div class="manual-import__header">
+<style>
+  /* ── Manual Import UI (konsisten dengan design system base) ───────── */
+  [hidden] { display: none !important; }
+
+  .mi-wrap { max-width: 980px; }
+
+  .mi-hero {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap;
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 20px 24px; margin-bottom: 16px;
+  }
+  .mi-hero h2 { margin: 0 0 6px; font-size: 18px; color: var(--ink); font-weight: 700; }
+  .mi-hero p { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.55; max-width: 560px; }
+  .mi-hero__actions { display: flex; gap: 10px; align-items: center; }
+
+  .mi-form {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 18px 24px; margin-bottom: 16px;
+  }
+  .mi-field { display: flex; flex-direction: column; gap: 6px; }
+  .mi-field label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .mi-field select, .mi-field input {
+    font: 500 14px var(--sans); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 6px; padding: 9px 12px;
+    background: #fff; width: 100%; box-sizing: border-box; transition: border-color .15s, box-shadow .15s;
+  }
+  .mi-field select:focus, .mi-field input:focus {
+    outline: none; border-color: var(--accent-2);
+    box-shadow: 0 0 0 3px rgba(59,130,246,.15);
+  }
+  .mi-hint { font-size: 12px; color: var(--muted); }
+
+  #status { margin: 0 0 16px; padding: 13px 18px; border-radius: var(--radius); font-size: 14px; font-weight: 600; line-height: 1.45; border: 1px solid transparent; }
+  #status.status--success { background: #ECFDF5; color: #065F46; border-color: #A7F3D0; }
+  #status.status--error   { background: #FEF2F2; color: #991B1B; border-color: #FECACA; }
+  #status.status--info    { background: #EFF6FF; color: #1E40AF; border-color: #BFDBFE; }
+
+  /* Preview */
+  .mi-preview__title { font-size: 15px; font-weight: 700; color: var(--ink); margin: 4px 0 14px; }
+
+  .pv-banner { border-radius: var(--radius); padding: 16px 20px; display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+  .pv-banner__icon { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; color: #fff; flex: none; }
+  .pv-banner__title { color: #fff; font-weight: 600; font-size: 15px; }
+  .pv-banner__sub { color: rgba(255,255,255,.85); font-size: 13px; margin-top: 2px; }
+
+  .pv-errors { margin: -6px 0 16px; padding: 12px 16px; background: #FFF8F0; border: 1px solid #FDE68A; border-radius: 6px; font-size: 12px; }
+  .pv-errors__head { font-weight: 700; margin-bottom: 4px; }
+  .pv-errors ul { margin: 0; padding-left: 16px; }
+  .pv-errors li { padding: 1px 0; }
+
+  .pv-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .pv-stat {
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 14px 16px; border-top: 3px solid var(--accent-2); position: relative;
+  }
+  .pv-stat--ok { border-top-color: var(--ok); }
+  .pv-stat__value { font: 700 20px var(--mono); color: var(--ink); line-height: 1.3; }
+  .pv-stat__label { font-size: 11px; color: var(--muted); margin-top: 3px; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+
+  .pv-table-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 14px; overflow: hidden; }
+  .pv-table-card__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 18px; background: #F8FAFC; border-bottom: 1px solid var(--line); }
+  .pv-table-card__id { background: #E0E7FF; color: #1E40AF; border-radius: 6px; padding: 3px 10px; font: 600 12px var(--mono); }
+  .pv-table-card__name { font-weight: 600; font-size: 14px; color: var(--ink-2); }
+  .pv-badge { border-radius: 20px; padding: 3px 12px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .pv-badge--ok  { background: #D1FAE5; color: #065F46; }
+  .pv-badge--err { background: #FEE2E2; color: #991B1B; }
+  .pv-table-card__stats { display: flex; padding: 12px 18px; border-bottom: 1px solid #F1F5F9; }
+  .pv-table-card__stat { flex: 1; text-align: center; }
+  .pv-table-card__stat + .pv-table-card__stat { border-left: 1px solid #F1F5F9; }
+  .pv-table-card__stat b { display: block; font: 700 15px var(--mono); color: var(--ink); }
+  .pv-table-card__stat span { font-size: 11px; color: var(--muted); }
+  .pv-table-card__msg { padding: 8px 18px; font-size: 12px; border-bottom: 1px solid var(--line); }
+  .pv-table-card__msg--err { background: #FEF2F2; color: #991B1B; }
+  .pv-table-card__msg--warn { background: #FFFBEB; color: #92400E; }
+
+  .pv-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .pv-table th { padding: 7px 10px; text-align: left; font-weight: 600; color: #475569; background: #F1F5F9; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .pv-table th.num, .pv-table td.num { text-align: right; }
+  .pv-table td { padding: 6px 10px; border-bottom: 1px solid #F1F5F9; color: #334155; white-space: nowrap; }
+  .pv-table tbody tr:nth-child(even) { background: #FAFBFC; }
+  .pv-table td.empty-val { color: #CBD5E1; }
+  .pv-note { padding: 6px 10px; background: #FAFBFC; font-size: 11px; color: var(--muted); text-align: center; border-top: 1px solid #F1F5F9; }
+
+  .mi-commit {
+    margin-top: 20px; padding: 18px 24px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: var(--radius);
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  }
+  .mi-commit__title { font-weight: 700; font-size: 14px; color: var(--ink); }
+  .mi-commit__sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .mi-commit__btn { font: 600 14px var(--sans); }
+  #btn-commit:disabled { cursor: wait; opacity: .65; }
+
+  @media (max-width: 640px) {
+    .mi-form { grid-template-columns: 1fr; }
+    .mi-hero { flex-direction: column; align-items: stretch; }
+    .mi-hero__actions { justify-content: stretch; }
+    .mi-hero__actions .btn { flex: 1; text-align: center; }
+  }
+</style>
+
+<div class="mi-wrap">
+  <div class="mi-hero">
     <div>
-      <h2 class="manual-import__title">Import Manual</h2>
-      <p class="manual-import__subtitle">
-        Unggah file Excel hasil pengisian manual untuk divalidasi dan disimpan ke dalam sistem.<br>
-        Pilih Bab, unduh template, isi data per-tabel, upload, lalu commit.
-      </p>
+      <h2>Import Data Manual</h2>
+      <p>Unduh template sesuai bab, isi datanya di Excel, lalu unggah untuk divalidasi dan disimpan ke database.</p>
     </div>
-    <div class="manual-import__actions">
-      <button id="btn-generate-template" type="button" class="btn btn--secondary">
-        Unduh Template
-      </button>
-      <label class="btn btn--primary">
-        Pilih File Excel
+    <div class="mi-hero__actions">
+      <button id="btn-generate-template" type="button" class="btn btn--ghost">Unduh Template</button>
+      <label class="btn btn--accent" style="cursor:pointer;">
+        Pilih File
         <input id="upload-file" type="file" accept=".xlsx,.xls" hidden />
       </label>
     </div>
   </div>
 
-  <div class="manual-import__form">
-    <div class="field">
-      <label class="field__label" for="bab_id">Pilih Bab</label>
-      <select id="bab_id" class="field__select">
+  <div class="mi-form">
+    <div class="mi-field">
+      <label for="bab_id">Pilih Bab</label>
+      <select id="bab_id">
         <option value="">-- Semua Bab --</option>
         {% for bab in bab_list %}
         <option value="{{ bab.id }}">BAB {{ bab.nomor }} — {{ bab.nama }}</option>
         {% endfor %}
       </select>
     </div>
-    <div class="field">
-      <label class="field__label" for="publication_year">Publication Year</label>
+    <div class="mi-field">
+      <label for="publication_year">Tahun Publikasi</label>
       <input id="publication_year" type="number" value="2027" min="1996" max="2099" />
+      <span class="mi-hint">Template bisa dibuat untuk tahun 1996 ke atas.</span>
     </div>
   </div>
 
   <div id="status" class="manual-import__status" hidden></div>
 
-  <style>
-    #status {
-      margin: 16px 0;
-      padding: 14px 18px;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 600;
-      line-height: 1.45;
-      border: 1px solid transparent;
-    }
-    #status.status--success {
-      background: #ECFDF5;
-      color: #065F46;
-      border-color: #A7F3D0;
-    }
-    #status.status--error {
-      background: #FEF2F2;
-      color: #991B1B;
-      border-color: #FECACA;
-    }
-    #status.status--info {
-      background: #EFF6FF;
-      color: #1E40AF;
-      border-color: #BFDBFE;
-    }
-    #btn-commit:disabled {
-      cursor: wait;
-    }
-  </style>
-
-  <div id="preview" class="manual-import__preview" hidden>
-    <h3 class="manual-import__preview-title">Preview</h3>
-    <div id="preview-validation" class="manual-import__validation"></div>
-    <div id="preview-summary" class="manual-import__summary"></div>
-    <div id="preview-tables" class="manual-import__tables"></div>
-    <div class="manual-import__commit-bar" style="margin-top:24px;padding:20px 24px;background:#fff;border:1px solid #E2E8F0;border-radius:8px;display:flex;align-items:center;justify-content:space-between;gap:16px">
+  <div id="preview" class="mi-preview" hidden>
+    <h3 class="mi-preview__title">Preview Data</h3>
+    <div id="preview-validation"></div>
+    <div id="preview-summary"></div>
+    <div id="preview-tables"></div>
+    <div class="mi-commit">
       <div>
-        <div style="font-weight:600;font-size:14px;color:#1E3A8A">Konfirmasi Import</div>
-        <div style="font-size:12px;color:#64748B;margin-top:2px">Data akan ditulis ke database publikasi 2027. Pastikan semua tabel valid.</div>
+        <div class="mi-commit__title">Simpan ke Database</div>
+        <div class="mi-commit__sub" id="commit-sub">Data akan ditulis ke database publikasi. Pastikan semua tabel valid.</div>
       </div>
-      <button id="btn-commit" type="button" class="btn btn--danger" style="background:#DC2626;color:#fff;border:none;border-radius:6px;padding:10px 24px;font-weight:600;font-size:14px;cursor:pointer;white-space:nowrap">Commit Import</button>
+      <button id="btn-commit" type="button" class="btn btn--danger mi-commit__btn">Import</button>
     </div>
   </div>
 </div>
@@ -143,7 +212,7 @@
     var yearInput = getYearInput();
     var year = yearInput.value.trim();
     if (!year) {
-      showStatus('Isi publication year terlebih dahulu.', 'error');
+      showStatus('Isi tahun publikasi terlebih dahulu.', 'error');
       return;
     }
 
@@ -173,7 +242,7 @@
           var parsed = JSON.parse(text);
           if (parsed && parsed.error) msg = parsed.error;
         } catch (e) { /* not JSON — show raw */ }
-        showStatus('Gagal generate template: ' + (msg || response.status), 'error');
+        showStatus('Gagal menyiapkan template: ' + (msg || response.status), 'error');
         return;
       }
 
@@ -194,7 +263,7 @@
       showStatus('Template berhasil diunduh: ' + a.download, 'success');
     } catch (err) {
       console.error('[manual_import] template error', err);
-      showStatus('Terjadi kesalahan saat generate template.', 'error');
+      showStatus('Terjadi kesalahan saat menyiapkan template.', 'error');
     }
   }
 
@@ -223,7 +292,7 @@
         return null;
       }
 
-      showStatus('Upload berhasil: ' + (data.upload_id || ''), 'success');
+      showStatus('Upload berhasil. Memeriksa data...', 'success');
       return data;
     } catch (err) {
       console.error('[manual_import] upload error', err);
@@ -243,33 +312,37 @@
     var warnings = Array.isArray(validation.warnings) ? validation.warnings : [];
     var isValid = Boolean(validation.is_valid);
 
-    var icon = isValid ? '✓' : '✗';
-    var label = isValid ? 'Data valid, siap di-commit' : 'Data tidak valid';
+    var icon = isValid ? '✓' : '✕';
+    var label = isValid ? 'Data valid, siap diimport' : 'Data tidak valid';
     var bg = isValid ? '#10B981' : '#EF4444';
+    var sub = isValid ? 'Data siap disimpan ke database' : 'Perbaiki error pada file Excel, lalu upload ulang';
 
-    var html = '<div class="pv-banner" style="background:' + bg + ';border-radius:8px;padding:16px 20px;display:flex;align-items:center;gap:14px;margin-bottom:20px">';
-    html += '<span style="font-size:24px;color:#fff;font-weight:700;line-height:1">' + icon + '</span>';
-    html += '<div style="flex:1"><div style="color:#fff;font-weight:600;font-size:15px">' + label + '</div>';
-    html += '<div style="color:rgba(255,255,255,0.85);font-size:13px;margin-top:2px">' + (isValid ? 'Data siap dikirim ke database' : 'Perbaiki error pada file Excel dan upload ulang') + '</div></div>';
-    if (!isValid) {
-      html += '<button onclick="document.getElementById(\'preview-validation\').scrollIntoView()" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.3);color:#fff;border-radius:6px;padding:6px 14px;font-size:12px;cursor:pointer">Lihat Error</button>';
-    }
+    var html = '<div class="pv-banner" style="background:' + bg + '">';
+    html += '<span class="pv-banner__icon">' + icon + '</span>';
+    html += '<div style="flex:1">';
+    html += '<div class="pv-banner__title">' + label + '</div>';
+    html += '<div class="pv-banner__sub">' + sub + '</div>';
+    html += '</div>';
     html += '</div>';
 
     if (errors.length || warnings.length) {
-      html += '<div style="margin:-8px 0 16px;padding:10px 16px;background:#FFF8F0;border:1px solid #FDE68A;border-radius:6px">';
+      html += '<div class="pv-errors">';
       if (errors.length) {
-        html += '<div style="font-weight:600;font-size:13px;color:#DC2626;margin-bottom:4px">⚠ ' + errors.length + ' Error</div>';
+        html += '<div class="pv-errors__head" style="color:#DC2626">⚠ ' + errors.length + ' Error</div>';
+        html += '<ul>';
         errors.forEach(function (item) {
-          html += '<div style="font-size:12px;color:#7F1D1D;padding:2px 0 2px 12px">• ' + escapeHtml(item.detail || item.code || String(item)) + '</div>';
+          html += '<li style="color:#7F1D1D">• ' + escapeHtml(item.detail || item.code || String(item)) + '</li>';
         });
+        html += '</ul>';
       }
       if (warnings.length) {
         if (errors.length) html += '<hr style="border:none;border-top:1px solid #FDE68A;margin:6px 0">';
-        html += '<div style="font-weight:600;font-size:13px;color:#D97706;margin-bottom:4px">⚠ ' + warnings.length + ' Peringatan</div>';
+        html += '<div class="pv-errors__head" style="color:#D97706">⚠ ' + warnings.length + ' Peringatan</div>';
+        html += '<ul>';
         warnings.forEach(function (item) {
-          html += '<div style="font-size:12px;color:#92400E;padding:2px 0 2px 12px">• ' + escapeHtml(item.detail || item.code || String(item)) + '</div>';
+          html += '<li style="color:#92400E">• ' + escapeHtml(item.detail || item.code || String(item)) + '</li>';
         });
+        html += '</ul>';
       }
       html += '</div>';
     }
@@ -282,19 +355,19 @@
     if (!container || !summary) return;
 
     var items = [
-      { icon: '📅', label: 'Tahun Publikasi', value: summary.publication_year },
-      { icon: '📊', label: 'Jumlah Tabel', value: summary.tables_count },
-      { icon: '📝', label: 'Total Baris Data', value: summary.total_data_rows.toLocaleString() },
-      { icon: '📌', label: 'Total Indikator', value: summary.total_indikator_columns },
-      { icon: '🗄️', label: 'Master Tahun', value: summary.master_source_year },
+      { label: 'Tahun Publikasi', value: summary.publication_year, accent: 'ok' },
+      { label: 'Jumlah Tabel', value: summary.tables_count },
+      { label: 'Total Baris Data', value: (summary.total_data_rows || 0).toLocaleString('id-ID') },
+      { label: 'Total Indikator', value: summary.total_indikator_columns },
+      { label: 'Master Tahun', value: summary.master_source_year },
     ];
 
-    var html = '<div class="pv-summary" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:20px">';
+    var html = '<div class="pv-summary">';
     items.forEach(function (item) {
-      html += '<div style="background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:14px 16px;text-align:center">';
-      html += '<div style="font-size:20px;margin-bottom:4px">' + item.icon + '</div>';
-      html += '<div class="num" style="font-size:18px;font-weight:700;color:#1E3A8A;line-height:1.3">' + escapeHtml(String(item.value)) + '</div>';
-      html += '<div style="font-size:11px;color:#64748B;margin-top:2px;text-transform:uppercase;letter-spacing:0.3px">' + escapeHtml(item.label) + '</div>';
+      var cls = item.accent === 'ok' ? 'pv-stat pv-stat--ok' : 'pv-stat';
+      html += '<div class="' + cls + '">';
+      html += '<div class="pv-stat__value">' + escapeHtml(String(item.value)) + '</div>';
+      html += '<div class="pv-stat__label">' + escapeHtml(item.label) + '</div>';
       html += '</div>';
     });
     html += '</div>';
@@ -308,54 +381,51 @@
 
     var tableKeys = Object.keys(tables);
     if (tableKeys.length === 0) {
-      container.innerHTML = '<p class="empty" style="color:#64748B;font-size:14px;text-align:center;padding:32px 0">Tidak ada data tabel.</p>';
+      container.innerHTML = '<p style="color:var(--muted);font-size:14px;text-align:center;padding:28px 0">Tidak ada data tabel.</p>';
       container.hidden = false;
       return;
     }
 
-    var html = '<h4 style="margin:0 0 14px;font-size:16px;font-weight:700;color:#1E3A8A">Detail Per Tabel</h4>';
+    var html = '<h4 style="margin:0 0 12px;font-size:14px;font-weight:700;color:var(--ink)">Detail Per Tabel</h4>';
     tableKeys.forEach(function (key) {
       var table = tables[key];
       var s = table.summary || {};
       var isRincian = table.preview_rows && table.preview_rows.length > 0 && table.preview_rows[0].is_rincian;
       var rowLabel = isRincian ? 'Rincian' : 'Wilayah';
 
-      html += '<div class="pv-table-card" style="background:#fff;border:1px solid #E2E8F0;border-radius:8px;margin-bottom:14px;overflow:hidden">';
+      html += '<div class="pv-table-card">';
 
       // Card header
-      html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;background:#F8FAFC;border-bottom:1px solid #E2E8F0">';
-      html += '<div style="display:flex;align-items:center;gap:10px">';
-      html += '<span style="background:#E0E7FF;color:#1E40AF;border-radius:6px;padding:4px 10px;font-size:12px;font-weight:600">#' + escapeHtml(key) + '</span>';
-      html += '<span style="font-weight:600;font-size:14px;color:#1E3A8A">Tabel ' + escapeHtml(key) + '</span>';
+      html += '<div class="pv-table-card__head">';
+      html += '<div style="display:flex;align-items:center;gap:10px;min-width:0">';
+      html += '<span class="pv-table-card__id">#' + escapeHtml(key) + '</span>';
+      html += '<span class="pv-table-card__name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(table.title || ('Tabel ' + key)) + '</span>';
       html += '</div>';
-      html += '<span style="background:' + (table.valid ? '#D1FAE5' : '#FEE2E2') + ';color:' + (table.valid ? '#065F46' : '#991B1B') + ';border-radius:20px;padding:3px 12px;font-size:12px;font-weight:600">' + (table.valid ? '✓ Valid' : '✗ Error') + '</span>';
+      html += '<span class="pv-badge ' + (table.valid ? 'pv-badge--ok' : 'pv-badge--err') + '">' + (table.valid ? '✓ Valid' : '✕ Error') + '</span>';
       html += '</div>';
 
       // Card stats row
-      html += '<div style="display:flex;gap:0;padding:12px 18px;border-bottom:1px solid #F1F5F9">';
+      html += '<div class="pv-table-card__stats">';
       var stats = [
         { label: 'Baris Data', value: s.data_rows },
         { label: rowLabel + ' Terisi', value: s.rows_present || '-' },
         { label: 'Indikator', value: s.indikator_columns },
       ];
-      stats.forEach(function (st, i) {
-        html += '<div style="flex:1;text-align:center' + (i < stats.length - 1 ? ';border-right:1px solid #F1F5F9' : '') + '">';
-        html += '<div class="num" style="font-size:16px;font-weight:700;color:#1E3A8A">' + st.value + '</div>';
-        html += '<div style="font-size:11px;color:#64748B;margin-top:1px">' + st.label + '</div>';
-        html += '</div>';
+      stats.forEach(function (st) {
+        html += '<div class="pv-table-card__stat"><b>' + escapeHtml(String(st.value)) + '</b><span>' + st.label + '</span></div>';
       });
       html += '</div>';
 
       // Errors/warnings in card
       if (table.errors && table.errors.length) {
-        html += '<div style="padding:8px 18px;background:#FEF2F2;font-size:12px;color:#991B1B;border-bottom:1px solid #FEE2E2">';
+        html += '<div class="pv-table-card__msg pv-table-card__msg--err">';
         table.errors.forEach(function (e) {
           html += '<div>• ' + escapeHtml(e.detail || e.code) + '</div>';
         });
         html += '</div>';
       }
       if (table.warnings && table.warnings.length) {
-        html += '<div style="padding:8px 18px;background:#FFFBEB;font-size:12px;color:#92400E;border-bottom:1px solid #FDE68A">';
+        html += '<div class="pv-table-card__msg pv-table-card__msg--warn">';
         table.warnings.forEach(function (w) {
           html += '<div>• ' + escapeHtml(w.detail || w.code) + '</div>';
         });
@@ -366,39 +436,33 @@
       var previewRows = (table.preview_rows || []).slice(0, 5);
       if (previewRows.length > 0) {
         html += '<div style="overflow-x:auto">';
-        html += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+        html += '<table class="pv-table">';
 
-        // Header row
         var colKeys = Object.keys(previewRows[0].values);
-        html += '<thead><tr style="background:#F1F5F9">';
-        html += '<th style="padding:6px 10px;text-align:left;font-weight:600;color:#475569;border-bottom:1px solid #E2E8F0;white-space:nowrap">' + (isRincian ? 'ID Rincian' : 'ID Wilayah') + '</th>';
-        html += '<th style="padding:6px 10px;text-align:left;font-weight:600;color:#475569;border-bottom:1px solid #E2E8F0;white-space:nowrap">' + (isRincian ? 'Nama Rincian' : 'Nama Wilayah') + '</th>';
+        html += '<thead><tr>';
+        html += '<th>' + (isRincian ? 'ID Rincian' : 'ID Wilayah') + '</th>';
+        html += '<th>' + (isRincian ? 'Nama Rincian' : 'Nama Wilayah') + '</th>';
         colKeys.forEach(function (ck) {
-          html += '<th style="padding:6px 10px;text-align:right;font-weight:600;color:#475569;border-bottom:1px solid #E2E8F0;white-space:nowrap">' + escapeHtml(ck) + '</th>';
+          html += '<th class="num">' + escapeHtml(ck) + '</th>';
         });
         html += '</tr></thead><tbody>';
 
-        // Data rows
-        previewRows.forEach(function (row, ri) {
-          var bg = ri % 2 === 0 ? '#fff' : '#FAFBFC';
-          html += '<tr style="background:' + bg + '">';
-          html += '<td class="num" style="padding:5px 10px;border-bottom:1px solid #F1F5F9;font-weight:600;color:#1E3A8A">' + escapeHtml(String(row.row_id)) + '</td>';
-          html += '<td style="padding:5px 10px;border-bottom:1px solid #F1F5F9;color:#334155">' + escapeHtml(String(row.row_name || '')) + '</td>';
+        previewRows.forEach(function (row) {
+          html += '<tr>';
+          html += '<td class="num" style="font-weight:600;color:var(--ink-2)">' + escapeHtml(String(row.row_id)) + '</td>';
+          html += '<td>' + escapeHtml(String(row.row_name || '')) + '</td>';
           colKeys.forEach(function (ck) {
             var val = row.values[ck];
-            var display = val !== null && val !== undefined && val !== '' ? String(val) : '—';
-            html += '<td class="num" style="padding:5px 10px;border-bottom:1px solid #F1F5F9;text-align:right;color:' + (val === null || val === undefined || val === '' ? '#CBD5E1' : '#334155') + '">' + escapeHtml(display) + '</td>';
+            var isEmpty = val === null || val === undefined || val === '';
+            html += '<td class="num ' + (isEmpty ? 'empty-val' : '') + '">' + (isEmpty ? '—' : escapeHtml(String(val))) + '</td>';
           });
           html += '</tr>';
         });
         html += '</tbody></table>';
 
-        // Row count note
         var totalRows = table.preview_row_count || 0;
         if (totalRows > 5) {
-          html += '<div style="padding:6px 10px;background:#FAFBFC;font-size:11px;color:#64748B;text-align:center;border-top:1px solid #F1F5F9">';
-          html += 'Menampilkan 5 dari ' + totalRows + ' baris';
-          html += '</div>';
+          html += '<div class="pv-note">Menampilkan 5 dari ' + totalRows + ' baris</div>';
         }
         html += '</div>';
       }
@@ -424,8 +488,6 @@
     if (btnCommit) {
       btnCommit.disabled = true;
       btnCommit.textContent = 'Menyimpan...';
-      btnCommit.style.opacity = '0.65';
-      btnCommit.style.cursor = 'wait';
     }
     try {
       var response = await fetch(API_BASE + '/commit/' + uploadId + '/', {
@@ -438,21 +500,19 @@
       var data = {};
       try { data = JSON.parse(text); } catch (_) {}
       if (!response.ok) {
-        showStatus('Commit gagal: ' + (data.error || text || response.status), 'error');
+        showStatus('Import gagal: ' + (data.error || text || response.status), 'error');
         if (btnCommit) {
           btnCommit.disabled = false;
           btnCommit.textContent = originalText;
-          btnCommit.style.opacity = '';
-          btnCommit.style.cursor = '';
         }
         return;
       }
 
-      var pesan = 'Commit berhasil: ' + (data.faktas_inserted || 0) + ' baris baru tersimpan';
+      var pesan = 'Import berhasil: ' + (data.faktas_inserted || 0) + ' baris baru tersimpan';
       if (data.faktas_diperbarui) {
         pesan += ', ' + data.faktas_diperbarui + ' diperbarui';
       }
-      showStatus(pesan + '. Mengalihkan ke tabel data...', 'success');
+      showStatus(pesan + '. Mengalihkan ke data...', 'success');
 
       // Redirect ke halaman tabel/publikasi data yang baru di-import
       setTimeout(function () {
@@ -467,12 +527,10 @@
       }, 1200);
     } catch (err) {
       console.error('[manual_import] commit error', err);
-      showStatus('Terjadi kesalahan saat commit.', 'error');
+      showStatus('Terjadi kesalahan saat import.', 'error');
       if (btnCommit) {
         btnCommit.disabled = false;
         btnCommit.textContent = originalText;
-        btnCommit.style.opacity = '';
-        btnCommit.style.cursor = '';
       }
     }
   }
@@ -483,6 +541,12 @@
     preview.hidden = true;
     var data = await uploadFile(file);
     if (!data || !data.preview) return;
+
+    // Update commit bar sub with target year
+    var commitSub = document.getElementById('commit-sub');
+    if (commitSub) {
+      commitSub.textContent = 'Data akan ditulis ke database publikasi ' + data.preview.publication_year + '. Pastikan semua tabel valid.';
+    }
 
     renderValidation(data.preview.validation);
     renderSummary(data.preview.summary);

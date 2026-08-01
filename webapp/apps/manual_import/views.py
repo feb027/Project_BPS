@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.template.response import TemplateResponse
@@ -28,6 +29,23 @@ _KABUPATEN_IDS = [40]
 
 def _error(reason: str, code: str = "invalid"):
     return {"valid": False, "errors": [{"code": code, "detail": reason}], "warnings": []}
+
+
+# Header kolom template bisa ber-suffix tahun, e.g. "Sarana Perdagangan (2025)".
+# Pisahkan nama indikator dari tahun untuk dicocokkan ke master.
+_LABEL_TAHUN_RE = re.compile(r"^(.*?)\s*\((\d{4})\)\s*$")
+
+
+def _split_label_tahun(label: str) -> tuple[str, int | None]:
+    """Return (indicator_name, tahun) from a template header label.
+
+    "Sarana Perdagangan (2025)" -> ("Sarana Perdagangan", 2025)
+    "Sarana Perdagangan"        -> ("Sarana Perdagangan", None)
+    """
+    m = _LABEL_TAHUN_RE.match(label or "")
+    if m:
+        return m.group(1).strip(), int(m.group(2))
+    return (label or "").strip(), None
 
 
 def _ok():
@@ -128,9 +146,15 @@ def _extract_table_sheet(
 
     row_id_set = set(rincian_map.keys()) if is_rincian_sheet else set(wilayah_map.keys())
 
-    unmatched_labels = []
+    # Map label header -> (indikator_id, tahun) agar commit tahu kolom mana + tahun berapa
+    label_indikator: dict[str, tuple[int | None, int | None]] = {}
     for _, label in indikator_header_indexes:
-        matched_id = next((i for i, info in indikator_map.items() if info["nama"] == label), None)
+        nama, tahun = _split_label_tahun(label)
+        matched_id = next((i for i, info in indikator_map.items() if info["nama"] == nama), None)
+        label_indikator[label] = (matched_id, tahun)
+
+    unmatched_labels = []
+    for label, (matched_id, _tahun) in label_indikator.items():
         if matched_id is None:
             unmatched_labels.append(label)
 
@@ -189,6 +213,7 @@ def _extract_table_sheet(
         "data_rows": data_rows,
         "header": header,
         "indikator_header_indexes": indikator_header_indexes,
+        "label_indikator": label_indikator,
     }
 
 
@@ -246,7 +271,8 @@ def _extract_upload_payload(workbook, publication_year: int):
         matched_tabel_id = None
         for label in header_labels:
             if label and label not in ("", "wilayah_id", "nama_wilayah", "rincian_id", "nama_rincian"):
-                tid = ind_name_to_tabel.get(label)
+                nama, _tahun = _split_label_tahun(label)
+                tid = ind_name_to_tabel.get(nama)
                 if tid is not None:
                     matched_tabel_id = tid
                     break
@@ -549,25 +575,30 @@ def commit(request, pk: str):
 
                 data_rows = table_result["data_rows"]
                 indikator_header_indexes = table_result["indikator_header_indexes"]
+                label_indikator = table_result.get("label_indikator", {})
 
                 for row in data_rows:
                     row_id = row["row_id"]
                     is_rincian = row.get("is_rincian", False)
 
                     for _, label in indikator_header_indexes:
-                        indikator_id = next(
-                            (i for i, info in indikator_map.items() if info["nama"] == label),
-                            None,
-                        )
+                        indikator_id, label_tahun = label_indikator.get(label, (None, None))
                         if indikator_id is None:
                             total_skipped += 1
                             continue
-                        nilai_num = _safe_numeric(row["values"].get(label))
-                        nilai_teks = None if nilai_num is not None else str(row["values"].get(label)).strip()
+                        raw_value = row["values"].get(label)
+                        nilai_num = _safe_numeric(raw_value)
+                        # Sel kosong -> 0 (bukan None / string "None")
+                        if raw_value in (None, ""):
+                            nilai_num = 0
+                        nilai_teks = None if nilai_num is not None else str(raw_value).strip()
 
-                        # Use existing kolom or create with next available urutan
+                        # Kolom per (indikator, tahun): "Sarana Perdagangan (2023/2024/2025)"
+                        # harus jadi 3 kolom terpisah di tabel target.
                         existing = KolomTabel.objects.filter(
-                            tabel=target_tabel, indikator_id=indikator_id
+                            tabel=target_tabel,
+                            indikator_id=indikator_id,
+                            tahun=label_tahun,
                         ).first()
                         if existing:
                             kolom = existing
@@ -581,7 +612,10 @@ def commit(request, pk: str):
                                 tabel=target_tabel,
                                 indikator_id=indikator_id,
                                 urutan=max_urut + 1,
+                                tahun=label_tahun,
                             )
+
+                        fakta_tahun = label_tahun or upload.publication_year
 
                         if is_rincian:
                             _, dibuat = Fakta.objects.update_or_create(
@@ -589,7 +623,7 @@ def commit(request, pk: str):
                                 kolom=kolom,
                                 wilayah=None,
                                 rincian=Rincian.objects.get(id=row_id),
-                                tahun=upload.publication_year,
+                                tahun=fakta_tahun,
                                 defaults={
                                     "nilai_num": nilai_num,
                                     "nilai_teks": nilai_teks or "-",
@@ -602,7 +636,7 @@ def commit(request, pk: str):
                                 kolom=kolom,
                                 wilayah=Wilayah.objects.get(id=row_id),
                                 rincian=None,
-                                tahun=upload.publication_year,
+                                tahun=fakta_tahun,
                                 defaults={
                                     "nilai_num": nilai_num,
                                     "nilai_teks": nilai_teks or "-",
