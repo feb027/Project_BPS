@@ -28,6 +28,7 @@ interface CatalogBrowserProps {
   compareItems: CompareItem[]
   inCompare: (nomorTabel: string) => boolean
   onToggleCompare: (item: CompareItem) => void
+  filterTipe: string
 }
 
 function tipeLabel(tipe: string) {
@@ -82,18 +83,18 @@ function TableCard({
         }}
         title={inCompare ? "Hapus dari perbandingan" : "Tambah ke perbandingan"}
         aria-pressed={inCompare}
-        className={`absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-md border transition-colors ${
+        className={`absolute right-2 top-2 z-10 inline-flex h-7 w-7 items-center justify-center rounded-md border shadow-sm transition-colors ${
           inCompare
             ? "bg-accent border-accent text-white"
-            : "border-border bg-background text-muted-foreground opacity-0 group-hover:opacity-100 hover:border-accent hover:text-accent focus:opacity-100"
+            : "border-accent/60 bg-background text-accent hover:bg-accent hover:text-white"
         }`}
       >
-        {inCompare ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+        {inCompare ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
       </button>
       <div className="mt-0.5 h-8 w-8 shrink-0 rounded-md bg-accent/10 text-accent flex items-center justify-center">
         <FileBarChart className="h-4 w-4" />
       </div>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 pr-8">
         <div className="flex items-baseline gap-2 min-w-0">
           <span className="font-mono text-xs font-semibold text-primary truncate">
             {tabel.nomor_tabel}
@@ -125,17 +126,19 @@ function TableCard({
             <Table2 className="h-3 w-3" /> {tabel.jumlah_publikasi} publikasi · {tabel.jumlah_baris} baris
           </span>
         </div>
+        {punyaData && (
+          <div className="mt-2 flex items-center justify-end border-t border-border/60 pt-2">
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-accent whitespace-nowrap">
+              Lihat grafik →
+            </span>
+          </div>
+        )}
       </div>
-      {punyaData && (
-        <span className="mt-1 shrink-0 text-[11px] font-semibold text-accent whitespace-nowrap">
-          Lihat grafik →
-        </span>
-      )}
     </div>
   )
 }
 
-export function CatalogBrowser({ onOpenTabel, fill, onClose, inCompare, onToggleCompare }: CatalogBrowserProps) {
+export function CatalogBrowser({ onOpenTabel, fill, onClose, inCompare, onToggleCompare, filterTipe }: CatalogBrowserProps) {
   const { data, error, isLoading } = useCatalog(null)
   const [openBabs, setOpenBabs] = useState<Record<number, boolean>>({})
 
@@ -143,6 +146,14 @@ export function CatalogBrowser({ onOpenTabel, fill, onClose, inCompare, onToggle
     setOpenBabs((current) => ({ ...current, [id]: !current[id] }))
 
   const babs = data?.babs ?? []
+
+  // Jenis Data filter from the sidebar (tipe_baris), applied client-side.
+  const filteredBabs =
+    filterTipe === "all"
+      ? babs
+      : babs
+          .map((bab) => ({ ...bab, tabel: bab.tabel.filter((t) => t.tipe_baris === filterTipe) }))
+          .filter((bab) => bab.tabel.length > 0)
 
   return (
     <aside className={`${fill ? "flex-1 min-w-0" : "w-96 shrink-0"} border-r border-border bg-card/40 flex flex-col h-full overflow-hidden`}>
@@ -181,14 +192,14 @@ export function CatalogBrowser({ onOpenTabel, fill, onClose, inCompare, onToggle
             <AlertTriangle className="h-8 w-8 mb-3" />
             <p className="text-sm font-medium">Gagal memuat katalog.</p>
           </div>
-        ) : babs.length === 0 ? (
+        ) : filteredBabs.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground px-6">
             <Layers className="h-8 w-8 mb-3" />
-            <p className="text-sm">Katalog belum tersedia.</p>
+            <p className="text-sm">Tidak ada tabel yang cocok dengan filter Jenis Data.</p>
           </div>
         ) : (
           <div className="space-y-3">
-            {babs.map((bab) => {
+            {filteredBabs.map((bab) => {
               const isOpen = openBabs[bab.id] ?? bab.nomor === 1
               return (
                 <section
@@ -209,7 +220,7 @@ export function CatalogBrowser({ onOpenTabel, fill, onClose, inCompare, onToggle
                       </span>
                     </span>
                     <span className="flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground">
-                      <span>{bab.jumlah_tabel} tabel</span>
+                      <span>{bab.tabel.length} tabel</span>
                       <ChevronDown
                         className={`h-4 w-4 transition-transform duration-200 ${
                           isOpen ? "rotate-180" : ""

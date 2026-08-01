@@ -16,6 +16,7 @@ interface MainAreaProps {
   inCompare: (nomorTabel: string) => boolean
   onToggleCompare: (item: CompareItem) => void
   onAutoCompare: (items: CompareItem[]) => void
+  filterTipe: string
 }
 
 type EmptyPanelProps = {
@@ -67,8 +68,12 @@ function RawResultCard({ children, icon, accent = "primary", onClick, action }: 
   )
 }
 
-export function MainArea({ query, setSelectedItem, browseOpen, onToggleBrowse, inCompare, onToggleCompare, onAutoCompare }: MainAreaProps) {
+export function MainArea({ query, setSelectedItem, browseOpen, onToggleBrowse, inCompare, onToggleCompare, onAutoCompare, filterTipe }: MainAreaProps) {
   const { data, isLoading, error } = useSearch(query)
+
+  const tabelResults = (data?.tabel ?? []).filter(
+    (tab: any) => filterTipe === "all" || tab.tipe_baris === filterTipe
+  )
 
   // Phase 2: multi-concept query ("murid sma + guru sma") — auto-fill the
   // comparison basket with the best table per concept and open it. Guarded by
@@ -113,7 +118,7 @@ export function MainArea({ query, setSelectedItem, browseOpen, onToggleBrowse, i
     ? detectedWilayahs
     : (quickObservationSubjects.length > 0 ? quickObservationSubjects : quickComparisonSubjects)
   const hasDirectAnswer = Boolean(primaryQuickMatch && directAnswerSubject)
-  const resultCount = (data?.tabel?.length ?? 0) + (data?.indikator?.length ?? 0)
+  const resultCount = (tabelResults?.length ?? 0) + (data?.indikator?.length ?? 0)
   const hasData = Boolean(data && (resultCount > 0 || quickMatches.length > 0))
 
   const openIndikator = (id: number, title: string) => setSelectedItem({
@@ -262,7 +267,7 @@ export function MainArea({ query, setSelectedItem, browseOpen, onToggleBrowse, i
                       </RawResultCard>
                     ))}
 
-                    {data.tabel?.map((tab: any) => (
+                    {tabelResults.map((tab: any) => (
                       <RawResultCard
                         key={`tab-${tab.id}`}
                         icon={<FileText className="h-5 w-5" />}

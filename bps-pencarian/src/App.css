@@ -19,8 +19,8 @@
 .yr-slider input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   border-radius: 9999px;
   background: hsl(var(--primary));
   border: 2px solid hsl(var(--background));
@@ -29,8 +29,8 @@
   pointer-events: auto;
 }
 .yr-slider input[type="range"]::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   border-radius: 9999px;
   background: hsl(var(--primary));
   border: 2px solid hsl(var(--background));

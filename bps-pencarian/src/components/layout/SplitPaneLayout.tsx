@@ -43,6 +43,10 @@ export function SplitPaneLayout() {
   // Vercel Best Practice: useDeferredValue for input responsiveness during heavy renders
   const deferredQuery = useDeferredValue(query)
 
+  // Jenis Data filter (sidebar) — applied to the catalog browser and to table
+  // candidates in search results.
+  const [filterTipe, setFilterTipe] = useState("all")
+
   // Modal lives at the layout level so it opens whether the user clicked a
   // browse card (no query) or a search result (has query).
   const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null)
@@ -116,7 +120,7 @@ export function SplitPaneLayout() {
 
   return (
     <div className="flex h-screen w-full bg-background overflow-hidden text-foreground">
-      <Sidebar query={query} setQuery={setQuery} />
+      <Sidebar query={query} setQuery={setQuery} filterTipe={filterTipe} onFilterTipe={setFilterTipe} />
       <div className={wrapperClass}>
         <div className={innerClass}>
           <CatalogBrowser
@@ -126,6 +130,7 @@ export function SplitPaneLayout() {
             compareItems={compareItems}
             inCompare={inCompare}
             onToggleCompare={toggleCompare}
+            filterTipe={filterTipe}
           />
         </div>
       </div>
@@ -139,6 +144,7 @@ export function SplitPaneLayout() {
             inCompare={inCompare}
             onToggleCompare={toggleCompare}
             onAutoCompare={autoCompare}
+            filterTipe={filterTipe}
           />
         </div>
       )}

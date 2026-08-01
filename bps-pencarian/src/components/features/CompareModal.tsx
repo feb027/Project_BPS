@@ -1,6 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
-import { X, Loader2, AlertTriangle, BarChart3, Plus, Check } from "lucide-react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { X, Loader2, AlertTriangle, BarChart3, Plus, Check, FileSpreadsheet, FileText } from "lucide-react"
 import { ResponsiveContainer, LineChart, CartesianGrid, XAxis, YAxis, Tooltip, Legend, Line } from "recharts"
+import * as XLSX from "xlsx"
+import html2canvas from "html2canvas-pro"
+import { exportProfessionalPdf } from "../../lib/pdfExport"
 import { useCatalogSeries, type CatalogSeriesRow } from "../../lib/api"
 import { cleanTitle } from "../../lib/utils"
 import { YearRangeSlider } from "./YearRangeSlider"
@@ -48,12 +51,20 @@ export function pickMetricByHint(metrics: string[], hint?: string): string | und
 
 interface SectionProps {
   item: CompareItem
+  index: number
   onRemove: () => void
   yearRange: [number, number] | null
   onReportRange: (min: number, max: number) => void
+  onRowsReady: (index: number, payload: { nomor: string; metric: string; rows: Record<string, unknown>[] }) => void
 }
 
-function CompareTableSection({ item, onRemove, yearRange, onReportRange }: SectionProps) {
+export interface SectionExportRows {
+  nomor: string
+  metric: string
+  rows: Record<string, unknown>[]
+}
+
+function CompareTableSection({ item, index, onRemove, yearRange, onReportRange, onRowsReady }: SectionProps) {
   const { data, isLoading, error } = useCatalogSeries(item.nomor_tabel)
   const rows = (data?.series ?? []) as CatalogSeriesRow[]
 
@@ -154,6 +165,37 @@ function CompareTableSection({ item, onRemove, yearRange, onReportRange }: Secti
     })
     return m
   }, [chartData.lines])
+
+  // Export rows: metric + year range + selected members (same scope as chart).
+  const sectionExportRows = useMemo(() => {
+    const lo = yearRange ? yearRange[0] : null
+    const hi = yearRange ? yearRange[1] : null
+    return metricRows
+      .filter((row) => {
+        const y = row.tahun
+        if (typeof y !== "number") return false
+        if (lo !== null && y < lo) return false
+        if (hi !== null && y > hi) return false
+        return true
+      })
+      .filter((row) => {
+        const dim = useRincian ? canonRincian(row.rincian_nama) : row.wilayah_nama
+        return !!dim && dim !== "-" && members.includes(dim)
+      })
+      .map((row) => ({
+        Tahun: row.tahun ?? "-",
+        [useRincian ? "Rincian" : "Wilayah"]: useRincian
+          ? canonRincian(row.rincian_nama)
+          : row.wilayah_nama,
+        Nilai: row.nilai ?? row.nilai_teks ?? "-",
+        Satuan: (row.unit || "").trim(),
+        Status: row.flag || "ada",
+      }))
+  }, [metricRows, useRincian, members, yearRange])
+
+  useEffect(() => {
+    onRowsReady(index, { nomor: item.nomor_tabel, metric: selectedMetric, rows: sectionExportRows })
+  }, [index, item.nomor_tabel, selectedMetric, sectionExportRows, onRowsReady])
 
   const renderTooltip = (props: any) => {
     const { active, payload, label } = props
@@ -284,10 +326,19 @@ function CompareTableSection({ item, onRemove, yearRange, onReportRange }: Secti
 export function CompareModal({ items, onClose, onRemove }: CompareModalProps) {
   const [dataBounds, setDataBounds] = useState<[number, number] | null>(null)
   const [sel, setSel] = useState<[number, number] | null>(null)
+  const sectionsRef = useRef<HTMLDivElement>(null)
+  const rowsRef = useRef<Record<number, SectionExportRows>>({})
 
   const reportRange = useCallback((min: number, max: number) => {
     setDataBounds((prev) => (prev ? [Math.min(prev[0], min), Math.max(prev[1], max)] : [min, max]))
   }, [])
+
+  const onRowsReady = useCallback(
+    (index: number, payload: SectionExportRows) => {
+      rowsRef.current[index] = payload
+    },
+    []
+  )
 
   // Default selection = full range; clamp an existing selection when bounds change.
   useEffect(() => {
@@ -313,6 +364,46 @@ export function CompareModal({ items, onClose, onRemove }: CompareModalProps) {
     const [mn, mx] = dataBounds
     setSel([Math.max(mn, mx - 4), mx])
   }, [dataBounds])
+
+  const exportExcel = useCallback(() => {
+    const entries = Object.values(rowsRef.current).filter((e) => e.rows.length > 0)
+    if (entries.length === 0) return
+    const wb = XLSX.utils.book_new()
+    const summary = entries.map((e) => ({ Tabel: e.nomor, Metrik: e.metric, "Baris Data": e.rows.length }))
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), "Ringkasan")
+    entries.forEach((e, i) => {
+      const sheetName = `T${i + 1}_${e.nomor.replace(/[\\/?*[\]:]/g, "_")}`.slice(0, 31)
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(e.rows), sheetName)
+    })
+    XLSX.writeFile(wb, `bandingkan_${items.length}_tabel.xlsx`)
+  }, [items.length])
+
+  const exportPDF = useCallback(async () => {
+    const entries = Object.values(rowsRef.current).filter((e) => e.rows.length > 0)
+    if (entries.length === 0) return
+    let chartImageDataUrl: string | undefined
+    if (sectionsRef.current) {
+      try {
+        const canvas = await html2canvas(sectionsRef.current, {
+          scale: 2,
+          backgroundColor: "#ffffff",
+          useCORS: true,
+        })
+        chartImageDataUrl = canvas.toDataURL("image/png")
+      } catch {
+        // Chart capture failed — export table-only PDF
+      }
+    }
+    const yearText = effectiveRange ? `${effectiveRange[0]}–${effectiveRange[1]}` : ""
+    await exportProfessionalPdf({
+      title: `Perbandingan ${items.length} Tabel`,
+      subtitle: `Rentang tahun ${yearText || "-"} • ${entries.reduce((s, e) => s + e.rows.length, 0)} baris data`,
+      columns: ["Tabel", "Indikator", "Baris Data"],
+      rows: entries.map((e) => [e.nomor, e.metric, e.rows.length]),
+      fileName: `bandingkan_${items.length}_tabel`,
+      chartImageDataUrl,
+    })
+  }, [items.length, effectiveRange])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
@@ -369,14 +460,16 @@ export function CompareModal({ items, onClose, onRemove }: CompareModalProps) {
         )}
 
         {/* Stacked sections */}
-        <div className="flex-1 overflow-auto p-6 flex flex-col gap-5">
+        <div ref={sectionsRef} className="flex-1 overflow-auto p-6 flex flex-col gap-5">
           {items.map((item, idx) => (
             <CompareTableSection
               key={`${idx}-${item.nomor_tabel}`}
               item={item}
+              index={idx}
               onRemove={() => onRemove(item.nomor_tabel)}
               yearRange={effectiveRange}
               onReportRange={reportRange}
+              onRowsReady={onRowsReady}
             />
           ))}
           {items.length === 0 && (
@@ -388,17 +481,35 @@ export function CompareModal({ items, onClose, onRemove }: CompareModalProps) {
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between border-t border-border px-6 py-3">
-          <p className="text-xs text-muted-foreground">
+        <div className="flex items-center justify-between gap-4 border-t border-border px-6 py-3">
+          <p className="min-w-0 flex-1 text-xs text-muted-foreground">
             Setiap grafik punya skala sendiri; rentang tahun disinkronkan agar perbandingan adil.
           </p>
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-4 py-2 text-xs font-semibold text-foreground hover:bg-muted transition-colors"
-          >
-            <Check className="h-3.5 w-3.5" /> Tutup
-          </button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              onClick={exportExcel}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-2 text-xs font-medium text-foreground hover:bg-primary/5 hover:border-primary/50 transition-colors"
+              title="Unduh Excel (satu sheet per tabel)"
+            >
+              <FileSpreadsheet className="h-4 w-4" /> Excel
+            </button>
+            <button
+              type="button"
+              onClick={exportPDF}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-2 text-xs font-medium text-foreground hover:bg-primary/5 hover:border-primary/50 transition-colors"
+              title="Unduh PDF (gambar grafik + ringkasan)"
+            >
+              <FileText className="h-4 w-4" /> PDF
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-4 py-2 text-xs font-semibold text-foreground hover:bg-muted transition-colors"
+            >
+              <Check className="h-3.5 w-3.5" /> Tutup
+            </button>
+          </div>
         </div>
       </div>
     </div>

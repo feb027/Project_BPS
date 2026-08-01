@@ -51,8 +51,8 @@ export function YearRangeSlider({ min, max, value, onChange, disabled }: YearRan
   const hiPct = ((hi - safeMin) / span) * 100
 
   return (
-    <div className="yr-slider min-w-[240px]">
-      <div className="relative h-5">
+    <div className="yr-slider min-w-[170px] max-w-[220px]">
+      <div className="relative h-4">
         <div className="absolute top-1/2 h-1 w-full -translate-y-1/2 rounded-full bg-muted" />
         <div
           className="absolute top-1/2 h-1 -translate-y-1/2 rounded-full bg-primary"
@@ -83,9 +83,10 @@ export function YearRangeSlider({ min, max, value, onChange, disabled }: YearRan
           style={{ zIndex: 1 }}
         />
       </div>
-      <div className="mt-1 flex items-center justify-between text-[11px] font-medium text-muted-foreground">
-        <span>Dari {lo}</span>
-        <span>Sampai {hi}</span>
+      <div className="mt-0.5 flex items-center justify-between text-[10px] font-medium text-muted-foreground leading-none">
+        <span>{lo}</span>
+        <span className="text-muted-foreground/60">—</span>
+        <span>{hi}</span>
       </div>
     </div>
   )

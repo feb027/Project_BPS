@@ -11,7 +11,7 @@ class IndikatorSerializer(serializers.ModelSerializer):
 class TabelSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tabel
-        fields = ['id', 'nomor_tabel', 'nama_ringkas', 'judul', 'sumber', 'tahun_data']
+        fields = ['id', 'nomor_tabel', 'nama_ringkas', 'judul', 'sumber', 'tahun_data', 'tipe_baris']
 class FaktaTimeSeriesSerializer(serializers.ModelSerializer):
     """
     Serializer khusus untuk output grafik Time Series.
