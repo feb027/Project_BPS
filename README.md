@@ -3,293 +3,339 @@
 
   # Project BPS
 
-  **Sistem ekstraksi, harmonisasi, dan pencarian time-series publikasi BPS berbasis Django + React.**
+  **Sistem ekstraksi, harmonisasi, dan pencarian time-series publikasi BPS Kabupaten Tasikmalaya — Django + React.**
 
   [![Django](https://img.shields.io/badge/Django-5.2-0C4B33?style=flat-square&logo=django&logoColor=white)](webapp/)
+  [![DRF](https://img.shields.io/badge/DRF-3.14-802808?style=flat-square&logo=django&logoColor=white)](webapp/)
+  [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14+-4169E1?style=flat-square&logo=postgresql&logoColor=white)](webapp/)
   [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=111827)](bps-pencarian/)
   [![Vite](https://img.shields.io/badge/Vite-8-646CFF?style=flat-square&logo=vite&logoColor=white)](bps-pencarian/)
-  [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-ready-4169E1?style=flat-square&logo=postgresql&logoColor=white)](webapp/apps/data/)
-  [![Bun](https://img.shields.io/badge/Bun-frontend-000000?style=flat-square&logo=bun&logoColor=white)](bps-pencarian/package.json)
+  [![Bun](https://img.shields.io/badge/Bun-package--manager-000000?style=flat-square&logo=bun&logoColor=white)](bps-pencarian/package.json)
+  [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)](bps-pencarian/)
+  [![Tailwind](https://img.shields.io/badge/Tailwind-v4-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white)](bps-pencarian/)
 
-  [Buka pencarian publik](https://bps-pencarian.aquarise.my.id/) · [Backend hub terlindungi](https://bps-hub.aquarise.my.id/) · [Dokumentasi migrasi](docs/harmonization-migration-runbook.md)
+  [Buka pencarian publik](https://bps-pencarian.aquarise.my.id/) · [Backend hub (Basic Auth)](https://bps-hub.aquarise.my.id/) · [Runbook migrasi](docs/harmonization-migration-runbook.md)
 </div>
 
 > [!NOTE]
-> Repository ini adalah monorepo decoupled: **Django** dipakai sebagai mesin ekstraksi/kurasi data publikasi, sedangkan **React/Vite** dipakai sebagai antarmuka pencarian cepat untuk pengguna non-teknis.
+> Monorepo **decoupled**: `webapp/` adalah mesin ekstraksi & kurasi data (Django), `bps-pencarian/` adalah antarmuka pencarian time-series (React/Vite). Keduanya berbagi satu basis data PostgreSQL.
+
+---
 
 ## Ringkasan
 
-Project BPS mengubah tabel publikasi BPS yang kompleks menjadi basis data **long/tidy** agar bisa dicari sebagai time-series. Pengguna dapat mengetik pertanyaan natural seperti `jumlah penduduk cisayong`, lalu aplikasi langsung menampilkan jawaban wilayah, grafik, tabel, dan opsi ekspor tanpa harus memilih tabel mentah satu per satu.
+Project BPS mengubah tabel publikasi **Kabupaten Dalam Angka (KDA)** — yang biasanya berupa blok tabel bertingkat di dalam PDF — menjadi basis data **long/tidy** sehingga setiap angka dapat dicari sebagai deret waktu (*time-series*). Pengguna mengetik pertanyaan natural seperti `jumlah penduduk cisayong`, lalu aplikasi menampilkan jawaban langsung: grafik lintas tahun, tabel nilai, dan ekspor Excel/PDF — tanpa harus memahami struktur tabel mentah BPS.
 
 | Area | Status |
 | --- | --- |
-| Publikasi terindeks | 9 tahun publikasi, 2018–2026 |
-| Tabel katalog | 842 tabel |
-| Fakta long/tidy | 174.745 baris fakta, 115.204 bernilai numerik |
-| Wilayah | 86 wilayah, termasuk 84 kecamatan |
-| Indikator mentah | 1.466 indikator |
+| Publikasi terindeks | 9 tahun terbit (2018–2026) |
+| Tabel katalog | ±842 tabel (110 nomor tabel lintas tahun) |
+| Fakta long/tidy | ±174.745 baris (nilai numerik + teks asli) |
+| Wilayah | 39 kecamatan + kabupaten (dibersihkan dari 113 entri kotor) |
+| Indikator mentah | ±1.466 |
 | Indikator canonical | 325 indikator, 395 alias harmonisasi |
-| Rentang tahun fakta | 2010–2026 |
+| Rentang tahun data | 2010–2026 |
 | Pencarian publik | `https://bps-pencarian.aquarise.my.id/` |
-| Internal hub | `https://bps-hub.aquarise.my.id/` dengan Basic Auth |
+| Internal hub | `https://bps-hub.aquarise.my.id/` (Basic Auth) |
 
 ## Fitur utama
 
-- **Pencarian natural-language** untuk query gabungan indikator + wilayah, misalnya `jumlah penduduk cisayong laki laki`.
-- **Jawaban cepat wilayah** yang memprioritaskan time-series paling relevan, bukan daftar kandidat mentah yang membingungkan.
-- **Harmonisasi indikator lintas tahun** melalui `CanonicalIndicator`, `IndicatorAlias`, dan alias berbasis konteks judul tabel.
-- **Tidy data warehouse**: setiap angka publikasi disimpan sebagai satu baris fakta dengan tabel, kolom, wilayah/rincian, tahun, nilai numerik, dan nilai asli.
-- **Frontend modular** dengan layout split-pane, chart time-series, answer card inline, export Excel/PDF, dan test React.
-- **Backend internal** untuk ekstraksi PDF, OCR/Gemini Vision opsional, kurasi tabel, audit kualitas, dan validasi harmonisasi.
-- **Deploy publik via Caddy**: SPA publik di domain pencarian, Django hub diproteksi Basic Auth.
+### Pencarian & visualisasi (frontend publik)
 
-## Coba cepat
+- **Pencarian bahasa natural** — query gabungan indikator + wilayah, misal `jumlah penduduk cisayong laki laki`; deteksi wilayah otomatis (kabupaten > kecamatan, nama terpanjang menang).
+- **Jawaban cepat** — satu kartu time-series langsung (bukan daftar kandidat mentah), lengkap dengan deteksi usia (`penduduk umur 15 tahun`), level sekolah (`guru sma`), dan agregasi kabupaten yang tidak menggandakan total.
+- **Multi-konsep & perbandingan tabel** — query `murid sma + guru sma` (atau `murid sma dan guru sma`) otomatis membuka perbandingan 2+ tabel; setiap konsep dipetakan ke metrik yang tepat (mis. `Jumlah Murid (SMA)` → metrik `Murid Jumlah`).
+- **Slider rentang tahun** — filter grafik dan tabel ekspor ke rentang tahun pilihan (dual-thumb), tersedia di chart tunggal dan modal perbandingan; pilihan tersimpan di `localStorage`.
+- **Jelajahi publikasi** — panel katalog yang menggabungkan tabel lintas tahun per nomor tabel, dengan filter **Jenis Data** (Per Kecamatan / Per Kabupaten / Per Kategori) dan keranjang bandingkan (maks. 6 tabel).
+- **Ekspor profesional** — Excel & PDF (branding BPS, tabel pivot tahun × wilayah/rincian, gambar grafik) untuk chart tunggal maupun perbandingan.
 
-```text
-https://bps-pencarian.aquarise.my.id/
-```
+### Ekstraksi & kurasi (backend internal)
 
-Contoh query yang sudah didukung:
-
-```text
-jumlah penduduk cisayong
-jumlah penduduk cisayong laki laki
-jumlah penduduk cisayong perempuan
-```
-
-API publik:
-
-```bash
-curl 'https://bps-pencarian.aquarise.my.id/pencarian/api/search/?q=jumlah%20penduduk%20cisayong'
-```
-
-<details>
-<summary><strong>Contoh respons ringkas</strong></summary>
-
-```json
-{
-  "detected_wilayah": { "nama": "Cisayong", "jenis": "kecamatan" },
-  "interpreted_query": "jumlah penduduk",
-  "quick_matches": [
-    {
-      "indicator_name": "Jumlah Penduduk Menurut Kecamatan",
-      "observations": [
-        { "tahun": 2010, "nilai_teks": "53.110" },
-        { "tahun": 2017, "nilai_teks": "54.983" },
-        { "tahun": 2018, "nilai_teks": "55.108" },
-        { "tahun": 2019, "nilai_teks": "59.278" },
-        { "tahun": 2020, "nilai_teks": "60.324" },
-        { "tahun": 2021, "nilai_teks": "60,126" },
-        { "tahun": 2022, "nilai_teks": "61.974" },
-        { "tahun": 2023, "nilai_teks": "62.158" },
-        { "tahun": 2024, "nilai_teks": "62.772" },
-        { "tahun": 2025, "nilai_teks": "63.761" }
-      ]
-    }
-  ]
-}
-```
-
-</details>
+- **Engine ekstraksi PDF** (`apps/ekstraksi`) — segmentasi otomatis halaman → banyak tabel, deteksi nomor/judul/sumber, tipe baris otomatis (kecamatan vs kategori), pembersihan watermark, fallback OCR (Tesseract) dan Gemini Vision untuk PDF kompleks.
+- **Gudang data tidy** — setiap angka = satu baris `Fakta` dengan tautan tabel, kolom, wilayah/rincian, tahun, nilai numerik, dan `nilai_teks` asli (audit-friendly).
+- **Harmonisasi lintas tahun** — `CanonicalIndicator` + `IndicatorAlias` + alias berbasis konteks judul tabel; unit kanonik (`UnitAlias`) untuk menyatukan satuan yang berbeda antar edisi.
+- **Import manual via Excel** (`apps/manual_import`) — unduh template per-BAB/per-tabel (dengan format visual profesional), isi manual, upload → validasi ketat → pratinjau → commit idempoten ke publikasi tahun target. Mendukung baris per kecamatan, per kabupaten, dan per kategori (rincian).
+- **Hub internal Django** — dashboard, kurasi tabel, sinkronisasi kolom antar publikasi, verifikasi fakta, dan audit kualitas.
 
 ## Arsitektur
 
+### Monorepo decoupled
+
 ```mermaid
 flowchart LR
-    A[PDF publikasi BPS] --> B[Django ekstraksi]
-    B --> C[(PostgreSQL / SQLite dev)]
-    C --> D[Harmonisasi canonical]
-    D --> E[DRF Search API]
-    E --> F[React + Vite SPA]
-    F --> G[Pengguna BPS]
+    subgraph Backend["webapp/ — Django 5.2 (mesin data)"]
+        EK[apps.ekstraksi<br/>PDF → tabel]
+        MI[apps.manual_import<br/>Excel template → commit]
+        KA[apps.katalog<br/>Publikasi/Bab/Tabel]
+        RE[apps.referensi<br/>Indikator/Wilayah/Rincian]
+        DA[apps.data<br/>Fakta & time-series]
+        PE[apps.pencarian<br/>API search/catalog]
+    end
 
-    H[Admin / Internal hub] --> B
-    I[Caddy + Cloudflare] --> F
-    I --> H
+    subgraph Frontend["bps-pencarian/ — React 19 + Vite (SPA)"]
+        SPA[Komponen modular<br/>Sidebar · Catalog · ChartModal · CompareModal]
+    end
+
+    PDF[(PDF publikasi)] --> EK
+    XLS[(Excel isian manual)] --> MI
+    EK --> KA --> DA
+    MI --> KA --> DA
+    RE --> DA
+    DA --> PE
+    PE -->|"/pencarian/api/*"| SPA
+    SPA -->|"REST JSON"| PE
+    DA --> PG[(PostgreSQL<br/>bps_publikasi)]
 ```
 
-## Alur data
+### Alur data end-to-end
 
 ```mermaid
-sequenceDiagram
-    participant PDF as Publikasi BPS
-    participant Extract as Ekstraksi/OCR
-    participant DB as Tidy Fact DB
-    participant Canon as Canonical Layer
-    participant API as Pencarian API
-    participant UI as React SPA
-
-    PDF->>Extract: Ambil tabel, kolom, rincian, tahun, nilai
-    Extract->>DB: Simpan Fakta long format
-    DB->>Canon: Audit alias + normalisasi satuan/indikator
-    Canon->>API: Time-series siap query
-    UI->>API: q=jumlah penduduk cisayong
-    API->>UI: wilayah + indikator + observations
+flowchart TD
+    A[Publikasi PDF 2018–2026] -->|ekstraksi / OCR / Gemini| B[Preview tabel terdeteksi]
+    B -->|simpan (ingest_long_rows)| C[(Tabel + Kolom + Fakta)]
+    X[Template Excel manual] -->|upload + validasi| Y[Preview]
+    Y -->|commit idempoten| C
+    C -->|harmonisasi alias| D[CanonicalIndicator + UnitAlias]
+    D --> E[API pencarian trigram + deteksi wilayah]
+    E --> F[Kartu jawaban · grafik time-series · perbandingan]
+    F --> G[Ekspor Excel / PDF]
 ```
 
-## Model data inti
+### Model data inti
 
 ```mermaid
 erDiagram
     PUBLIKASI ||--o{ BAB : memiliki
-    BAB ||--o{ TABEL : memuat
-    TABEL ||--o{ KOLOM_TABEL : memiliki
-    TABEL ||--o{ FAKTA : menghasilkan
-    KOLOM_TABEL ||--o{ FAKTA : menjelaskan
-    INDIKATOR ||--o{ KOLOM_TABEL : digunakan
-    WILAYAH ||--o{ FAKTA : lokasi
-    RINCIAN ||--o{ FAKTA : kategori
-    CANONICAL_INDICATOR ||--o{ INDICATOR_ALIAS : memetakan
-    INDIKATOR ||--o{ INDICATOR_ALIAS : alias_mentah
+    BAB ||--o{ TABEL : memiliki
+    TABEL ||--o{ KOLOMTABEL : memiliki
+    TABEL ||--o{ FAKTA : berisi
+    KOLOMTABEL }o--|| INDIKATOR : merujuk
+    INDIKATOR ||--o{ RINCIANALIAS : "disatukan oleh"
+    RINCIANALIAS }o--|| CANONICALINDICATOR : "mengarah ke"
+    TABEL ||--o{ FAKTA : ""
+    FAKTA }o--o| WILAYAH : "baris kecamatan"
+    FAKTA }o--o| RINCIAN : "baris kategori"
+    PUBLIKASI {
+        int tahun_terbit
+        string judul
+        string jenis
+    }
+    BAB {
+        int nomor
+        string nama
+    }
+    TABEL {
+        string nomor_tabel "mis. 1.1.1"
+        string judul
+        string tipe_baris "kecamatan/kabupaten/kategori"
+    }
+    KOLOMTABEL {
+        int urutan
+        string satuan
+        int tahun
+    }
+    FAKTA {
+        decimal nilai_num
+        string nilai_teks
+        int tahun
+        string flag "ada/nihil/tidak_tersedia"
+    }
 ```
 
-## Struktur repository
+## Struktur repositori
 
 ```text
 Project_BPS/
-├── webapp/                    # Backend Django, API, ekstraksi, harmonisasi
-│   ├── apps/data/             # Fakta long/tidy, canonical indicators, audit commands
-│   ├── apps/katalog/          # Publikasi, bab, tabel, kolom tabel
-│   ├── apps/pencarian/        # DRF search + time-series API
-│   ├── apps/ekstraksi/        # Parser PDF/OCR/Gemini Vision opsional
-│   └── config/settings/       # dev/prod settings
-├── bps-pencarian/             # Frontend React/Vite/Bun
-│   ├── src/components/features/
-│   ├── src/components/layout/
-│   └── src/components/ui/
-├── docs/                      # Runbook harmonisasi dan audit DB
-└── AGENTS.md                  # Panduan kerja agent/proyek
+├── webapp/                     # Backend Django (mesin data)
+│   ├── apps/
+│   │   ├── core/               # Dashboard & utilitas bersama
+│   │   ├── katalog/            # Publikasi, Bab, Tabel, KolomTabel
+│   │   ├── referensi/          # Indikator, Wilayah, Rincian, alias
+│   │   ├── data/               # Fakta, time-series, ekspor, ingest
+│   │   ├── pencarian/          # API search/timeseries/catalog
+│   │   ├── ekstraksi/          # Engine ekstraksi PDF (+ OCR/Gemini)
+│   │   └── manual_import/      # Template Excel → upload → commit
+│   ├── config/
+│   │   ├── settings/           # base / dev / prod
+│   │   └── urls.py             # /admin /data /kelola /pencarian /ekstraksi /importer
+│   ├── templates/              # Template Django (hub internal)
+│   ├── staticfiles/            # collectstatic (production)
+│   └── requirements.txt
+├── bps-pencarian/              # Frontend React SPA (pencarian publik)
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── ui/             # Atomik (button, input, select, card)
+│   │   │   ├── layout/         # Sidebar, MainArea, SplitPaneLayout
+│   │   │   └── features/       # CatalogBrowser, ChartModal, CompareModal,
+│   │   │                       #   YearRangeSlider, InlineTimeSeriesAnswer
+│   │   └── lib/                # api (SWR), utils, pdfExport
+│   ├── public/                 # favicon, aset statis
+│   └── package.json            # Bun + Vite + TypeScript + Tailwind v4
+├── docs/                       # Runbook, audit DB, rencana
+└── scripts/                    # Backup Windows (PowerShell + rclone)
 ```
 
-## Menjalankan lokal
+## API (public)
 
-> [!IMPORTANT]
-> Untuk pengembangan lokal, jalankan Django di `localhost:8000` dan Vite di `localhost:5173`. Vite sudah mem-proxy `/pencarian/api` ke backend Django.
+Prefix: `https://bps-pencarian.aquarise.my.id/pencarian/api/`
 
-<details open>
-<summary><strong>1. Backend Django</strong></summary>
+| Endpoint | Keterangan |
+| --- | --- |
+| `GET /search/?q=...` | Pencarian natural-language; balikan tabel, indikator, wilayah terdeteksi, `quick_matches`, dan `multi_concepts` (query `+`/`dan`) |
+| `GET /catalog/` | Katalog tabel di-merge lintas publikasi per nomor tabel |
+| `GET /catalog/?nomor_tabel=1.1.1` | Seri time-series gabungan satu nomor tabel |
+| `GET /timeseries/?tabel_id=...\|indikator_id=...` | Fakta time-series per tabel/indikator |
+| `GET /canonical-timeseries/?indicator_code=...` | Seri ter-harmonisasi via canonical indicator (+ `wilayah_id`, `start_year`, `end_year`) |
+
+Endpoint manual import (hub internal, tanpa auth): `POST /importer/generate-template/`, `POST /importer/upload/`, `POST /importer/commit/<uuid>/`.
+
+## Cara menjalankan
+
+> [!TIP]
+> Untuk pengembangan cepat, backend bisa pakai **SQLite** bawaan (tanpa `DB_ENGINE`). Untuk fitur penuh (trigram, cache bersama), gunakan **PostgreSQL** 14+.
+
+### Prasyarat
+
+- Python **3.11+** (rekomendasi 3.12/3.13)
+- Node.js **20+** dan [Bun](https://bun.sh) 1.x
+- PostgreSQL **14+** *(opsional untuk dev; wajib untuk production)*
+- Tesseract OCR *(opsional, untuk PDF hasil scan)*
+- Kunci API Google Gemini *(opsional, untuk ekstraksi tabel kompleks)*
+
+### 1. Backend (Django)
 
 ```bash
 cd webapp
-python3 -m venv .venv
-. .venv/bin/activate
+python -m venv .venv
+
+# Linux / macOS
+source .venv/bin/activate
+# Windows (PowerShell)
+# .venv\Scripts\Activate.ps1
+
 python -m pip install -r requirements.txt
-cp .env.example .env
 python manage.py migrate
-python manage.py runserver 127.0.0.1:8000
+
+# Pengembangan (SQLite)
+DJANGO_SETTINGS_MODULE=config.settings.dev python manage.py runserver 0.0.0.0:8000
 ```
 
-Default `.env.example` memakai SQLite untuk development. Untuk PostgreSQL, isi `DB_ENGINE`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, dan `DB_PORT`.
+Aktifkan PostgreSQL (bila dipakai):
 
-</details>
+```bash
+# Linux/macOS
+export DB_ENGINE=django.db.backends.postgresql
+export DB_NAME=bps_publikasi DB_USER=bps DB_PASSWORD=... DB_HOST=127.0.0.1 DB_PORT=5432
 
-<details open>
-<summary><strong>2. Frontend React/Vite</strong></summary>
+# Windows (PowerShell)
+# $env:DB_ENGINE = "django.db.backends.postgresql"
+# $env:DB_NAME  = "bps_publikasi"
+
+DJANGO_SETTINGS_MODULE=config.settings.prod python manage.py migrate
+```
+
+### 2. Frontend (React/Vite)
 
 ```bash
 cd bps-pencarian
 bun install
-bun run dev
+bun run dev        # http://localhost:5173 — proxy /pencarian/api/* diatur Caddy/Vite
 ```
 
-Buka:
+> [!WARNING]
+> `bun test` dapat crash di CPU lama tanpa dukungan AVX (segfault Bun). Gunakan `npx vitest run` sebagai pengganti.
 
-```text
-http://localhost:5173/
-```
+### 3. (Opsional) OCR & Gemini Vision
 
-</details>
+- **Tesseract**: pasang sesuai OS — Linux: `apt install tesseract-ocr`, macOS: `brew install tesseract`, Windows: [UB-Mannheim build](https://github.com/UB-Mannheim/tesseract/wiki).
+- **Gemini**: set `GEMINI_API_KEY` (variabel lingkungan) agar engine ekstraksi memakai AI untuk tabel PDF kompleks.
 
-## Endpoint penting
-
-| Endpoint | Fungsi |
-| --- | --- |
-| `GET /pencarian/api/search/?q=...` | Pencarian tabel + indikator + jawaban cepat wilayah |
-| `GET /pencarian/api/timeseries/?indikator_id=...` | Time-series dari indikator mentah |
-| `GET /pencarian/api/canonical-timeseries/?indicator_code=...` | Time-series dari indikator canonical |
-| `/admin/` | Django admin |
-| `/kelola/` | Kelola katalog/tabel |
-| `/ekstraksi/` | Workflow ekstraksi publikasi |
-
-## Validasi
-
-Backend:
+## Pengujian
 
 ```bash
+# Backend (pytest + pytest-django)
 cd webapp
-. .venv/bin/activate
-DJANGO_SETTINGS_MODULE=config.settings.prod python manage.py check
-python manage.py test apps.data
-```
+source .venv/bin/activate
+DJANGO_SETTINGS_MODULE=config.settings.dev python -m pytest apps/pencarian/tests.py apps/manual_import/tests.py --create-db
 
-Frontend:
-
-```bash
+# Frontend (Vitest — bukan bun test, lihat warning di atas)
 cd bps-pencarian
+npx vitest run
+
+# Lint frontend
 bun run lint
-bun test
+
+# Build produksi
 bun run build
 ```
 
-Smoke API publik:
+> [!NOTE]
+> `config/settings/dev.py` memakai **DummyCache** agar cache `@cache_page` tidak bocor antar test (flake urutan test dihindari). Production tetap memakai `DatabaseCache`.
 
-```bash
-curl -sS 'https://bps-pencarian.aquarise.my.id/pencarian/api/search/?q=jumlah%20penduduk%20cisayong%20laki%20laki'
-```
+## Deployment (production)
 
-## Deployment saat ini
+Topologi saat ini: **Cloudflare → Caddy → (static SPA | gunicorn)**.
 
 ```mermaid
 flowchart TD
-    U[User] --> CF[Cloudflare]
-    CF --> Caddy[Caddy]
-    Caddy --> SPA[Vite build: bps-pencarian/dist]
-    Caddy --> Gunicorn[Gunicorn 127.0.0.1:8020]
-    Gunicorn --> Django[Django prod settings]
-    Django --> PG[(PostgreSQL)]
+    U[Pengguna] --> CF[Cloudflare]
+    CF --> C[ Caddy ]
+    C -->|bps-pencarian.aquarise.my.id| SPA[Vite build<br/>bps-pencarian/dist]
+    C -->|/pencarian/api/*| G[Gunicorn<br/>127.0.0.1:8020]
+    C -->|bps-hub.aquarise.my.id + Basic Auth| G
+    G --> D[Django config.settings.prod]
+    D --> PG[(PostgreSQL bps_publikasi)]
 ```
 
-- `bps-pencarian.aquarise.my.id` menyajikan SPA publik dan mem-proxy API pencarian.
-- `bps-hub.aquarise.my.id` menyajikan Django internal hub dengan Basic Auth.
-- Service backend production: `project-bps-backend.service` di user systemd.
-- Static Django production dikumpulkan dengan `collectstatic` ke `webapp/staticfiles/`.
-
-<details>
-<summary><strong>Operasi production ringkas</strong></summary>
+- Backend dijalankan **user systemd unit** `project-bps-backend.service` (gunicorn, `Restart=always`).
+- SPA di-serve langsung dari `dist/` oleh Caddy (tanpa proses tambahan); rebuild cukup `bun run build`.
+- `bps-hub` dilindungi Basic Auth di tingkat Caddy; `bps-pencarian` publik.
 
 ```bash
-systemctl --user status project-bps-backend.service
-systemctl --user restart project-bps-backend.service
-caddy validate --config /etc/caddy/Caddyfile
-```
+# Deploy backend
+systemctl --user restart project-bps-backend
+curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8020/importer/   # → 200
 
-Build frontend untuk Caddy:
+# Deploy frontend
+cd bps-pencarian && bun run build
 
-```bash
-cd bps-pencarian
-bun run build
-```
-
-Collect static Django:
-
-```bash
-cd webapp
-. .venv/bin/activate
+# Koleksi static Django (setelah ubah template/static)
+cd webapp && . .venv/bin/activate
 DJANGO_SETTINGS_MODULE=config.settings.prod python manage.py collectstatic --noinput
+
+# Caddy (bila konfigurasi berubah)
+caddy validate --config /etc/caddy/Caddyfile && sudo systemctl reload caddy
 ```
 
-</details>
+> [!IMPORTANT]
+> Hanya ada **satu** unit yang boleh melayani port 8020: `project-bps-backend.service` (user). Bila ada unit lain (mis. `bps-webapp.service`) dalam keadaan `active` dan merebut port, matikan dulu (`systemctl stop bps-webapp`) agar deploy benar-benar tersaji. Verifikasi selalu dengan memeriksa **key response baru**, bukan sekadar HTTP 200 (kode lama tetap balasan 200).
+
+## Backup & restore
+
+- Backup database production: `pg_dump` (lihat `scripts/backup_db.ps1` untuk otomasi Windows + rclone ke penyimpanan eksternal).
+- Selalu `pg_dump` sebelum operasi destruktif; verifikasi dump di database uji sebelum restore.
+- File data mentah (PDF publikasi, Excel isian, dump SQL) **tidak** di-track di repositori — disimpan lokal/backup terpisah.
+
+## Troubleshooting singkat
+
+| Gejala | Penyebab umum & solusi |
+| --- | --- |
+| Deploy backend "tidak ngefek" (key API lama) | Unit lain merebut port 8020. Periksa `ss -tlnp | grep 8020`, cek `cat /proc/<pid>/cgroup`; stop unit pengganggu, restart `project-bps-backend`. |
+| Search trigram error di PostgreSQL | Pastikan ekstensi `pg_trgm` aktif (`CREATE EXTENSION IF NOT EXISTS pg_trgm;`). |
+| `bun test` segfault | CPU tanpa AVX — pakai `npx vitest run`. |
+| Template Excel gagal dibuat | Nama sheet mengandung karakter ilegal (`/`, `[`, `]`) — kode sudah menormalisasi; pastikan tabel judul tidak melebihi 31 karakter setelah sanitasi. |
+| Commit import dobel | Sejak Agustus 2026 commit idempoten via `update_or_create`; pastikan versi backend terbaru. |
 
 ## Dokumentasi teknis
 
 - [Runbook harmonisasi migrasi](docs/harmonization-migration-runbook.md)
-- [Audit dan rencana proses DB](docs/DB_PROCESS_AUDIT_AND_PLAN.md)
-- [Rencana agent database time-series](docs/plans/2026-07-05-timeseries-database-agent-plan.md)
-- [Panduan proyek untuk agent](AGENTS.md)
+- [Audit & rencana proses DB](docs/DB_PROCESS_AUDIT_AND_PLAN.md)
+- [Rencana database time-series](docs/plans/2026-07-05-timeseries-database-agent-plan.md)
 
 ## Prinsip desain
 
-- **Jawaban dulu, kandidat belakangan**: query seperti `penduduk cisayong` harus langsung menjadi time-series wilayah, bukan daftar mentah panjang.
-- **Data audit-friendly**: nilai asli (`nilai_teks`) tetap disimpan bersama nilai numerik normalisasi.
-- **Alias kontekstual**: label generik seperti `Jumlah`, `Laki-laki`, dan `Perempuan` wajib dipetakan dengan konteks judul tabel agar tidak salah topik.
-- **Frontend modular**: layout, fitur, dan UI atomik dipisahkan agar pencarian, chart, dan export mudah dikembangkan.
+- **Jawaban dulu, kandidat belakangan** — query `penduduk cisayong` langsung menjadi grafik wilayah, bukan daftar mentah panjang.
+- **Data audit-friendly** — `nilai_teks` asli selalu tersimpan bersama nilai numerik ternormalisasi.
+- **Alias kontekstual** — label generik (`Jumlah`, `Laki-laki`, `Perempuan`) dipetakan dengan konteks judul tabel agar tidak salah topik lintas tahun.
+- **Frontend modular** — layout, fitur, dan UI atomik dipisahkan agar mudah dikembangkan dan diuji.
+- **UI enterprise BPS** — datar, bersih, palet biru muda/oranye/hijau identitas BPS; tanpa efek glassmorphism/neon.

@@ -11,11 +11,27 @@ __pycache__/
 .vscode/
 .idea/
 
-# Local data
+# Local data & artifacts (keep off GitHub)
 output/
 backups/
+webapp/db_backup_*.sql
+webapp/dump_err.txt
+DATA PUBLIKASI BPS.xlsx
+*.pdf
 
+# One-off extraction scripts (historical, unused)
+extract.py
+extract_bab2.py
+
+# AI agent tooling (not part of the product repo)
+.agent/
+.agents/
+AGENTS.md
+skills-lock.json
 .kiro/
+.cursor/
+.claude/
+.codex/
+.windsurf/
 
-.vscode/
 .hermes/desktop-attachments/*.xlsx
