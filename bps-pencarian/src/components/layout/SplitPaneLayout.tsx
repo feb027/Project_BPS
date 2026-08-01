@@ -82,6 +82,14 @@ export function SplitPaneLayout() {
     setCompareOpen(false)
   }, [])
 
+  // Phase 2: multi-concept search ("murid sma + guru sma") replaces the basket
+  // with the detected tables and opens the comparison automatically.
+  const autoCompare = useCallback((items: CompareItem[]) => {
+    if (items.length < 2) return
+    setCompareItems(items)
+    setCompareOpen(true)
+  }, [])
+
   const inCompare = useCallback(
     (nomorTabel: string) => compareItems.some((c) => c.nomor_tabel === nomorTabel),
     [compareItems]
@@ -130,6 +138,7 @@ export function SplitPaneLayout() {
             onToggleBrowse={() => setShowBrowse((v) => !v)}
             inCompare={inCompare}
             onToggleCompare={toggleCompare}
+            onAutoCompare={autoCompare}
           />
         </div>
       )}

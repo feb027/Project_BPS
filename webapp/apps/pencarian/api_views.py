@@ -1198,6 +1198,43 @@ def _quick_wilayah_matches_for_wilayahs(query, wilayahs, limit=12):
     return merged_payload
 
 
+def _quick_match_cascade(search_query, detected_wilayah, detected_wilayahs):
+    """Run the full quick-match cascade for one (sub-)query and return the
+    ordered matches. Shared by the main search (single answer card) and the
+    multi-concept path ("murid sma + guru sma") which runs it per concept."""
+    # Teacher-count queries ('jumlah guru', 'guru swasta', 'guru SMA') resolve
+    # to the correct 'Jumlah Sekolah, Guru, dan Murid (LEVEL)' table and take
+    # priority over the generic rincian matcher, which would otherwise
+    # surface the 'Jabatan Fungsional Guru' rincian (ASN/PNS tables) or the
+    # population 'Mengurus rumah tangga' breakdown.
+    quick_matches = _quick_guru_matches(search_query, detected_wilayah)
+    if not quick_matches:
+        # School-count queries ('jumlah sekolah RA', 'jumlah sekolah SD di X')
+        # resolve to the correct 'Jumlah Sekolah (LEVEL)' table and take
+        # priority over the generic rincian/indicator matchers, which would
+        # otherwise collide with the population table's 'Sekolah' rincian.
+        quick_matches = _quick_school_matches(search_query, detected_wilayah)
+    if not quick_matches:
+        wilayah_matches = (
+            _quick_wilayah_matches_for_wilayahs(search_query, detected_wilayahs)
+            if detected_wilayah
+            else []
+        )
+        if wilayah_matches:
+            quick_matches = wilayah_matches
+        else:
+            # The wilayah-scoped matcher ANDs every query term against the
+            # indicator *name* (line 830). Table-title queries like
+            # "Hasil Penjualan Tiket Objek Wisata Per Triwulan" carry terms
+            # ("penjualan", "wisata", "triwulan") that live in the table
+            # title, not the indicator name ("Pengunjung"/"Tiket"), so
+            # the strict matcher returns nothing. Fall through to the
+            # broader rincian/topic matchers (which OR across title) so
+            # these queries still get a direct-answer card.
+            quick_matches = _quick_rincian_matches(search_query) or _quick_topic_matches(search_query)
+    return quick_matches
+
+
 class FacetedSearchAPIView(APIView):
     """
     API untuk mencari Tabel dan Indikator.
@@ -1218,36 +1255,19 @@ class FacetedSearchAPIView(APIView):
             if detected_wilayahs else None
         )
         search_query = _query_without_wilayahs(query, detected_wilayahs)
-        # Teacher-count queries ('jumlah guru', 'guru swasta', 'guru SMA') resolve
-        # to the correct 'Jumlah Sekolah, Guru, dan Murid (LEVEL)' table and take
-        # priority over the generic rincian matcher, which would otherwise
-        # surface the 'Jabatan Fungsional Guru' rincian (ASN/PNS tables) or the
-        # population 'Mengurus rumah tangga' breakdown.
-        quick_matches = _quick_guru_matches(search_query, detected_wilayah)
-        if not quick_matches:
-            # School-count queries ('jumlah sekolah RA', 'jumlah sekolah SD di X')
-            # resolve to the correct 'Jumlah Sekolah (LEVEL)' table and take
-            # priority over the generic rincian/indicator matchers, which would
-            # otherwise collide with the population table's 'Sekolah' rincian.
-            quick_matches = _quick_school_matches(search_query, detected_wilayah)
-        if not quick_matches:
-            wilayah_matches = (
-                _quick_wilayah_matches_for_wilayahs(search_query, detected_wilayahs)
-                if detected_wilayah
-                else []
-            )
-            if wilayah_matches:
-                quick_matches = wilayah_matches
-            else:
-                # The wilayah-scoped matcher ANDs every query term against the
-                # indicator *name* (line 830). Table-title queries like
-                # "Hasil Penjualan Tiket Objek Wisata Per Triwulan" carry terms
-                # ("penjualan", "wisata", "triwulan") that live in the table
-                # title, not the indicator name ("Pengunjung"/"Tiket"), so
-                # the strict matcher returns nothing. Fall through to the
-                # broader rincian/topic matchers (which OR across title) so
-                # these queries still get a direct-answer card.
-                quick_matches = _quick_rincian_matches(search_query) or _quick_topic_matches(search_query)
+        quick_matches = _quick_match_cascade(search_query, detected_wilayah, detected_wilayahs)
+
+        # Multi-concept queries ("murid sma + guru sma"): run the matcher per
+        # "+"-separated concept and return the top match of each so the
+        # frontend can open a side-by-side comparison automatically.
+        multi_concepts = []
+        if "+" in query:
+            parts = [p.strip() for p in query.split("+") if len(p.strip()) >= 2]
+            if len(parts) >= 2:
+                for part in parts[:4]:
+                    part_matches = _quick_match_cascade(part, detected_wilayah, detected_wilayahs)
+                    if part_matches:
+                        multi_concepts.append(part_matches[0])
 
         if connection.vendor == 'postgresql':
             tabel_qs = Tabel.objects.annotate(
@@ -1301,6 +1321,7 @@ class FacetedSearchAPIView(APIView):
             ],
             "interpreted_query": search_query,
             "quick_matches": quick_matches,
+            "multi_concepts": multi_concepts,
         })
 
 class TimeSeriesAPIView(APIView):

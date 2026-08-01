@@ -1,4 +1,5 @@
-import { Search, FileText, BarChart3, Loader2, Table2, PanelLeft, Plus, Check } from "lucide-react"
+import { Search, FileText, BarChart3, Loader2, Table2, PanelLeft, Plus, Check, Columns2 } from "lucide-react"
+import { useEffect, useRef } from "react"
 import type { Dispatch, SetStateAction } from "react"
 import { useSearch } from "../../lib/api"
 import { InlineTimeSeriesAnswer } from "../features/InlineTimeSeriesAnswer"
@@ -14,6 +15,7 @@ interface MainAreaProps {
   onToggleBrowse?: () => void
   inCompare: (nomorTabel: string) => boolean
   onToggleCompare: (item: CompareItem) => void
+  onAutoCompare: (items: CompareItem[]) => void
 }
 
 type EmptyPanelProps = {
@@ -65,8 +67,31 @@ function RawResultCard({ children, icon, accent = "primary", onClick, action }: 
   )
 }
 
-export function MainArea({ query, setSelectedItem, browseOpen, onToggleBrowse, inCompare, onToggleCompare }: MainAreaProps) {
+export function MainArea({ query, setSelectedItem, browseOpen, onToggleBrowse, inCompare, onToggleCompare, onAutoCompare }: MainAreaProps) {
   const { data, isLoading, error } = useSearch(query)
+
+  // Phase 2: multi-concept query ("murid sma + guru sma") — auto-fill the
+  // comparison basket with the best table per concept and open it. Guarded by
+  // a ref so we only auto-open ONCE per (query, tables) combination instead of
+  // re-opening on every keystroke while the user keeps typing.
+  const lastAutoCompareRef = useRef("")
+  const multiConcepts = (data?.multi_concepts ?? []) as any[]
+  const multiTables = multiConcepts
+    .map((m) => ({ tabel: m?.observations?.[0]?.tabel, indicator_name: m?.indicator_name }))
+    .filter((x: any) => x.tabel && x.tabel.nomor_tabel)
+  const multiKey = query + "|" + multiTables.map((x: any) => x.tabel.nomor_tabel).join(",")
+  useEffect(() => {
+    if (multiTables.length < 2) return
+    if (lastAutoCompareRef.current === multiKey) return
+    lastAutoCompareRef.current = multiKey
+    onAutoCompare(
+      multiTables.map((x: any) => ({
+        nomor_tabel: String(x.tabel.nomor_tabel),
+        title: cleanTitle(x.tabel.judul || x.tabel.nomor_tabel),
+        metricHint: String(x.indicator_name || ""),
+      }))
+    )
+  }, [multiKey, multiTables, onAutoCompare])
 
   const detectedWilayah = data?.detected_wilayah?.nama as string | undefined
   const detectedWilayahs = (data?.detected_wilayahs ?? [])
@@ -156,6 +181,29 @@ export function MainArea({ query, setSelectedItem, browseOpen, onToggleBrowse, i
           />
         ) : (
           <div className="space-y-8 min-h-[calc(100vh-10rem)]">
+            {multiTables.length >= 2 && (
+              <div className="flex flex-wrap items-center gap-3 rounded-md border border-accent/40 bg-accent/5 px-4 py-3">
+                <Columns2 className="h-4 w-4 shrink-0 text-accent" />
+                <p className="min-w-0 flex-1 text-sm text-foreground">
+                  Terdeteksi <strong>{multiTables.length} konsep</strong> — grafik perbandingan dibuka otomatis.
+                </p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onAutoCompare(
+                      multiTables.map((x: any) => ({
+                        nomor_tabel: String(x.tabel.nomor_tabel),
+                        title: cleanTitle(x.tabel.judul || x.tabel.nomor_tabel),
+                        metricHint: String(x.indicator_name || ""),
+                      }))
+                    )
+                  }
+                  className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 transition-opacity"
+                >
+                  <Columns2 className="h-3.5 w-3.5" /> Bandingkan
+                </button>
+              </div>
+            )}
             {hasDirectAnswer && primaryQuickMatch && directAnswerSubject ? (
               <InlineTimeSeriesAnswer
                 match={primaryQuickMatch}

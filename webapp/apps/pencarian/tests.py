@@ -230,4 +230,50 @@ class AgeScopedQueryTests(TestCase):
         self.assertEqual(card["subject_name"], "Bekerja + Mengurus Rumah Tangga + Sekolah")
         for obs in card["observations"]:
             self.assertEqual(obs["tabel"]["nomor_tabel"], "3.2.1")
-            self.assertNotEqual(obs["tabel"]["nomor_tabel"], "3.1.1")
+
+
+class MultiConceptSearchTests(TestCase):
+    def test_plus_query_returns_per_concept_matches(self):
+        pub = Publikasi.objects.create(judul="Kabupaten Tasikmalaya Angka 2025", tahun_terbit=2025)
+        bab = Bab.objects.create(publikasi=pub, nomor=5, nama="Pertanian")
+        regency = Wilayah.objects.create(nama="Kabupaten Tasikmalaya", jenis="kabupaten")
+
+        ind_a = Indikator.objects.create(nama="Produksi Alpukat", satuan="kuintal")
+        ind_b = Indikator.objects.create(nama="Produksi Mangga", satuan="kuintal")
+        t_a = Tabel.objects.create(bab=bab, nomor_tabel="5.1.1", judul="Produksi Alpukat Menurut Kecamatan")
+        t_b = Tabel.objects.create(bab=bab, nomor_tabel="5.1.2", judul="Produksi Mangga Menurut Kecamatan")
+        k_a = KolomTabel.objects.create(tabel=t_a, urutan=1, indikator=ind_a)
+        k_b = KolomTabel.objects.create(tabel=t_b, urutan=1, indikator=ind_b)
+        for tahun in (2023, 2024):
+            Fakta.objects.create(tabel=t_a, kolom=k_a, wilayah=regency, tahun=tahun, nilai_num=Decimal("10"), nilai_teks="10")
+            Fakta.objects.create(tabel=t_b, kolom=k_b, wilayah=regency, tahun=tahun, nilai_num=Decimal("20"), nilai_teks="20")
+
+        response = self.client.get("/pencarian/api/search/", {"q": "produksi alpukat + produksi mangga"})
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+
+        concepts = data.get("multi_concepts") or []
+        self.assertGreaterEqual(len(concepts), 2, "query '+': harus ada match per konsep")
+        nomor_tabels = []
+        for m in concepts:
+            obs = m.get("observations") or []
+            self.assertTrue(obs, "setiap konsep harus punya observasi")
+            nomor_tabels.append(obs[0]["tabel"]["nomor_tabel"])
+        self.assertEqual(
+            len(set(nomor_tabels)), len(nomor_tabels),
+            f"konsep harus menunjuk tabel berbeda: {nomor_tabels}",
+        )
+
+    def test_single_concept_query_has_empty_multi_concepts(self):
+        pub = Publikasi.objects.create(judul="Kabupaten Tasikmalaya Angka 2025", tahun_terbit=2025)
+        bab = Bab.objects.create(publikasi=pub, nomor=5, nama="Pertanian")
+        regency = Wilayah.objects.create(nama="Kabupaten Tasikmalaya", jenis="kabupaten")
+        ind = Indikator.objects.create(nama="Produksi Alpukat", satuan="kuintal")
+        t = Tabel.objects.create(bab=bab, nomor_tabel="5.1.1", judul="Produksi Alpukat Menurut Kecamatan")
+        k = KolomTabel.objects.create(tabel=t, urutan=1, indikator=ind)
+        Fakta.objects.create(tabel=t, kolom=k, wilayah=regency, tahun=2024, nilai_num=Decimal("10"), nilai_teks="10")
+
+        response = self.client.get("/pencarian/api/search/", {"q": "produksi alpukat"})
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data.get("multi_concepts") or [], [])

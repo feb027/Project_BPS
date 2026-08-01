@@ -9,6 +9,10 @@ import { canonRincian, chartColors, formatCompactNumber, metricKey } from "./Cha
 export interface CompareItem {
   nomor_tabel: string
   title: string
+  /** Concept hint from multi-concept search (e.g. "Jumlah Guru (SMA)") so a
+      section can default to the matching metric when several concepts point
+      to the same table (guru + murid SMA live in table 4.1.7). */
+  metricHint?: string
 }
 
 interface CompareModalProps {
@@ -49,19 +53,29 @@ function CompareTableSection({ item, onRemove, yearRange, onReportRange }: Secti
     return Array.from(s.values()).sort()
   }, [rows])
 
-  // Default metric = the one with the most rows (mirrors ChartModal's default).
+  // Default metric: prefer the concept hint (multi-concept search) when it
+  // matches; otherwise the metric with the most rows (mirrors ChartModal).
   const [selectedMetric, setSelectedMetric] = useState<string>("")
   useEffect(() => {
     if (metrics.length === 0) return
     setSelectedMetric((cur) => {
       if (cur && metrics.includes(cur)) return cur
+      if (item.metricHint) {
+        const base = (s: string) => (s || "").toLowerCase().replace(/\(.*\)/g, "").replace(/\s+/g, " ").trim()
+        const hintBase = base(item.metricHint)
+        const byHint = metrics.find((m) => {
+          const mb = base(m)
+          return mb === hintBase || mb.includes(hintBase) || hintBase.includes(mb)
+        })
+        if (byHint) return byHint
+      }
       return metrics.reduce((best, m) => {
         const countBest = rows.filter((r) => metricKey(r) === best).length
         const countM = rows.filter((r) => metricKey(r) === m).length
         return countM > countBest ? m : best
       }, metrics[0])
     })
-  }, [metrics, rows])
+  }, [metrics, rows, item.metricHint])
 
   const metricRows = useMemo(
     () => rows.filter((r) => metricKey(r) === selectedMetric),
@@ -338,9 +352,9 @@ export function CompareModal({ items, onClose, onRemove }: CompareModalProps) {
 
         {/* Stacked sections */}
         <div className="flex-1 overflow-auto p-6 flex flex-col gap-5">
-          {items.map((item) => (
+          {items.map((item, idx) => (
             <CompareTableSection
-              key={item.nomor_tabel}
+              key={`${idx}-${item.nomor_tabel}`}
               item={item}
               onRemove={() => onRemove(item.nomor_tabel)}
               yearRange={effectiveRange}
