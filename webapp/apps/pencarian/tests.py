@@ -277,3 +277,30 @@ class MultiConceptSearchTests(TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data.get("multi_concepts") or [], [])
+
+    def test_dan_separator_returns_per_concept_matches(self):
+        pub = Publikasi.objects.create(judul="Kabupaten Tasikmalaya Angka 2025", tahun_terbit=2025)
+        bab = Bab.objects.create(publikasi=pub, nomor=5, nama="Pertanian")
+        regency = Wilayah.objects.create(nama="Kabupaten Tasikmalaya", jenis="kabupaten")
+
+        ind_a = Indikator.objects.create(nama="Produksi Alpukat", satuan="kuintal")
+        ind_b = Indikator.objects.create(nama="Produksi Mangga", satuan="kuintal")
+        t_a = Tabel.objects.create(bab=bab, nomor_tabel="5.1.1", judul="Produksi Alpukat Menurut Kecamatan")
+        t_b = Tabel.objects.create(bab=bab, nomor_tabel="5.1.2", judul="Produksi Mangga Menurut Kecamatan")
+        k_a = KolomTabel.objects.create(tabel=t_a, urutan=1, indikator=ind_a)
+        k_b = KolomTabel.objects.create(tabel=t_b, urutan=1, indikator=ind_b)
+        for tahun in (2023, 2024):
+            Fakta.objects.create(tabel=t_a, kolom=k_a, wilayah=regency, tahun=tahun, nilai_num=Decimal("10"), nilai_teks="10")
+            Fakta.objects.create(tabel=t_b, kolom=k_b, wilayah=regency, tahun=tahun, nilai_num=Decimal("20"), nilai_teks="20")
+
+        response = self.client.get("/pencarian/api/search/", {"q": "produksi alpukat dan produksi mangga"})
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+
+        concepts = data.get("multi_concepts") or []
+        self.assertGreaterEqual(len(concepts), 2, "query 'dan': harus ada match per konsep")
+        nomor_tabels = [m["observations"][0]["tabel"]["nomor_tabel"] for m in concepts if m.get("observations")]
+        self.assertEqual(
+            len(set(nomor_tabels)), len(nomor_tabels),
+            f"konsep harus menunjuk tabel berbeda: {nomor_tabels}",
+        )

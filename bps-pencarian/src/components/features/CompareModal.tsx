@@ -23,6 +23,29 @@ interface CompareModalProps {
 
 const TRIVIAL_RINCIAN = new Set(["jumlah", "total"])
 
+/**
+ * Pick the metric whose words all appear in the hint, order-insensitively.
+ * BPS names reorder words ("Jumlah Murid (SMA)" vs metric "Murid Jumlah"),
+ * so matching is by word-set, not substring. Returns undefined when no metric
+ * matches (caller falls back to the most-common metric).
+ */
+export function pickMetricByHint(metrics: string[], hint?: string): string | undefined {
+  if (!hint) return undefined
+  const base = (s: string) =>
+    (s || "")
+      .toLowerCase()
+      .replace(/\(.*\)/g, "")
+      .replace(/[^a-z0-9 ]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+  const hintWords = base(hint).split(" ").filter(Boolean)
+  if (hintWords.length === 0) return undefined
+  return metrics.find((m) => {
+    const mWords = new Set(base(m).split(" ").filter(Boolean))
+    return hintWords.every((w) => mWords.has(w))
+  })
+}
+
 interface SectionProps {
   item: CompareItem
   onRemove: () => void
@@ -61,15 +84,7 @@ function CompareTableSection({ item, onRemove, yearRange, onReportRange }: Secti
     setSelectedMetric((cur) => {
       if (cur && metrics.includes(cur)) return cur
       if (item.metricHint) {
-        // Order-insensitive word-set match: "Jumlah Murid (SMA)" must match
-        // metric "Murid Jumlah" (BPS names often reorder the words).
-        const base = (s: string) => (s || "").toLowerCase().replace(/\(.*\)/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim()
-        const hintWords = base(item.metricHint).split(" ").filter(Boolean)
-        const byHint = metrics.find((m) => {
-          if (hintWords.length === 0) return false
-          const mWords = new Set(base(m).split(" ").filter(Boolean))
-          return hintWords.every((w) => mWords.has(w))
-        })
+        const byHint = pickMetricByHint(metrics, item.metricHint)
         if (byHint) return byHint
       }
       return metrics.reduce((best, m) => {

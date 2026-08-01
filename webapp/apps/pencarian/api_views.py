@@ -1257,17 +1257,23 @@ class FacetedSearchAPIView(APIView):
         search_query = _query_without_wilayahs(query, detected_wilayahs)
         quick_matches = _quick_match_cascade(search_query, detected_wilayah, detected_wilayahs)
 
-        # Multi-concept queries ("murid sma + guru sma"): run the matcher per
-        # "+"-separated concept and return the top match of each so the
-        # frontend can open a side-by-side comparison automatically.
+        # Multi-concept queries ("murid sma + guru sma", "murid sma dan guru
+        # sma"): run the matcher per concept and return the top match of each
+        # so the frontend can open a side-by-side comparison automatically.
+        # " dan " is split only when it yields >=2 usable parts; the full-query
+        # quick_match still drives the direct-answer card, so a single-concept
+        # query that merely contains "dan" keeps working normally.
         multi_concepts = []
+        concept_parts = None
         if "+" in query:
-            parts = [p.strip() for p in query.split("+") if len(p.strip()) >= 2]
-            if len(parts) >= 2:
-                for part in parts[:4]:
-                    part_matches = _quick_match_cascade(part, detected_wilayah, detected_wilayahs)
-                    if part_matches:
-                        multi_concepts.append(part_matches[0])
+            concept_parts = [p.strip() for p in query.split("+") if len(p.strip()) >= 2]
+        elif " dan " in query:
+            concept_parts = [p.strip() for p in re.split(r"\s+dan\s+", query) if len(p.strip()) >= 2]
+        if concept_parts and len(concept_parts) >= 2:
+            for part in concept_parts[:4]:
+                part_matches = _quick_match_cascade(part, detected_wilayah, detected_wilayahs)
+                if part_matches:
+                    multi_concepts.append(part_matches[0])
 
         if connection.vendor == 'postgresql':
             tabel_qs = Tabel.objects.annotate(

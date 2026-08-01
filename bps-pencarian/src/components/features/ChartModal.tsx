@@ -1,10 +1,11 @@
-import { useMemo, useState, useCallback, useRef } from "react"
+import { useMemo, useState, useCallback, useRef, useEffect } from "react"
 import { X, Loader2, Table2, LineChart as LineIcon, BarChart3, ChevronDown, Check, ListTree, FileSpreadsheet, FileText } from "lucide-react"
 import { ResponsiveContainer, LineChart, CartesianGrid, XAxis, YAxis, Tooltip, Legend, Line } from "recharts"
 import * as XLSX from "xlsx"
 import html2canvas from "html2canvas-pro"
 import { exportProfessionalPdf } from "../../lib/pdfExport"
 import { useTimeSeries, useCatalogSeries, type CatalogSeriesRow } from "../../lib/api"
+import { YearRangeSlider } from "./YearRangeSlider"
 
 function safeFileName(name: string) {
   return (name || "data")
@@ -158,6 +159,7 @@ interface SavedSelection {
   dimension?: Dimension
   metric?: string
   sel?: { wilayah?: string[]; rincian?: string[] }
+  year?: [number, number]
 }
 
 function loadSavedSelection(item: ChartModalProps["item"]): SavedSelection | null {
@@ -423,6 +425,59 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
     persist(selectedMetric, dimension, new Set())
   }, [persist, selectedMetric, dimension])
 
+  // --- Year range filter (slider) ---
+  const yearBounds = useMemo(() => {
+    const years = allRows
+      .map((r) => r.tahun)
+      .filter((y): y is number => typeof y === "number" && Number.isFinite(y))
+    if (years.length === 0) return null
+    return [Math.min(...years), Math.max(...years)] as [number, number]
+  }, [allRows])
+
+  const [yearSel, setYearSel] = useState<[number, number] | null>(() => {
+    const saved = savedRef?.year
+    return saved && Array.isArray(saved) && saved.length === 2 ? [saved[0], saved[1]] : null
+  })
+  // Default to the full range once data loads; clamp a saved range to bounds.
+  useEffect(() => {
+    if (!yearBounds) return
+    setYearSel((cur) => {
+      if (!cur) return yearBounds
+      const [a, b] = cur
+      return [
+        Math.min(Math.max(a, yearBounds[0]), yearBounds[1]),
+        Math.max(Math.min(b, yearBounds[1]), yearBounds[0]),
+      ]
+    })
+  }, [yearBounds])
+
+  const yearChanged = useCallback(
+    (v: [number, number]) => {
+      setYearSel(v)
+      saveSelection(item, {
+        dimension,
+        metric: selectedMetric,
+        sel: { ...(savedRef?.sel ?? {}), [dimension]: Array.from(selectedDim).sort() },
+        year: v,
+      })
+    },
+    [item, savedRef, dimension, selectedMetric, selectedDim]
+  )
+
+  const yearReset = useCallback(() => {
+    if (yearBounds) setYearSel(yearBounds)
+  }, [yearBounds])
+
+  const yearFilter = useCallback(
+    (row: CatalogSeriesRow) => {
+      if (!yearSel) return true
+      const y = row.tahun
+      if (typeof y !== "number") return false
+      return y >= yearSel[0] && y <= yearSel[1]
+    },
+    [yearSel]
+  )
+
   // --- Export only the selected dimension members (e.g. chosen kecamatan) ---
   // If nothing is selected, the export is empty (matches the empty chart/table).
   const exportRows = useMemo(() => {
@@ -430,6 +485,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
     return allRows
       .filter((row) => metricKey(row) === selectedMetric)
       .filter((row) => selectedDim.has(dimensionValue(row, dimension)))
+      .filter(yearFilter)
       .map((row) => ({
         Tahun: row.tahun ?? "-",
         [dimension === "wilayah" ? "Wilayah" : "Rincian"]: dimensionValue(row, dimension) || "-",
@@ -438,7 +494,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
         Rincian: row.rincian_nama && row.rincian_nama !== "-" ? row.rincian_nama : "",
         Status: row.flag || "ada",
       }))
-  }, [allRows, selectedMetric, selectedDim, dimension])
+  }, [allRows, selectedMetric, selectedDim, dimension, yearFilter])
 
   const handleExportExcel = useCallback(() => {
     if (exportRows.length === 0) return
@@ -516,6 +572,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
       const dim = dimensionValue(row, dimension)
       if (isTrivial(dimension, dim)) return
       if (selected.size > 0 && !selected.has(dim)) return
+      if (!yearFilter(row)) return
       const year = String(row.tahun ?? "")
       if (!byYear[year]) byYear[year] = { tahun: Number(row.tahun) }
       // Backend already aggregates aliased rincian (e.g. Eselon III.a+III.b ->
@@ -544,7 +601,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
       points: Object.values(byYear).sort((a, b) => Number(a.tahun) - Number(b.tahun)),
       lines,
     }
-  }, [allRows, selectedMetric, selectedDim, dimension])
+  }, [allRows, selectedMetric, selectedDim, dimension, yearFilter])
 
   const hasRows = allRows.length > 0
   const metricUnit = normUnit(allRows.find((r) => metricKey(r) === selectedMetric)?.unit)
@@ -695,6 +752,28 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                     <FileText className="h-4 w-4" /> PDF
                   </button>
                 </div>
+
+                {/* Year range filter */}
+                {yearBounds && (
+                  <div className="flex items-center gap-3 rounded-md border border-border bg-background px-3 py-1.5">
+                    <label className="text-xs font-semibold text-muted-foreground whitespace-nowrap">
+                      Rentang tahun:
+                    </label>
+                    <YearRangeSlider
+                      min={yearBounds[0]}
+                      max={yearBounds[1]}
+                      value={yearSel ?? yearBounds}
+                      onChange={yearChanged}
+                    />
+                    <button
+                      type="button"
+                      onClick={yearReset}
+                      className="rounded-full border border-border bg-background px-2.5 py-1 text-[11px] font-semibold text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors whitespace-nowrap"
+                    >
+                      Semua
+                    </button>
+                  </div>
+                )}
 
                 {/* Metric selector */}
                 {metrics.length > 1 && (
@@ -866,6 +945,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                         {allRows
                           .filter((row: any) => metricKey(row) === selectedMetric)
                           .filter((row: any) => selectedDim.has(dimensionValue(row, dimension)))
+                          .filter((row: any) => yearFilter(row))
                           .map((row: any) => (
                             <tr key={row.id} className="border-b border-border last:border-0 hover:bg-muted/30">
                               <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{row.tahun ?? "-"}</td>
