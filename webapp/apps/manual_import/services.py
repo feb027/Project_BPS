@@ -29,11 +29,15 @@ _KABUPATEN_IDS = [40]  # Kabupaten Tasikmalaya (skip typo id=86)
 
 class ManualImportTemplateBuilder:
     MASTER_YEAR = 2026
+    MIN_PUBLICATION_YEAR = 1996  # data publikasi BPS tertua yang bisa diimpor
     SHEET_PREFIX = "T_"          # Table data-sheet prefix
 
     def __init__(self, publication_year: int, bab_id: int | None = None):
-        if publication_year <= self.MASTER_YEAR:
-            raise ValueError("publication_year harus lebih besar dari master year 2026")
+        if publication_year < self.MIN_PUBLICATION_YEAR:
+            raise ValueError(
+                f"publication_year minimal {self.MIN_PUBLICATION_YEAR} "
+                "(data publikasi BPS tertua)"
+            )
         self.publication_year = publication_year
         self.master_publikasi = Publikasi.objects.get(tahun_terbit=self.MASTER_YEAR)
         self.bab_id = bab_id

@@ -319,13 +319,13 @@ def generate_template(request):
         except (ValueError, TypeError):
             return Response({"error": "bab_id harus angka."}, status=status.HTTP_400_BAD_REQUEST)
 
-    if publication_year <= MASTER_YEAR:
+    if publication_year < ManualImportTemplateBuilder.MIN_PUBLICATION_YEAR:
         return Response(
             {
                 "error": (
-                    f"Template hanya bisa dibuat untuk tahun di atas {MASTER_YEAR} "
-                    f"(master). Tahun {publication_year} sudah tercakup data master, "
-                    "tidak perlu diimpor manual."
+                    f"Template hanya bisa dibuat untuk tahun "
+                    f"{ManualImportTemplateBuilder.MIN_PUBLICATION_YEAR} ke atas "
+                    "(data publikasi BPS tertua)."
                 )
             },
             status=status.HTTP_400_BAD_REQUEST,
