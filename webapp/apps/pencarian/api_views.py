@@ -641,6 +641,22 @@ def _quick_rincian_matches(query, limit=12):
                 selected_keys = breakdown_keys or list(rows_by_subject)
         elif "jenis permukaan" in group_titles and (set(rows_by_subject) & surface_terms):
             selected_keys = [key for key in rows_by_subject if key in surface_terms]
+        elif not subject_intent and "kabupaten tasikmalaya" in rows_by_subject:
+            # User named only the indicator/table (e.g. "Sarana Perdagangan"),
+            # not a rincian. Show a single kabupaten-total line instead of
+            # breaking out the kios/pasar/toko/warung/etc. columns, so the
+            # card answers "what is the total" rather than "which sub-category
+            # is biggest".
+            selected_keys = ["kabupaten tasikmalaya"]
+        elif not subject_intent:
+            # No kabupaten total row available; fall back to the real
+            # breakdown categories (kios, pasar, ...) so the card still
+            # shows meaningful per-rincian values.
+            breakdown_keys = [
+                key for key in rows_by_subject
+                if key not in {"jumlah", "total", "kabupaten tasikmalaya"}
+            ]
+            selected_keys = breakdown_keys or list(rows_by_subject)
         else:
             # No explicit subject in the query. Prefer a meaningful breakdown
             # (the real rincian categories) over collapsing to the 'Jumlah'
