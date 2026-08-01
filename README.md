@@ -476,6 +476,53 @@ psql -h 127.0.0.1 -U bps -d bps_publikasi_baru -c "SELECT count(*) FROM data_fak
 | Port 5432 sudah dipakai | Cek `ss -tlnp \| grep 5432`; ganti `DB_PORT` bila PostgreSQL memakai port non-default |
 | Permission denied untuk test DB | Beri `ALTER ROLE bps CREATEDB;` agar pytest bisa membuat database test |
 
+### 8. Bagikan data PostgreSQL ke SQLite (tanpa install PostgreSQL)
+
+Dump PostgreSQL (`.dump` / `.sql` dari `pg_dump`) **tidak bisa langsung dibaca SQLite** — formatnya berbeda. Cara paling ringan untuk berbagi data ke teman yang tidak mau install PostgreSQL: **konversi sekali di mesin yang sudah punya PG, kirim file `db.sqlite3`-nya**. Temanmu cukup terima satu file, tanpa Docker, tanpa PostgreSQL.
+
+#### 8a. Di mesin sumber (yang sudah punya PostgreSQL)
+
+```bash
+cd webapp
+
+# 1. Ekspor semua data jadi fixture JSON (pemilik data, dari PG live)
+python manage.py dumpdata \
+  --exclude contenttypes --exclude auth.permission \
+  --exclude sessions --exclude admin.logentry \
+  > backup_bps.json
+
+# 2. Buat database SQLite kosong (DB_ENGINE kosong = SQLite)
+DB_ENGINE= python manage.py migrate --noinput
+
+# 3. Impor data ke SQLite
+DB_ENGINE= python manage.py loaddata backup_bps.json
+
+# 4. Selesai — file webapp/db.sqlite3 siap dikirim
+```
+
+> [!NOTE]
+> - Langkah 1–3 cukup dilakukan **sekali**; hasilnya satu file `db.sqlite3`.
+> - File `backup_bps.json` bisa dihapus setelah impor (file antara, bisa ~100MB).
+> - `--exclude` dipakai karena tabel-tabel itu dibuat ulang otomatis oleh `migrate`/Django di mesin tujuan — mengecualikannya mencegah konflik primary key.
+
+#### 8b. Di mesin tujuan (penerima — tanpa PostgreSQL)
+
+```bash
+cd webapp
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+# Letakkan file db.sqlite3 yang dikirim di folder webapp/ (menimpa yang kosong)
+
+cp .env.example .env          # PASTIKAN baris DB_ENGINE kosong / dihapus
+python manage.py migrate      # idempoten — aman di atas data yang sudah ada
+python manage.py runserver 127.0.0.1:8000
+```
+
+> [!NOTE]
+> - SQLite tidak punya `pg_trgm`; pencarian trigram otomatis fallback ke `icontains` (lihat tabel perbandingan di atas).
+> - File `db.sqlite3` bisa langsung disalin ke mesin lain — tidak ada proses install tambahan.
+
 ## Pengujian
 
 ```bash

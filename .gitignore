@@ -42,3 +42,6 @@ skills-lock.json
 
 # Playwright MCP snapshots
 .playwright-mcp/
+
+# SQLite dev database (hasil konversi/backup lokal, jangan di-push)
+webapp/db.sqlite3
