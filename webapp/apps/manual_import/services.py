@@ -163,6 +163,17 @@ class ManualImportTemplateBuilder:
         koloms = list(
             KolomTabel.objects.filter(tabel=tabel).order_by("urutan")
         )
+        # Dedup: tabel per-tahun punya beberapa kolom dengan indikator sama
+        # (e.g. "Sarana Perdagangan" tahun 2023/2024/2025). Template cukup
+        # SATU kolom per indikator, dilabel "(Tahun)" — user mengisi data
+        # untuk tahun publikasi yang dipilih di form.
+        seen_ind: dict[int, Any] = {}
+        uniq_koloms: list[Any] = []
+        for k in koloms:
+            if k.indikator_id not in seen_ind:
+                seen_ind[k.indikator_id] = k
+                uniq_koloms.append(k)
+        koloms = uniq_koloms
 
         # ── Header ──────────────────────────────────────────────────
         if tabel.tipe_baris == Tabel.TipeBaris.KATEGORI:
@@ -172,10 +183,13 @@ class ManualImportTemplateBuilder:
 
         for k in koloms:
             nama = k.indikator.nama
-            # Kolom per-tahun (e.g. "Sarana Perdagangan" dengan tahun 2023/2024/2025)
-            # harus punya header unik agar tidak bertabrakan saat import ulang.
+            # Kolom per-tahun: label "(Tahun)" bukan tahun hardcoded.
             if k.tahun:
-                nama = f"{nama} ({k.tahun})"
+                nama = f"{nama} (Tahun)"
+            # Satuan mengikuti UI 2026: "nama (Tahun) — satuan"
+            satuan = (k.satuan or k.indikator.satuan or "").strip()
+            if satuan and satuan not in ("-", "None"):
+                nama = f"{nama} — {satuan}"
             headers.append(nama)
         ws.append(headers)
 

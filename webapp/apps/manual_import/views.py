@@ -31,21 +31,32 @@ def _error(reason: str, code: str = "invalid"):
     return {"valid": False, "errors": [{"code": code, "detail": reason}], "warnings": []}
 
 
-# Header kolom template bisa ber-suffix tahun, e.g. "Sarana Perdagangan (2025)".
-# Pisahkan nama indikator dari tahun untuk dicocokkan ke master.
-_LABEL_TAHUN_RE = re.compile(r"^(.*?)\s*\((\d{4})\)\s*$")
+# Header kolom template bisa ber-suffix tahun dan/atau satuan, misalnya:
+#   "Sarana Perdagangan (Tahun)"        -> ("Sarana Perdagangan", None)
+#   "Sarana Perdagangan (2023)"         -> ("Sarana Perdagangan", 2023)  # template lama
+#   "Jumlah Penduduk (Tahun) — jiwa"    -> ("Jumlah Penduduk", None)
+#   "Luas Wilayah — km2"                -> ("Luas Wilayah", None)
+_LABEL_TAHUN_RE = re.compile(r"^(.*?)\s*\((?:Tahun|\d{4})\)\s*(?:—\s*[^—]*)?$")
+_LABEL_SATUAN_RE = re.compile(r"^(.*?)\s*—\s*[^—]*$")
 
 
 def _split_label_tahun(label: str) -> tuple[str, int | None]:
     """Return (indicator_name, tahun) from a template header label.
 
-    "Sarana Perdagangan (2025)" -> ("Sarana Perdagangan", 2025)
-    "Sarana Perdagangan"        -> ("Sarana Perdagangan", None)
+    "(Tahun)" atau "(2023)" -> tahun diambil; suffix "— satuan" dibuang.
+    Kalau tidak ada tahun -> tahun None.
     """
-    m = _LABEL_TAHUN_RE.match(label or "")
+    text = (label or "").strip()
+    m = _LABEL_TAHUN_RE.match(text)
     if m:
-        return m.group(1).strip(), int(m.group(2))
-    return (label or "").strip(), None
+        nama = m.group(1).strip()
+        m2 = re.search(r"\((\d{4})\)", text)
+        tahun = int(m2.group(1)) if m2 else None
+        return nama, tahun
+    m = _LABEL_SATUAN_RE.match(text)
+    if m:
+        return m.group(1).strip(), None
+    return text, None
 
 
 def _ok():
@@ -608,11 +619,13 @@ def commit(request, pk: str):
                                 .aggregate(m=Max("urutan"))["m"]
                                 or 0
                             )
+                            ind_info = indikator_map.get(indikator_id, {})
                             kolom = KolomTabel.objects.create(
                                 tabel=target_tabel,
                                 indikator_id=indikator_id,
                                 urutan=max_urut + 1,
                                 tahun=label_tahun,
+                                satuan=ind_info.get("satuan", "") or "",
                             )
 
                         fakta_tahun = label_tahun or upload.publication_year
