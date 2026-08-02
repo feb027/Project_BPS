@@ -392,6 +392,7 @@ def mark_fakta_safe(request, pk):
         fakta = get_object_or_404(Fakta, pk=pk)
         fakta.flag = Fakta.Flag.ADA
         fakta.save(update_fields=['flag'])
+        cache.delete("dashboard_jml_perlu_cek")
         messages.success(request, f"Data tabel {fakta.tabel.nomor_tabel} berhasil ditandai aman.")
     return redirect("/")
 

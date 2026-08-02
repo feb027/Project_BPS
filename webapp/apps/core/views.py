@@ -86,11 +86,16 @@ def dashboard(request):
         jml_fakta = Fakta.objects.count()
         cache.set("dashboard_jml_fakta", jml_fakta, 3600)
 
+    jml_perlu_cek = cache.get("dashboard_jml_perlu_cek")
+    if jml_perlu_cek is None:
+        jml_perlu_cek = Fakta.objects.filter(flag=Fakta.Flag.PERLU_CEK).count()
+        cache.set("dashboard_jml_perlu_cek", jml_perlu_cek, 60)
+
     ctx = {
         "jml_publikasi": jml_publikasi,
         "jml_tabel": jml_tabel,
         "jml_fakta": jml_fakta,
-        "jml_perlu_cek": Fakta.objects.filter(flag=Fakta.Flag.PERLU_CEK).count(),
+        "jml_perlu_cek": jml_perlu_cek,
         "anomali_list": anomali_list,
         "live_feed": live_feed,
         "chart_data": json.dumps(chart),

@@ -5,7 +5,7 @@
 {% block heading %}Beranda{% endblock %}
 
 {% block content %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 
 <style>
   /* ===== Panel ===== */
@@ -25,9 +25,10 @@
   .dash-panel__title svg { color: var(--accent-2); }
   .dash-panel__sub { font-size: 13px; color: var(--muted); margin-top: 4px; }
 
-  /* ===== Stat cards ===== */
+  /* ===== Stat cards (clickable) ===== */
   .stat-grid { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
-  .stat { overflow: hidden; }
+  .stat { overflow: hidden; display: block; text-decoration: none; color: inherit; }
+  .stat:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
   .stat__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .stat__icon {
     width: 36px; height: 36px; border-radius: 8px; flex: none;
@@ -39,19 +40,32 @@
   .stat-value { margin-top: 10px; }
   .stat__foot { font-size: 12px; color: var(--muted); margin-top: 6px; }
 
-  /* ===== Chart ===== */
-  .chart-wrap { position: relative; height: 420px; }
-  .chart-toolbar { display: flex; align-items: center; gap: 10px; }
-  .chart-toolbar select {
-    font-family: var(--sans); font-size: 13px; font-weight: 500;
-    padding: 7px 12px; border: 1px solid var(--line); border-radius: 6px;
-    background: var(--panel); color: var(--ink); cursor: pointer;
+  /* ===== Freshness & shortcuts ===== */
+  .fresh-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: -8px 0 24px; }
+  .fresh-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--ok);
+    background: #ECFDF5; border: 1px solid #A7F3D0; padding: 6px 14px; border-radius: 999px;
   }
+  .quick-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .quick-actions .btn { display: inline-flex; align-items: center; gap: 8px; }
+
+  /* ===== Chart ===== */
+  .chart-wrap { position: relative; height: 440px; }
   .chart-total {
     font-family: var(--mono); font-size: 13px; font-weight: 600;
     color: var(--ink-2); background: #EFF6FF; border: 1px solid #BFDBFE;
     padding: 5px 12px; border-radius: 999px; white-space: nowrap;
   }
+
+  /* ===== Top bab list ===== */
+  .topbab-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 14px; }
+  .topbab-item { display: flex; flex-direction: column; gap: 5px; }
+  .topbab-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .topbab-name { font-size: 13px; font-weight: 600; color: #0F172A; }
+  .topbab-val { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .topbab-bar { height: 6px; border-radius: 999px; background: #F1F5F9; overflow: hidden; }
+  .topbab-bar > i { display: block; height: 100%; border-radius: 999px; }
 
   /* ===== Anomaly ===== */
   .anomaly-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -79,67 +93,81 @@
   @media (max-width: 768px) {
     .two-col-grid { grid-template-columns: 1fr !important; }
     .chart-wrap { height: 360px; }
+    .chart-main { grid-template-columns: 1fr !important; }
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   .animate-spin { animation: spin 1s linear infinite; }
 </style>
 
-<div class="stat-grid" style="margin-bottom: 24px; margin-top: 10px;">
-  <div class="stat">
+<!-- Stat cards (clickable) -->
+<div class="stat-grid" style="margin-bottom: 16px; margin-top: 10px;">
+  <a class="stat" href="{% url 'data:home' %}">
     <div class="stat__top">
       <div class="stat-label">Total Publikasi</div>
       <div class="stat__icon"><i data-lucide="book-open" style="width:18px;height:18px;"></i></div>
     </div>
     <div class="stat-value">{{ jml_publikasi|intcomma }}</div>
     <div class="stat__foot">Terbitan BPS yang dimuat</div>
-  </div>
-  <div class="stat">
+  </a>
+  <a class="stat" href="{% url 'data:home' %}">
     <div class="stat__top">
       <div class="stat-label">Total Tabel</div>
       <div class="stat__icon"><i data-lucide="table-2" style="width:18px;height:18px;"></i></div>
     </div>
     <div class="stat-value">{{ jml_tabel|intcomma }}</div>
     <div class="stat__foot">Tabel tersebar di semua bab</div>
-  </div>
-  <div class="stat">
+  </a>
+  <a class="stat" href="{% url 'data:home' %}">
     <div class="stat__top">
       <div class="stat-label">Total Fakta (Data)</div>
       <div class="stat__icon"><i data-lucide="database" style="width:18px;height:18px;"></i></div>
     </div>
     <div class="stat-value">{{ jml_fakta|intcomma }}</div>
     <div class="stat__foot">Baris data angka statistik</div>
-  </div>
-  <div class="stat stat--warn">
+  </a>
+  <a class="stat stat--warn" href="#anomali">
     <div class="stat__top">
       <div class="stat-label" style="color:#B45309;">Anomali &amp; Cek</div>
       <div class="stat__icon"><i data-lucide="alert-triangle" style="width:18px;height:18px;"></i></div>
     </div>
     <div class="stat-value" style="color:#B45309;">{{ jml_perlu_cek|intcomma }}</div>
     <div class="stat__foot">Menunggu verifikasi manual</div>
+  </a>
+</div>
+
+<!-- Freshness + shortcut aksi -->
+<div class="fresh-row">
+  <span class="fresh-badge"><i data-lucide="check-circle" style="width:14px;height:14px;"></i> Data terbaru: <span id="freshYear">…</span></span>
+  <div class="quick-actions">
+    <a class="btn btn--ghost" href="{% url 'ekstraksi:index' %}"><i data-lucide="file-scan" style="width:15px;height:15px;"></i> Ekstraksi PDF</a>
+    <a class="btn btn--ghost" href="{% url 'manual_import:page' %}"><i data-lucide="upload" style="width:15px;height:15px;"></i> Import Manual</a>
   </div>
 </div>
 
-<!-- Visualisasi Grafik -->
+<!-- Visualisasi Grafik: semua tahun dalam satu chart + Bab terbesar -->
 <div class="dash-panel">
   <div class="dash-panel__head">
     <div>
       <h2 class="dash-panel__title"><i data-lucide="bar-chart-2" style="width:18px;height:18px;"></i> Distribusi Fakta per Bab</h2>
-      <p class="dash-panel__sub">Jumlah baris data pada setiap bab, per tahun publikasi.</p>
+      <p class="dash-panel__sub">Jumlah baris data setiap bab, semua tahun publikasi sekaligus.</p>
     </div>
-    <div class="chart-toolbar">
-      <span class="chart-total" id="chartTotal">—</span>
-      <select id="tahunSelect" aria-label="Pilih tahun publikasi"></select>
-    </div>
+    <span class="chart-total" id="chartTotal">—</span>
   </div>
-  <div class="chart-wrap">
-    <canvas id="distribusiChart"></canvas>
+  <div style="display:grid; grid-template-columns: 3fr 1fr; gap:28px; align-items:start;" class="chart-main">
+    <div class="chart-wrap">
+      <canvas id="distribusiChart"></canvas>
+    </div>
+    <div style="min-width:0;">
+      <h3 style="margin:0 0 14px; font-size:13px; font-weight:600; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted);">Bab Terbesar</h3>
+      <ul class="topbab-list" id="topbabList"></ul>
+    </div>
   </div>
 </div>
 
 <div class="two-col-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
   <!-- Anomali Panel -->
-  <div class="dash-panel">
-    <div class="dash-panel__head" style="border-bottom:1px solid var(--line);">
+  <div class="dash-panel" id="anomali">
+    <div class="dash-panel__head">
       <div>
         <h2 class="dash-panel__title" style="color:var(--danger);"><i data-lucide="alert-octagon" style="width:18px;height:18px;color:var(--danger);"></i> Data Anomali</h2>
         <p class="dash-panel__sub">Tabel dengan nilai yang ditandai perlu dicek.</p>
@@ -186,6 +214,7 @@
         <h2 class="dash-panel__title" style="color:var(--ok);"><i data-lucide="activity" style="width:18px;height:18px;color:var(--ok);"></i> Live Feed Aktivitas</h2>
         <p class="dash-panel__sub">Tabel terbaru yang diperbarui.</p>
       </div>
+      <a href="{% url 'data:home' %}" class="btn btn--sm btn--ghost" style="display:inline-flex; align-items:center; gap:6px; font-size:12px;"><i data-lucide="arrow-right" style="width:13px;height:13px;"></i> Lihat Semua</a>
     </div>
     {% if live_feed %}
     <div class="feed-list">
@@ -216,7 +245,9 @@
       {% endfor %}
     </div>
     {% else %}
-    <p class="empty" style="text-align:left; margin:0; padding:20px 0;">Belum ada aktivitas hari ini.</p>
+    <div style="text-align:center; padding: 30px 20px; color: var(--muted); font-weight:500;">
+      <i data-lucide="activity" style="width:48px; height:48px; margin-bottom:12px; opacity:0.5;"></i><br>Belum ada aktivitas hari ini.
+    </div>
     {% endif %}
   </div>
 </div>
@@ -227,112 +258,117 @@
   const fmt = new Intl.NumberFormat('id-ID');
   let chart = null;
 
-  function renderChart(tahun) {
-    const pub = CHART_DATA.publikasi.find(p => p.tahun === tahun) || CHART_DATA.publikasi[0];
-    if (!pub) return;
+  // Warna bab — palette BPS yang tenang (bukan neon)
+  const BAB_COLORS = [
+    '#1E40AF', '#3B82F6', '#60A5FA', '#93C5FD',
+    '#D97706', '#F59E0B', '#FBBF24', '#FCD34D',
+    '#059669', '#34D399', '#6EE7B7',
+    '#7C3AED', '#A78BFA',
+  ];
 
-    // Sortir bab dari terbesar ke terkecil agar paling mudah dibaca
-    const bab = [...pub.bab].sort((a, b) => b.jumlah - a.jumlah);
-    const labels = bab.map(b => `Bab ${b.nomor} · ${b.nama}`);
-    const data = bab.map(b => b.jumlah);
+  function renderChart() {
+    if (!CHART_DATA || !CHART_DATA.publikasi || CHART_DATA.publikasi.length === 0) return;
 
+    const tahunList = CHART_DATA.publikasi.map(p => p.tahun).sort((a, b) => a - b);
+
+    // Normalisasi label bab: "PENDUDUK DAN ..." -> "Penduduk dan ..."
+    const normalizeLabel = (s) => {
+      const words = String(s).toLowerCase().split(/\s+/);
+      return words.map(w => (w === 'dan' ? w : w.charAt(0).toUpperCase() + w.slice(1))).join(' ');
+    };
+
+    // Semua bab unik (berdasarkan nomor) di semua publikasi
+    const babMap = new Map(); // nomor -> {nomor, nama, perTahun: {}}
+    CHART_DATA.publikasi.forEach(p => {
+      (p.bab || []).forEach(b => {
+        if (!babMap.has(b.nomor)) babMap.set(b.nomor, { nomor: b.nomor, nama: normalizeLabel(b.nama), perTahun: {} });
+        babMap.get(b.nomor).perTahun[p.tahun] = b.jumlah;
+      });
+    });
+    // Urut bab dari terbesar (total) ke terkecil agar legend/tooltip jelas
+    const babs = Array.from(babMap.values());
+    babs.forEach(b => b.total = Object.values(b.perTahun).reduce((s, v) => s + (v || 0), 0));
+    babs.sort((a, b) => b.total - a.total);
+
+    // Freshness: tahun terbaru
+    const fresh = document.getElementById('freshYear');
+    if (fresh) fresh.textContent = CHART_DATA.default_tahun || (tahunList[tahunList.length - 1] || '');
+
+    const totalAll = CHART_DATA.publikasi.reduce((s, p) => s + (p.total || 0), 0);
     const el = document.getElementById('chartTotal');
-    if (el) el.textContent = `${pub.bab.length} bab · ${fmt.format(pub.total)} baris data`;
+    if (el) el.textContent = `${tahunList.length} tahun · ${fmt.format(totalAll)} baris data`;
+
+    // Panel "Bab Terbesar" — 5 bab dengan total tertinggi
+    const topbab = document.getElementById('topbabList');
+    if (topbab) {
+      const top5 = babs.slice(0, 5);
+      const max = top5[0] ? top5[0].total : 0;
+      topbab.innerHTML = top5.map((b, i) => `
+        <li class="topbab-item">
+          <div class="topbab-head">
+            <span class="topbab-name">${b.nomor}. ${b.nama}</span>
+            <span class="topbab-val">${fmt.format(b.total)}</span>
+          </div>
+          <div class="topbab-bar"><i style="width:${max ? Math.round(b.total / max * 100) : 0}%; background:${BAB_COLORS[i % BAB_COLORS.length]};"></i></div>
+        </li>`).join('');
+    }
 
     const canvas = document.getElementById('distribusiChart');
     if (!canvas) return;
-
     if (chart) chart.destroy();
+
+    const datasets = babs.map((b, i) => ({
+      label: `Bab ${b.nomor} · ${b.nama}`,
+      data: tahunList.map(y => b.perTahun[y] || 0),
+      backgroundColor: BAB_COLORS[i % BAB_COLORS.length],
+      borderRadius: 2,
+    }));
 
     chart = new Chart(canvas.getContext('2d'), {
       type: 'bar',
-      data: {
-        labels,
-        datasets: [{
-          label: 'Jumlah Baris Data',
-          data,
-          backgroundColor: '#3B82F6',
-          hoverBackgroundColor: '#1E40AF',
-          borderRadius: 5,
-          barThickness: 20,
-        }]
-      },
+      data: { labels: tahunList, datasets },
       options: {
-        indexAxis: 'y',
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { display: false },
+          legend: {
+            position: 'bottom',
+            labels: {
+              boxWidth: 12, boxHeight: 12, padding: 14, usePointStyle: true, pointStyle: 'rectRounded',
+              font: { family: 'Fira Sans', size: 11.5, weight: '500' }, color: '#334155',
+            },
+          },
           tooltip: {
-            backgroundColor: '#0F172A',
-            padding: 10,
-            cornerRadius: 6,
+            backgroundColor: '#0F172A', padding: 10, cornerRadius: 6,
             titleFont: { family: 'Fira Sans', size: 13 },
-            bodyFont: { family: 'Fira Code', size: 13 },
+            bodyFont: { family: 'Fira Code', size: 12 },
             callbacks: {
-              label: (ctx) => ` ${fmt.format(ctx.raw)} baris data`
-            }
-          }
+              label: (ctx) => ` ${ctx.dataset.label.replace(/^Bab \d+ · /, '')}: ${fmt.format(ctx.raw)} baris`,
+              footer: (items) => {
+                const total = items.reduce((s, it) => s + (it.raw || 0), 0);
+                return `Total: ${fmt.format(total)} baris data`;
+              },
+            },
+          },
         },
         scales: {
           x: {
-            beginAtZero: true,
-            grid: { color: '#E2E8F0', borderDash: [4, 4] },
-            ticks: {
-              font: { family: 'Fira Code', size: 11 },
-              color: '#64748B',
-              callback: (v) => fmt.format(v)
-            }
+            stacked: true,
+            grid: { display: false },
+            ticks: { font: { family: 'Fira Code', size: 12 }, color: '#334155' },
           },
           y: {
-            grid: { display: false },
-            ticks: {
-              font: { family: 'Fira Sans', size: 12, weight: '500' },
-              color: '#1E293B',
-              autoSkip: false,
-              callback: function (value, index) {
-                const label = this.getLabelForValue(value);
-                return label.length > 42 ? label.slice(0, 42) + '…' : label;
-              }
-            }
-          }
-        }
+            stacked: true,
+            beginAtZero: true,
+            grid: { color: '#E2E8F0', borderDash: [4, 4] },
+            ticks: { font: { family: 'Fira Code', size: 11 }, color: '#64748B', callback: (v) => fmt.format(v) },
+          },
+        },
       },
-      plugins: [{
-        // Tampilkan nilai di ujung bar
-        afterDatasetsDraw(chartInstance) {
-          const ctx = chartInstance.ctx;
-          ctx.save();
-          ctx.font = '600 11px Fira Code, monospace';
-          ctx.fillStyle = '#1E3A8A';
-          const meta = chartInstance.getDatasetMeta(0);
-          meta.data.forEach((bar, i) => {
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(fmt.format(data[i]), bar.x + 6, bar.y);
-          });
-          ctx.restore();
-        }
-      }]
     });
   }
 
-  function initChart() {
-    const sel = document.getElementById('tahunSelect');
-    if (!sel || !CHART_DATA || !CHART_DATA.publikasi || CHART_DATA.publikasi.length === 0) return;
-
-    CHART_DATA.publikasi.forEach(p => {
-      const opt = document.createElement('option');
-      opt.value = p.tahun;
-      opt.textContent = `Tahun ${p.tahun}`;
-      sel.appendChild(opt);
-    });
-    sel.value = CHART_DATA.default_tahun;
-    sel.addEventListener('change', () => renderChart(parseInt(sel.value, 10)));
-    renderChart(parseInt(sel.value, 10));
-  }
-
-  document.addEventListener('DOMContentLoaded', initChart);
+  document.addEventListener('DOMContentLoaded', renderChart);
 
   // AJAX Handle Aman
   async function handleAman(e, form) {
