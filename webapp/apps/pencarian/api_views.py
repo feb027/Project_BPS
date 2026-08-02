@@ -1383,7 +1383,7 @@ class TimeSeriesAPIView(APIView):
     """
     API untuk data Fakta (time-series) berdasarkan Indikator atau Tabel.
     """
-    @method_decorator(cache_page(60)) # 5 menit cache (safety net)
+    @method_decorator(cache_page(60 * 5)) # 5 menit cache (safety net)
     def get(self, request):
         indikator_id = request.GET.get('indikator_id')
         tabel_id = request.GET.get('tabel_id')
@@ -1421,7 +1421,7 @@ class CatalogAPIView(APIView):
 
     NORMALIZE = lambda self, name: re.sub(r"\s+", " ", (name or "").strip().lower())
 
-    @method_decorator(cache_page(60))  # 5 menit cache (merged + catalog)
+    @method_decorator(cache_page(60 * 5))  # 5 menit cache (merged + catalog)
     def get(self, request):
         from apps.katalog.models import Bab, Tabel
 
@@ -1658,7 +1658,7 @@ class CanonicalTimeSeriesAPIView(APIView):
 
     Accepts either `indicator_code` (preferred) or `canonical_indicator_id`.
     """
-    @method_decorator(cache_page(60))
+    @method_decorator(cache_page(60 * 5))
     def get(self, request):
         indicator_code = request.GET.get('indicator_code') or request.GET.get('code')
         canonical_indicator_id = request.GET.get('canonical_indicator_id')

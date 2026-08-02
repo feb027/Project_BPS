@@ -36,7 +36,7 @@ export function Sidebar({ query, setQuery, filterTipe, onFilterTipe }: SidebarPr
       
       <div className="p-4 border-t border-border mt-auto">
         <div className="text-[10px] text-muted-foreground uppercase tracking-widest text-center">
-          Internal BPS Use Only
+          Data BPS Kab. Tasikmalaya
         </div>
       </div>
     </aside>
