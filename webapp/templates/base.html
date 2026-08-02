@@ -14,28 +14,36 @@
   <div class="layout">
     <aside class="sidebar">
       <div class="brand">
-        <span class="brand-mark">BPS</span>
+        <img src="{% static 'img/bps-logo.svg' %}" alt="Logo BPS" class="brand-logo">
         <span class="brand-text">Pangkalan Data<br>Publikasi</span>
       </div>
-      <nav class="nav">
-        <a class="nav-link {% if request.resolver_match.namespace == 'core' %}is-active{% endif %}" href="{% url 'core:dashboard' %}">
+      <nav class="nav" aria-label="Navigasi utama">
+        <p class="nav-section">Utama</p>
+        <a class="nav-link {% if request.resolver_match.namespace == 'core' %}is-active{% endif %}" href="{% url 'core:dashboard' %}" {% if request.resolver_match.namespace == 'core' %}aria-current="page"{% endif %}>
           <i data-lucide="layout-dashboard" style="width:16px;height:16px;"></i> Beranda
         </a>
-        <a class="nav-link {% if request.resolver_match.namespace == 'ekstraksi' %}is-active{% endif %}" href="{% url 'ekstraksi:index' %}">
+
+        <p class="nav-section">Pengolahan Data</p>
+        <a class="nav-link {% if request.resolver_match.namespace == 'ekstraksi' %}is-active{% endif %}" href="{% url 'ekstraksi:index' %}" {% if request.resolver_match.namespace == 'ekstraksi' %}aria-current="page"{% endif %}>
           <i data-lucide="file-scan" style="width:16px;height:16px;"></i> Ekstraksi PDF
         </a>
-        <a class="nav-link {% if request.resolver_match.namespace == 'data' %}is-active{% endif %}" href="{% url 'data:home' %}">
+        <a class="nav-link {% if request.resolver_match.namespace == 'data' %}is-active{% endif %}" href="{% url 'data:home' %}" {% if request.resolver_match.namespace == 'data' %}aria-current="page"{% endif %}>
           <i data-lucide="database" style="width:16px;height:16px;"></i> Data Tabel
         </a>
-        <a class="nav-link" href="/admin/">
+        <a class="nav-link {% if request.resolver_match.namespace == 'manual_import' %}is-active{% endif %}" href="{% url 'manual_import:page' %}" {% if request.resolver_match.namespace == 'manual_import' %}aria-current="page"{% endif %}>
+          <i data-lucide="upload" style="width:16px;height:16px;"></i> Import Manual
+        </a>
+
+        <p class="nav-section">Master &amp; Admin</p>
+        <a class="nav-link {% if request.resolver_match.namespace == 'katalog' %}is-active{% endif %}" href="{% url 'katalog:index' %}" {% if request.resolver_match.namespace == 'katalog' %}aria-current="page"{% endif %}>
           <i data-lucide="settings" style="width:16px;height:16px;"></i> Katalog &amp; Master
         </a>
-        <a class="nav-link" href="{% url 'manual_import:page' %}">
-          <i data-lucide="upload" style="width:16px;height:16px;"></i> Import Manual
+        <a class="nav-link" href="/admin/">
+          <i data-lucide="shield" style="width:16px;height:16px;"></i> Panel Admin
         </a>
       </nav>
       <div class="sidebar-foot">
-        <a href="/admin/">Panel Admin</a>
+        <span class="foot-meta">BPS Tasikmalaya · internal</span>
       </div>
     </aside>
 

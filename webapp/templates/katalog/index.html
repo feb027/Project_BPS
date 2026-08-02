@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% load humanize %}
+{% block title %}Katalog &amp; Master{% endblock %}
+{% block eyebrow %}Master Data{% endblock %}
+{% block heading %}Katalog &amp; Master{% endblock %}
+
+{% block content %}
+<div class="toolbar">
+  <span class="hint">Kelola publikasi, bab, dan tabel. Data lengkap tersedia di halaman Data Tabel.</span>
+  <a class="btn btn--accent" href="{% url 'katalog:publikasi_create' %}">+ Tambah Publikasi</a>
+</div>
+
+<div class="card-grid">
+  {% for p in pubs %}
+  <div class="pick-card" style="position:relative;">
+    <a href="{% url 'katalog:sync_dashboard' %}" style="display:flex;flex-direction:column;gap:4px;text-decoration:none;color:inherit;">
+      <span class="pick-year num">{{ p.tahun_terbit|stringformat:"s" }}</span>
+      <span class="pick-name">{{ p.judul }}</span>
+      <span class="pick-meta">{{ p.jml_bab }} bab · {{ p.jml_tabel }} tabel · {{ p.get_jenis_display }}</span>
+    </a>
+    <span class="card-actions">
+      <a class="btn btn--sm btn--ghost" href="{% url 'katalog:publikasi_edit' p.pk %}">Edit</a>
+      <a class="btn btn--sm btn--ghost" href="{% url 'katalog:bab_create' p.pk %}">+ Bab</a>
+      <a class="btn btn--sm btn--danger" href="{% url 'katalog:publikasi_delete' p.pk %}">Hapus</a>
+    </span>
+  </div>
+  {% empty %}
+  <p class="empty">Belum ada publikasi.</p>
+  {% endfor %}
+</div>
+
+<div class="panel" style="margin-top:24px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+    <div>
+      <h2 style="margin:0; font-size:1.05rem; font-weight:600;">Sinkronisasi &amp; Pemeliharaan</h2>
+      <p style="margin:4px 0 0; font-size:13px; color:var(--muted);">Saran perbaikan struktur antar publikasi, bersihkan kurung siku, dan gabungkan indikator duplikat.</p>
+    </div>
+    <a class="btn btn--ghost" href="{% url 'katalog:sync_dashboard' %}"><i data-lucide="refresh-cw" style="width:15px;height:15px;"></i> Buka Sync Dashboard</a>
+  </div>
+</div>
+{% endblock %}
