@@ -14,7 +14,7 @@
   <div class="layout">
     <aside class="sidebar">
       <div class="brand">
-        <img src="{% static 'img/bps-logo.svg' %}" alt="Logo BPS" class="brand-logo">
+        <img src="{% static 'img/bps-logo.svg' %}?v=3" alt="Logo BPS" class="brand-logo" style="width:40px; height:40px; object-fit:contain; flex:none;">
         <span class="brand-text">Pangkalan Data<br>Publikasi</span>
       </div>
       <nav class="nav" aria-label="Navigasi utama">
@@ -35,9 +35,6 @@
         </a>
 
         <p class="nav-section">Master &amp; Admin</p>
-        <a class="nav-link {% if request.resolver_match.namespace == 'katalog' %}is-active{% endif %}" href="{% url 'katalog:index' %}" {% if request.resolver_match.namespace == 'katalog' %}aria-current="page"{% endif %}>
-          <i data-lucide="settings" style="width:16px;height:16px;"></i> Katalog &amp; Master
-        </a>
         <a class="nav-link" href="/admin/">
           <i data-lucide="shield" style="width:16px;height:16px;"></i> Panel Admin
         </a>

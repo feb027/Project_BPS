@@ -6,7 +6,6 @@ from django.conf import settings
 from django.contrib import messages
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import Count
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from google import genai
@@ -16,16 +15,6 @@ from apps.data.services import _jenis_wilayah
 from apps.referensi.models import Indikator, Rincian, Wilayah
 from .forms import BabForm, PublikasiForm, TabelForm
 from .models import Bab, KolomTabel, Publikasi, Tabel
-
-
-def index(request):
-    """Halaman master: publikasi + bab + tabel, pintasan edit & sync."""
-    pubs = Publikasi.objects.order_by("-tahun_terbit").annotate(
-        jml_bab=Count("bab_set", distinct=True),
-        jml_tabel=Count("bab_set__tabel_set", distinct=True),
-    )
-    crumb = [{"label": "Katalog & Master", "url": ""}]
-    return render(request, "katalog/index.html", {"pubs": pubs, "breadcrumb": crumb})
 
 
 def _get_default_kabupaten_wilayah():

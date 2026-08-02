@@ -6,7 +6,6 @@ from . import sync_views
 app_name = "katalog"
 
 urlpatterns = [
-    path("", views.index, name="index"),
     path("publikasi/baru/", views.publikasi_create, name="publikasi_create"),
     path("pub/<int:pk>/edit/", views.publikasi_edit, name="publikasi_edit"),
     path("pub/<int:pk>/hapus/", views.publikasi_delete, name="publikasi_delete"),
