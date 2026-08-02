@@ -1,8 +1,7 @@
 import { describe, expect, it, beforeAll } from "vitest"
 import jsPDF from "jspdf"
 import { svg2pdf } from "svg2pdf.js"
-import { extractChartSvg } from "./pdfExport"
-
+import { extractChartSvg, registerFiraFonts } from "./pdfExport"
 // jsdom tidak implementasi SVG getBBox — polyfill seperti browser nyata,
 // svg2pdf memakainya untuk mengukur teks.
 beforeAll(() => {
@@ -13,7 +12,16 @@ beforeAll(() => {
   }
 })
 
-describe("pdfExport.extractChartSvg + svg2pdf", () => {
+describe("pdfExport", () => {
+  it("registerFiraFonts memanggil method INSTANCE (bukan static API) — tidak throw", () => {
+    const pdf = new jsPDF("portrait", "mm", "a4")
+    // Base64 dummy (bukan font valid — cukup untuk memastikan jalur
+    // addFileToVFS/addFont instance dipanggil tanpa error TypeError).
+    expect(() =>
+      registerFiraFonts(pdf, { regular: "AA==", bold: "AA==" })
+    ).not.toThrow()
+  })
+
   it("merender SVG ke PDF vector tanpa error", async () => {
     // Recharts-like SVG: garis + teks + style var() yang harus di-resolve
     const container = document.createElement("div")

@@ -65,37 +65,45 @@ async function loadBpsLogo(): Promise<string> {
 }
 
 // ─── Fira Sans font embedding (loaded once, cached) ────────────────
-let cachedFontsLoaded = false
+let cachedFonts: { regular: string | null; bold: string | null } | null = null
 
-async function loadFiraFonts(): Promise<void> {
-  if (cachedFontsLoaded) return
+function toBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf)
+  let binary = ""
+  const CHUNK = 0x8000
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+  }
+  return btoa(binary)
+}
 
-  // Fetch the TTF files as ArrayBuffer -> base64 for jsPDF addFileToVFS.
-  // The TTF must be registered BEFORE creating the jsPDF instance.
+/** Fetch Fira Sans TTF sebagai base64 (sekali, di-cache). */
+async function loadFiraFonts(): Promise<{ regular: string | null; bold: string | null }> {
+  if (cachedFonts) return cachedFonts
   const [regular, bold] = await Promise.all([
     fetch("/fonts/FiraSans-Regular.ttf").then((r) => r.arrayBuffer()).catch(() => null),
     fetch("/fonts/FiraSans-Bold.ttf").then((r) => r.arrayBuffer()).catch(() => null),
   ])
+  cachedFonts = {
+    regular: regular ? toBase64(regular) : null,
+    bold: bold ? toBase64(bold) : null,
+  }
+  return cachedFonts
+}
 
-  const toBase64 = (buf: ArrayBuffer) => {
-    const bytes = new Uint8Array(buf)
-    let binary = ""
-    const CHUNK = 0x8000
-    for (let i = 0; i < bytes.length; i += CHUNK) {
-      binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
-    }
-    return btoa(binary)
+/**
+ * Daftarkan Fira Sans ke instance jsPDF. addFileToVFS/addFont adalah
+ * METHOD INSTANCE di jsPDF v4 — bukan static jsPDF.API.
+ */
+export function registerFiraFonts(pdf: jsPDF, fonts: { regular: string | null; bold: string | null }) {
+  if (fonts.regular) {
+    pdf.addFileToVFS("FiraSans-Regular.ttf", fonts.regular)
+    pdf.addFont("FiraSans-Regular.ttf", "FiraSans", "normal")
   }
-
-  if (regular) {
-    ;(jsPDF as any).API.addFileToVFS("FiraSans-Regular.ttf", toBase64(regular))
-    ;(jsPDF as any).API.addFont("FiraSans-Regular.ttf", "FiraSans", "normal")
+  if (fonts.bold) {
+    pdf.addFileToVFS("FiraSans-Bold.ttf", fonts.bold)
+    pdf.addFont("FiraSans-Bold.ttf", "FiraSans", "bold")
   }
-  if (bold) {
-    ;(jsPDF as any).API.addFileToVFS("FiraSans-Bold.ttf", toBase64(bold))
-    ;(jsPDF as any).API.addFont("FiraSans-Bold.ttf", "FiraSans", "bold")
-  }
-  cachedFontsLoaded = true
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -220,9 +228,11 @@ export async function exportProfessionalPdf(opts: PdfExportOptions) {
   // Auto-detect orientation: ≥5 columns → landscape
   const orient = orientation ?? ((columns?.length ?? 0) >= 5 ? "landscape" : "portrait")
 
-  // Embed Fira Sans (harus sebelum instance jsPDF dibuat)
-  await loadFiraFonts()
+  // Fetch font TTF (base64) sebelum instance dibuat, lalu register
+  // ke instance SETELAH `new jsPDF` (addFileToVFS adalah method instance).
+  const fonts = await loadFiraFonts()
   const pdf = new jsPDF(orient, "mm", "a4")
+  registerFiraFonts(pdf, fonts)
   const pageW = pdf.internal.pageSize.getWidth()
   const pageH = pdf.internal.pageSize.getHeight()
   const marginX = 14
