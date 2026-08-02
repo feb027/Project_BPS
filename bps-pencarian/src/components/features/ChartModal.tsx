@@ -1,9 +1,10 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from "react"
 import { X, Loader2, Table2, LineChart as LineIcon, BarChart3, ChevronDown, Check, ListTree, FileSpreadsheet, FileText, RefreshCw } from "lucide-react"
 import { ResponsiveContainer, LineChart, BarChart, Bar, LabelList, CartesianGrid, XAxis, YAxis, Tooltip, Legend, Line } from "recharts"
-import * as XLSX from "xlsx"
 import html2canvas from "html2canvas-pro"
+import ExcelJS from "exceljs"
 import { exportProfessionalPdf } from "../../lib/pdfExport"
+import { buildStyledSheet, downloadWorkbook, timestampLabel } from "../../lib/excelExport"
 import { useTimeSeries, useCatalogSeries, type CatalogSeriesRow } from "../../lib/api"
 import { YearRangeSlider } from "./YearRangeSlider"
 
@@ -193,6 +194,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
 
   const exportChartRef = useRef<HTMLDivElement>(null)
   const [view, setView] = useState<"chart" | "table">("chart")
+  const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null)
 
   const allRows: CatalogSeriesRow[] = useMemo(() => {
     if (isSeries) {
@@ -528,84 +530,113 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
     }
   }, [allRows, selectedMetric, selectedDim, dimension, yearFilter])
 
-  const handleExportExcel = useCallback(() => {
+  const handleExportExcel = useCallback(async () => {
     if (exportRows.length === 0) return
-    const dimLabel = dimension === "wilayah" ? "Wilayah" : "Rincian"
-    const years = Array.from(new Set(exportRows.map((r) => String(r.Tahun)))).sort()
-    const members = Array.from(new Set(exportRows.map((r) => String(r[dimLabel as keyof typeof r] ?? "-")))).sort()
-    const lookup: Record<string, Record<string, number | string>> = {}
-    for (const r of exportRows) {
-      const m = String(r[dimLabel as keyof typeof r] ?? "-")
-      const y = String(r.Tahun)
-      if (!lookup[m]) lookup[m] = {}
-      lookup[m][y] = r.Nilai
+    setExporting("excel")
+    try {
+      const dimLabel = dimension === "wilayah" ? "Wilayah" : "Rincian"
+      const years = Array.from(new Set(exportRows.map((r) => String(r.Tahun)))).sort()
+      const members = Array.from(new Set(exportRows.map((r) => String(r[dimLabel as keyof typeof r] ?? "-")))).sort()
+      const lookup: Record<string, Record<string, number | string>> = {}
+      for (const r of exportRows) {
+        const m = String(r[dimLabel as keyof typeof r] ?? "-")
+        const y = String(r.Tahun)
+        if (!lookup[m]) lookup[m] = {}
+        lookup[m][y] = r.Nilai
+      }
+      const unit = exportRows.find((r) => r.Satuan)?.Satuan || ""
+      const header = [dimLabel, ...years]
+      // Nilai dikirim sebagai ANGKA ASLI (bukan string berformat) agar bisa
+      // dihitung/disortir di Excel; satuan & konteks ditulis di baris meta.
+      const body = members.map((m) => [
+        m,
+        ...years.map((y) => {
+          const v = lookup[m]?.[y]
+          return v === null || v === undefined || v === "" ? "-" : Number(v)
+        }),
+      ])
+      const wb = new ExcelJS.Workbook()
+      buildStyledSheet(wb, {
+        title: item.title,
+        meta: [
+          `Indikator: ${selectedMetric}`,
+          unit ? `Satuan: ${unit}` : "",
+          `${dimLabel}: ${selectedDim.size > 0 ? Array.from(selectedDim).join(", ") : "semua"}`,
+          timestampLabel(),
+        ].filter(Boolean),
+        header,
+        rows: body,
+      })
+      const sel = selectedDim.size > 0 ? `_${Array.from(selectedDim).join("-")}` : ""
+      await downloadWorkbook(wb, `${safeFileName(item.title)}${sel}`)
+    } finally {
+      setExporting(null)
     }
-    const unit = exportRows.find((r) => r.Satuan)?.Satuan || ""
-    const cell = (v: number | string | undefined) =>
-      v === null || v === undefined || v === ""
-        ? "-"
-        : `${typeof v === "number" ? new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(v) : v}${unit ? ` ${unit}` : ""}`
-    const header = [dimLabel, ...years]
-    const body = members.map((m) => [m, ...years.map((y) => cell(lookup[m]?.[y]))])
-    const worksheet = XLSX.utils.aoa_to_sheet([header, ...body])
-    const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Data")
-    const sel = selectedDim.size > 0 ? `_${Array.from(selectedDim).join("-")}` : ""
-    XLSX.writeFile(workbook, `${safeFileName(item.title)}${sel}.xlsx`)
-  }, [exportRows, item.title, selectedDim, dimension])
+  }, [exportRows, item.title, selectedDim, dimension, selectedMetric])
 
   const handleExportPDF = useCallback(async () => {
     if (exportRows.length === 0) return
-
-    // Capture chart image if chart view is active
-    let chartImageDataUrl: string | undefined
-    if (view === "chart" && exportChartRef.current) {
-      try {
-        const canvas = await html2canvas(exportChartRef.current, {
-          scale: 2,
-          backgroundColor: "#ffffff",
-          useCORS: true,
-        })
-        chartImageDataUrl = canvas.toDataURL("image/png")
-      } catch {
-        // Chart capture failed — export table-only PDF
+    setExporting("pdf")
+    try {
+      // Chart hanya di-render saat view === "chart". Kalau user sedang di tab
+      // tabel, paksa pindah ke chart sebentar agar PDF tetap berisi grafik.
+      if (view !== "chart") {
+        setView("chart")
+        await new Promise((r) => setTimeout(r, 120))
       }
+
+      // Capture chart image
+      let chartImageDataUrl: string | undefined
+      if (exportChartRef.current) {
+        try {
+          const canvas = await html2canvas(exportChartRef.current, {
+            scale: 2,
+            backgroundColor: "#ffffff",
+            useCORS: true,
+          })
+          chartImageDataUrl = canvas.toDataURL("image/png")
+        } catch {
+          // Chart capture failed — export table-only PDF
+        }
+      }
+
+      // Build a pivot table: rows = wilayah/rincian, columns = years
+      const dimLabel = dimension === "wilayah" ? "Wilayah" : "Rincian"
+      const years = Array.from(new Set(exportRows.map((r) => String(r.Tahun)))).sort()
+      const members = Array.from(new Set(exportRows.map((r) => String(r[dimLabel as keyof typeof r] ?? "-"))))
+
+      // Build lookup: { "Bantarkalong" => { "2017" => 273, "2018" => 273, ... } }
+      const lookup: Record<string, Record<string, number | string>> = {}
+      for (const r of exportRows) {
+        const member = String(r[dimLabel as keyof typeof r] ?? "-")
+        const year = String(r.Tahun)
+        if (!lookup[member]) lookup[member] = {}
+        lookup[member][year] = r.Nilai
+      }
+
+      // Columns: [DimLabel, year1, year2, ...]
+      const columns = [dimLabel, ...years]
+      const rows = members.map((member) => [
+        member,
+        ...years.map((y) => lookup[member]?.[y] ?? "-"),
+      ])
+
+      // Determine satuan for subtitle
+      const satuan = exportRows.find((r) => r.Satuan)?.Satuan
+      const satuanText = satuan ? ` • Satuan: ${satuan}` : ""
+
+      const sel = selectedDim.size > 0 ? `_${Array.from(selectedDim).join("-")}` : ""
+      await exportProfessionalPdf({
+        title: item.title,
+        subtitle: `Indikator: ${selectedMetric} — ${dimLabel}: ${selectedDim.size} terpilih${satuanText}`,
+        columns,
+        rows,
+        fileName: `${safeFileName(item.title)}${sel}`,
+        chartImageDataUrl,
+      })
+    } finally {
+      setExporting(null)
     }
-
-    // Build a pivot table: rows = wilayah/rincian, columns = years
-    const dimLabel = dimension === "wilayah" ? "Wilayah" : "Rincian"
-    const years = Array.from(new Set(exportRows.map((r) => String(r.Tahun)))).sort()
-    const members = Array.from(new Set(exportRows.map((r) => String(r[dimLabel as keyof typeof r] ?? "-"))))
-
-    // Build lookup: { "Bantarkalong" => { "2017" => 273, "2018" => 273, ... } }
-    const lookup: Record<string, Record<string, number | string>> = {}
-    for (const r of exportRows) {
-      const member = String(r[dimLabel as keyof typeof r] ?? "-")
-      const year = String(r.Tahun)
-      if (!lookup[member]) lookup[member] = {}
-      lookup[member][year] = r.Nilai
-    }
-
-    // Columns: [DimLabel, year1, year2, ...]
-    const columns = [dimLabel, ...years]
-    const rows = members.map((member) => [
-      member,
-      ...years.map((y) => lookup[member]?.[y] ?? "-"),
-    ])
-
-    // Determine satuan for subtitle
-    const satuan = exportRows.find((r) => r.Satuan)?.Satuan
-    const satuanText = satuan ? ` • Satuan: ${satuan}` : ""
-
-    const sel = selectedDim.size > 0 ? `_${Array.from(selectedDim).join("-")}` : ""
-    await exportProfessionalPdf({
-      title: item.title,
-      subtitle: `Indikator: ${selectedMetric} — ${dimLabel}: ${selectedDim.size} terpilih${satuanText}`,
-      columns,
-      rows,
-      fileName: `${safeFileName(item.title)}${sel}`,
-      chartImageDataUrl,
-    })
   }, [exportRows, item.title, selectedDim, selectedMetric, dimension, view])
 
   // --- Chart data: pivot by (year × dimension value) ---
@@ -795,18 +826,22 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
                   <button
                     type="button"
                     onClick={handleExportExcel}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-primary/5 hover:border-primary/50 transition-colors"
+                    disabled={exporting !== null}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-primary/5 hover:border-primary/50 transition-colors disabled:opacity-60 disabled:cursor-wait"
                     title="Unduh Excel (kecamatan/rincian terpilih)"
                   >
-                    <FileSpreadsheet className="h-4 w-4" /> Excel
+                    {exporting === "excel" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
+                    {exporting === "excel" ? "Menyiapkan…" : "Excel"}
                   </button>
                   <button
                     type="button"
                     onClick={handleExportPDF}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-primary/5 hover:border-primary/50 transition-colors"
+                    disabled={exporting !== null}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-primary/5 hover:border-primary/50 transition-colors disabled:opacity-60 disabled:cursor-wait"
                     title="Unduh PDF (kecamatan/rincian terpilih)"
                   >
-                    <FileText className="h-4 w-4" /> PDF
+                    {exporting === "pdf" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                    {exporting === "pdf" ? "Menyiapkan…" : "PDF"}
                   </button>
                 </div>
 

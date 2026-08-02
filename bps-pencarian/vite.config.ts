@@ -28,7 +28,7 @@ export default defineConfig({
         // Pecah vendor besar jadi chunk terpisah supaya first-load lebih ringan
         manualChunks(id: string) {
           if (id.includes("recharts") || id.includes("html2canvas") || id.includes("html-to-image")) return "charts"
-          if (id.includes("jspdf") || id.includes("xlsx")) return "pdf"
+          if (id.includes("jspdf") || id.includes("exceljs")) return "pdf"
           if (id.includes("node_modules")) return "vendor"
           return undefined
         },

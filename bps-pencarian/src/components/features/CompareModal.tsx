@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { X, Loader2, AlertTriangle, BarChart3, Plus, Check, FileSpreadsheet, FileText, ChevronDown } from "lucide-react"
 import { ResponsiveContainer, LineChart, BarChart, Bar, LabelList, CartesianGrid, XAxis, YAxis, Tooltip, Legend, Line } from "recharts"
-import * as XLSX from "xlsx"
 import html2canvas from "html2canvas-pro"
+import ExcelJS from "exceljs"
 import { exportProfessionalPdf } from "../../lib/pdfExport"
+import { buildStyledSheet, downloadWorkbook, timestampLabel } from "../../lib/excelExport"
 import { useCatalogSeries, type CatalogSeriesRow } from "../../lib/api"
 import { shortTitleForExport } from "../../lib/utils"
 import { YearRangeSlider } from "./YearRangeSlider"
@@ -65,18 +66,12 @@ export interface SectionExportRows {
   rows: Record<string, unknown>[]
 }
 
-const fmtVal = (v: unknown) => {
-  if (v === null || v === undefined || v === "") return "-"
-  const n = Number(v)
-  if (Number.isNaN(n)) return String(v)
-  return new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(n)
-}
-
 // Pivot export rows: one row per member (wilayah/rincian), one column per
 // year — far easier to read than long-format rows that repeat the year for
-// every member. The satuan is merged into each value cell.
+// every member. Nilai dikirim sebagai ANGKA ASLI (bukan string), satuan
+// dipisah supaya bisa dihitung di Excel.
 function buildPivot(rows: Record<string, unknown>[]) {
-  if (!rows.length) return { header: ["Wilayah / Rincian"], body: [] as string[][], unit: "" }
+  if (!rows.length) return { header: ["Wilayah / Rincian"], body: [] as (string | number)[][], unit: "" }
   const first = rows[0]
   const dimKey = first && first["Wilayah"] ? "Wilayah" : "Rincian"
   const unit = String((rows.find((r) => r.Satuan)?.Satuan) || "").trim()
@@ -89,7 +84,12 @@ function buildPivot(rows: Record<string, unknown>[]) {
     if (!lookup[m]) lookup[m] = {}
     lookup[m][y] = r.Nilai
   }
-  const cell = (v: unknown) => `${fmtVal(v)}${unit ? ` ${unit}` : ""}`
+  // Nilai dikirim sebagai ANGKA ASLI; satuan dipisah (untuk meta/header Excel).
+  const cell = (v: unknown): string | number => {
+    if (v === null || v === undefined || v === "") return "-"
+    const n = Number(v)
+    return Number.isNaN(n) ? String(v) : n
+  }
   return {
     header: ["Wilayah / Rincian", ...years],
     body: members.map((m) => [m, ...years.map((y) => cell(lookup[m]?.[y] ?? "-"))]),
@@ -533,6 +533,7 @@ function CompareTableSection({ item, index, onRemove, yearRange, onReportRange, 
 export function CompareModal({ items, onClose, onRemove }: CompareModalProps) {
   const [dataBounds, setDataBounds] = useState<[number, number] | null>(null)
   const [sel, setSel] = useState<[number, number] | null>(null)
+  const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null)
   const sectionsRef = useRef<HTMLDivElement>(null)
   const rowsRef = useRef<Record<number, SectionExportRows>>({})
 
@@ -574,72 +575,93 @@ export function CompareModal({ items, onClose, onRemove }: CompareModalProps) {
 
   const rangeStr = effectiveRange ? `${effectiveRange[0]}-${effectiveRange[1]}` : "semua-tahun"
 
-  const exportExcel = useCallback(() => {
+  const exportExcel = useCallback(async () => {
     const entries = Object.values(rowsRef.current).filter((e) => e.rows.length > 0)
     if (entries.length === 0) return
-    const wb = XLSX.utils.book_new()
-    const summary = entries.map((e, i) => ({
-      No: i + 1,
-      Tabel: e.nomor,
-      Judul: shortTitleForExport(e.title),
-      Indikator: e.metric,
-      "Baris Data": e.rows.length,
-    }))
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), "Ringkasan")
-    entries.forEach((e, i) => {
-      const sheetName = `T${i + 1}_${e.nomor.replace(/[\\/?*[\]:]/g, "_")}`.slice(0, 31)
-      const pivot = buildPivot(e.rows)
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([pivot.header, ...pivot.body]), sheetName)
-    })
-    XLSX.writeFile(wb, `data_bps_tasikmalaya_${rangeStr}_${entries.length}tabel.xlsx`)
+    setExporting("excel")
+    try {
+      const wb = new ExcelJS.Workbook()
+      // Sheet Ringkasan
+      buildStyledSheet(wb, {
+        title: "Ringkasan Data BPS Kabupaten Tasikmalaya",
+        meta: [`${entries.length} tabel • ${rangeStr.replace("-", "–")}`, timestampLabel()],
+        header: ["No", "Tabel", "Judul", "Indikator", "Baris Data"],
+        rows: entries.map((e, i) => [i + 1, e.nomor, shortTitleForExport(e.title), e.metric, e.rows.length]),
+        sheetName: "Ringkasan",
+      })
+      // Satu sheet per tabel
+      entries.forEach((e, i) => {
+        const sheetName = `T${i + 1}_${e.nomor.replace(/[\\/?*[\]:]/g, "_")}`.slice(0, 31)
+        const pivot = buildPivot(e.rows)
+        buildStyledSheet(wb, {
+          title: e.title,
+          meta: [
+            `Tabel ${e.nomor}`,
+            e.metric ? `Indikator: ${e.metric}` : "",
+            pivot.unit ? `Satuan: ${pivot.unit}` : "",
+            timestampLabel(),
+          ].filter(Boolean),
+          header: pivot.header,
+          rows: pivot.body,
+          sheetName,
+        })
+      })
+      await downloadWorkbook(wb, `data_bps_tasikmalaya_${rangeStr}_${entries.length}tabel`)
+    } finally {
+      setExporting(null)
+    }
   }, [rangeStr])
 
   const exportPDF = useCallback(async () => {
     const entries = Object.values(rowsRef.current).filter((e) => e.rows.length > 0)
     if (entries.length === 0) return
-
-    // Capture EVERY section's chart individually (html2canvas on the
-    // scrollable container only renders the visible viewport). Each chart
-    // stays its own image so the PDF can render them BIG, one per section —
-    // not scaled down into a single composed thumbnail.
-    const sectionEls = sectionsRef.current
-      ? Array.from(sectionsRef.current.querySelectorAll("section"))
-      : []
-    const chartUrls: (string | undefined)[] = []
-    for (const el of sectionEls) {
-      try {
-        const canvas = await html2canvas(el as HTMLElement, {
-          scale: 2,
-          backgroundColor: "#ffffff",
-          useCORS: true,
-        })
-        chartUrls.push(canvas.toDataURL("image/png"))
-      } catch {
-        chartUrls.push(undefined)
-      }
-    }
-
-    const totalRows = entries.reduce((s, e) => s + e.rows.length, 0)
-    const tabelList = entries.map((e) => e.nomor).join(", ")
-    await exportProfessionalPdf({
-      title: "Data BPS Kabupaten Tasikmalaya",
-      subtitle: `Rentang tahun ${rangeStr.replace("-", "–")} • ${entries.length} tabel (${tabelList}) • ${totalRows} baris data`,
-      fileName: `data_bps_tasikmalaya_${rangeStr}_${entries.length}tabel`,
-      orientation: "landscape",
-      // One full section per table: real table title (no 'Tabel' prefix, cut
-      // at 'di Kabupaten Tasikmalaya'), big chart, and a readable pivot
-      // (member x year) with the satuan merged into the values.
-      chartSections: entries.map((e, i) => {
-        const pivot = buildPivot(e.rows)
-        return {
-          title: `${e.nomor} — ${shortTitleForExport(e.title)}`,
-          subtitle: `Indikator: ${e.metric}${pivot.unit ? ` • Satuan: ${pivot.unit}` : ""}`,
-          chartImageDataUrl: chartUrls[i],
-          columns: pivot.header,
-          rows: pivot.body,
+    setExporting("pdf")
+    try {
+      // Capture EVERY section's chart individually (html2canvas on the
+      // scrollable container only renders the visible viewport). Each chart
+      // stays its own image so the PDF can render them BIG, one per section —
+      // not scaled down into a single composed thumbnail.
+      const sectionEls = sectionsRef.current
+        ? Array.from(sectionsRef.current.querySelectorAll("section"))
+        : []
+      const chartUrls: (string | undefined)[] = []
+      for (const el of sectionEls) {
+        try {
+          const canvas = await html2canvas(el as HTMLElement, {
+            scale: 2,
+            backgroundColor: "#ffffff",
+            useCORS: true,
+          })
+          chartUrls.push(canvas.toDataURL("image/png"))
+        } catch {
+          chartUrls.push(undefined)
         }
-      }),
-    })
+      }
+
+      const totalRows = entries.reduce((s, e) => s + e.rows.length, 0)
+      const tabelList = entries.map((e) => e.nomor).join(", ")
+      await exportProfessionalPdf({
+        title: "Data BPS Kabupaten Tasikmalaya",
+        subtitle: `Rentang tahun ${rangeStr.replace("-", "–")} • ${entries.length} tabel (${tabelList}) • ${totalRows} baris data`,
+        fileName: `data_bps_tasikmalaya_${rangeStr}_${entries.length}tabel`,
+        orientation: "landscape",
+        // One full section per table: real table title (no 'Tabel' prefix, cut
+        // at 'di Kabupaten Tasikmalaya'), big chart, and a readable pivot
+        // (member x year) with the satuan merged into the values.
+        chartSections: entries.map((e, i) => {
+          const pivot = buildPivot(e.rows)
+          return {
+            title: `${e.nomor} — ${shortTitleForExport(e.title)}`,
+            subtitle: `Indikator: ${e.metric}${pivot.unit ? ` • Satuan: ${pivot.unit}` : ""}`,
+            chartImageDataUrl: chartUrls[i],
+            columns: pivot.header,
+            rows: pivot.body,
+          }
+        }),
+      })
+    } finally {
+      setExporting(null)
+    }
   }, [rangeStr])
 
   return (
@@ -726,18 +748,22 @@ export function CompareModal({ items, onClose, onRemove }: CompareModalProps) {
             <button
               type="button"
               onClick={exportExcel}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-2 text-xs font-medium text-foreground hover:bg-primary/5 hover:border-primary/50 transition-colors"
+              disabled={exporting !== null}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-2 text-xs font-medium text-foreground hover:bg-primary/5 hover:border-primary/50 transition-colors disabled:opacity-60 disabled:cursor-wait"
               title="Unduh Excel (satu sheet per tabel)"
             >
-              <FileSpreadsheet className="h-4 w-4" /> Excel
+              {exporting === "excel" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
+              {exporting === "excel" ? "Menyiapkan…" : "Excel"}
             </button>
             <button
               type="button"
               onClick={exportPDF}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-2 text-xs font-medium text-foreground hover:bg-primary/5 hover:border-primary/50 transition-colors"
+              disabled={exporting !== null}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-2 text-xs font-medium text-foreground hover:bg-primary/5 hover:border-primary/50 transition-colors disabled:opacity-60 disabled:cursor-wait"
               title="Unduh PDF (gambar grafik + ringkasan)"
             >
-              <FileText className="h-4 w-4" /> PDF
+              {exporting === "pdf" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+              {exporting === "pdf" ? "Menyiapkan…" : "PDF"}
             </button>
             <button
               type="button"

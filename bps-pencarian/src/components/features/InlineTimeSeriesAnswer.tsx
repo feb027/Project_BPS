@@ -13,9 +13,10 @@ import {
   Line,
   Legend,
 } from "recharts"
-import * as XLSX from "xlsx"
+import ExcelJS from "exceljs"
 import html2canvas from "html2canvas-pro"
 import { exportProfessionalPdf } from "../../lib/pdfExport"
+import { buildStyledSheet, downloadWorkbook, timestampLabel } from "../../lib/excelExport"
 
 type Observation = {
   id: number
@@ -150,7 +151,7 @@ export function InlineTimeSeriesAnswer({ match, subjectName, onOpenChart }: Inli
   const uniqueYears = new Set(rows.map((row) => String(row.tahun)))
   const isSingleYear = uniqueYears.size === 1
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
     if (!hasRows) return
     const exportRows = rows.map((row) => ({
       Tahun: row.tahun,
@@ -162,10 +163,29 @@ export function InlineTimeSeriesAnswer({ match, subjectName, onOpenChart }: Inli
       Nomor_Tabel: row.tabel?.nomor_tabel ?? "",
       Judul_Tabel: row.tabel?.judul ?? "",
     }))
-    const worksheet = XLSX.utils.json_to_sheet(exportRows)
-    const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Data")
-    XLSX.writeFile(workbook, `${safeFileName(match.indicator_name)}_${safeFileName(subjectName)}.xlsx`)
+    const header = ["Tahun", "Seri", "Nilai", "Satuan", "Rincian", "Wilayah", "Nomor Tabel", "Judul Tabel"]
+    const body = exportRows.map((r) => [
+      r.Tahun ?? "",
+      r.Seri ?? "",
+      typeof r.Nilai === "number" ? r.Nilai : "-",
+      r.Satuan ?? "",
+      r.Rincian ?? "",
+      r.Wilayah ?? "",
+      r.Nomor_Tabel ?? "",
+      r.Judul_Tabel ?? "",
+    ])
+    const wb = new ExcelJS.Workbook()
+    buildStyledSheet(wb, {
+      title: match.indicator_name,
+      meta: [
+        subjectName ? `Seri: ${subjectName}` : "",
+        unit ? `Satuan: ${unit}` : "",
+        timestampLabel(),
+      ].filter(Boolean),
+      header,
+      rows: body,
+    })
+    await downloadWorkbook(wb, `${safeFileName(match.indicator_name)}_${safeFileName(subjectName)}`)
   }
 
   const handleExportPDF = async () => {
