@@ -3,7 +3,7 @@ import { X, Loader2, Table2, LineChart as LineIcon, BarChart3, ChevronDown, Chec
 import { ResponsiveContainer, LineChart, BarChart, Bar, LabelList, CartesianGrid, XAxis, YAxis, Tooltip, Legend, Line } from "recharts"
 import html2canvas from "html2canvas-pro"
 import ExcelJS from "exceljs"
-import { exportProfessionalPdf, extractChartSvg } from "../../lib/pdfExport"
+import { exportProfessionalPdf } from "../../lib/pdfExport"
 import { buildStyledSheet, downloadWorkbook, timestampLabel } from "../../lib/excelExport"
 import { ChartSkeleton } from "../ui/skeleton"
 import { useTimeSeries, useCatalogSeries, type CatalogSeriesRow } from "../../lib/api"
@@ -586,22 +586,18 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
         await new Promise((r) => setTimeout(r, 120))
       }
 
-      // Capture chart: prefer SVG vector, fallback ke PNG raster
-      let chartSvg: string | undefined
+      // Capture chart image (PNG raster via html2canvas)
       let chartImageDataUrl: string | undefined
       if (exportChartRef.current) {
-        chartSvg = extractChartSvg(exportChartRef.current) ?? undefined
-        if (!chartSvg) {
-          try {
-            const canvas = await html2canvas(exportChartRef.current, {
-              scale: 2,
-              backgroundColor: "#ffffff",
-              useCORS: true,
-            })
-            chartImageDataUrl = canvas.toDataURL("image/png")
-          } catch {
-            // Chart capture failed — export table-only PDF
-          }
+        try {
+          const canvas = await html2canvas(exportChartRef.current, {
+            scale: 2,
+            backgroundColor: "#ffffff",
+            useCORS: true,
+          })
+          chartImageDataUrl = canvas.toDataURL("image/png")
+        } catch {
+          // Chart capture failed — export table-only PDF
         }
       }
 
@@ -637,7 +633,6 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
         columns,
         rows,
         fileName: `${safeFileName(item.title)}${sel}`,
-        chartSvg,
         chartImageDataUrl,
       })
     } finally {

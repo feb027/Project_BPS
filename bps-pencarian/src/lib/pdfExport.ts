@@ -11,7 +11,6 @@
  */
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
-import { svg2pdf } from "svg2pdf.js"
 
 // ─── BPS Brand Colors ───────────────────────────────────────────────
 const BPS_BLUE = [0, 147, 221] as const   // #0093dd
@@ -107,38 +106,6 @@ export function registerFiraFonts(pdf: jsPDF, fonts: { regular: string | null; b
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────
-/**
- * Ambil SVG dari sebuah elemen DOM (Recharts merender <svg>) dan kembalikan
- * sebagai string markup siap dikirim ke svg2pdf. CSS var() di-resolve ke
- * nilai aktual karena svg2pdf tidak mengenali var(). Return null bila gagal.
- */
-export function extractChartSvg(root: Element | null): string | null {
-  if (!root) return null
-  const svg = root.querySelector("svg")
-  if (!svg) return null
-
-  // Resolve CSS custom properties (e.g. stroke="var(--color-border)") ke
-  // nilai computed supaya svg2pdf bisa render warna yang benar.
-  const resolveVars = (node: Element) => {
-    for (const attr of Array.from(node.attributes)) {
-      if (typeof attr.value === "string" && attr.value.includes("var(")) {
-        const resolved = attr.value.replace(/var\((--[a-zA-Z0-9-_]+)\)/g, (_, name: string) => {
-          return getComputedStyle(node).getPropertyValue(name).trim() || attr.value
-        })
-        if (resolved !== attr.value) node.setAttribute(attr.name, resolved)
-      }
-    }
-    for (const child of Array.from(node.children)) resolveVars(child)
-  }
-  resolveVars(svg)
-
-  // Pastikan ukuran eksplisit ada (svg2pdf butuh dimensi)
-  if (!svg.getAttribute("width")) svg.setAttribute("width", "800")
-  if (!svg.getAttribute("height")) svg.setAttribute("height", "400")
-
-  return new XMLSerializer().serializeToString(svg)
-}
-
 function isYearLike(n: number): boolean {
   return Number.isInteger(n) && n >= 1900 && n <= 2099
 }
@@ -178,10 +145,8 @@ export interface PdfExportChartSection {
   title?: string
   /** Optional indicator label shown under the title */
   subtitle?: string
-  /** Chart image for THIS section (PNG data URL) — raster fallback */
+  /** Chart image for THIS section (PNG data URL) */
   chartImageDataUrl?: string
-  /** Chart as SVG markup — rendered as VECTOR (sharp at any zoom) */
-  chartSvg?: string
   /** Data table columns */
   columns: string[]
   /** Data table rows */
@@ -201,8 +166,6 @@ export interface PdfExportOptions {
   fileName: string
   /** Optional chart image as data URL (PNG) */
   chartImageDataUrl?: string
-  /** Optional chart as SVG markup — vector, preferred over PNG when present */
-  chartSvg?: string
   /** Orientation override */
   orientation?: "portrait" | "landscape"
   /** One data table per section (e.g. per compared table), rendered after the chart image */
@@ -219,7 +182,6 @@ export async function exportProfessionalPdf(opts: PdfExportOptions) {
     rows,
     fileName,
     chartImageDataUrl,
-    chartSvg,
     orientation,
     detailTables,
     chartSections,
@@ -348,44 +310,7 @@ export async function exportProfessionalPdf(opts: PdfExportOptions) {
     return cursorY + chartH + 6
   }
 
-  // ── Chart: SVG vector preferred, PNG raster fallback ──
-  const drawChartSvg = async (svgMarkup: string, maxH: number) => {
-    try {
-      const doc = new DOMParser().parseFromString(svgMarkup, "image/svg+xml")
-      const svg = doc.querySelector("svg")
-      if (!svg) return cursorY
-      // Beri ukuran eksplisit supaya svg2pdf tahu dimensi aslinya
-      const vw = parseFloat(svg.getAttribute("width") || "800") || 800
-      const vh = parseFloat(svg.getAttribute("height") || "400") || 400
-      const aspect = vw / vh
-      let chartW = contentW
-      let chartH = chartW / aspect
-      if (chartH > maxH) {
-        chartH = maxH
-        chartW = chartH * aspect
-      }
-      if (cursorY + chartH + 10 > pageH - footerHeight) {
-        pdf.addPage()
-        drawHeader()
-        cursorY = headerHeight + 8
-      }
-      await svg2pdf(svg, pdf, {
-        x: marginX + (contentW - chartW) / 2,
-        y: cursorY,
-        width: chartW,
-        height: chartH,
-      })
-      return cursorY + chartH + 6
-    } catch {
-      // SVG gagal di-render — coba fallback PNG kalau tersedia
-      if (chartImageDataUrl) return drawChartImage(chartImageDataUrl, maxH)
-      return cursorY
-    }
-  }
-
-  if (chartSvg) {
-    cursorY = await drawChartSvg(chartSvg, orient === "landscape" ? 80 : 100)
-  } else if (chartImageDataUrl) {
+  if (chartImageDataUrl) {
     cursorY = await drawChartImage(chartImageDataUrl, orient === "landscape" ? 80 : 100)
   }
 
@@ -528,9 +453,7 @@ export async function exportProfessionalPdf(opts: PdfExportOptions) {
 
       // Big chart for this section (up to ~120mm tall — far larger than the
       // old single composed image that shrank every chart)
-      if (sec.chartSvg) {
-        cursorY = await drawChartSvg(sec.chartSvg, 120)
-      } else if (sec.chartImageDataUrl) {
+      if (sec.chartImageDataUrl) {
         cursorY = await drawChartImage(sec.chartImageDataUrl, 120)
       }
 
