@@ -1,5 +1,5 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from "react"
-import { X, Loader2, Table2, LineChart as LineIcon, BarChart3, ChevronDown, Check, ListTree, FileSpreadsheet, FileText } from "lucide-react"
+import { X, Loader2, Table2, LineChart as LineIcon, BarChart3, ChevronDown, Check, ListTree, FileSpreadsheet, FileText, RefreshCw } from "lucide-react"
 import { ResponsiveContainer, LineChart, BarChart, Bar, LabelList, CartesianGrid, XAxis, YAxis, Tooltip, Legend, Line } from "recharts"
 import * as XLSX from "xlsx"
 import html2canvas from "html2canvas-pro"
@@ -189,7 +189,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
   const merged = useCatalogSeries(item.nomor_tabel ?? null)
   const single = useTimeSeries(item.id ?? null, isSeries ? null : (item.nomor_tabel ? null : (item.type as "tabel" | "indikator")))
   const isMerged = Boolean(item.nomor_tabel)
-  const { data, isLoading, error } = isMerged ? merged : isSeries ? { data: null, isLoading: false, error: null } : single
+  const { data, isLoading, error, mutate } = isMerged ? merged : isSeries ? { data: null, isLoading: false, error: null, mutate: () => {} } : single
 
   const exportChartRef = useRef<HTMLDivElement>(null)
   const [view, setView] = useState<"chart" | "table">("chart")
@@ -751,8 +751,16 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
               <p className="text-sm font-medium animate-pulse">Memuat data…</p>
             </div>
           ) : error ? (
-            <div className="flex-1 min-h-[420px] flex items-center justify-center text-destructive rounded-md border border-destructive/20 bg-destructive/5">
-              Gagal memuat data dari database.
+            <div className="flex-1 min-h-[420px] flex flex-col items-center justify-center text-destructive rounded-md border border-destructive/20 bg-destructive/5 text-center">
+              <p className="text-base font-semibold">Gagal memuat data dari database.</p>
+              <p className="mt-1 text-sm text-destructive/80">Cek koneksi lalu coba lagi.</p>
+              <button
+                type="button"
+                onClick={() => mutate()}
+                className="mt-4 inline-flex items-center gap-2 rounded-md bg-destructive px-4 py-2 text-sm font-semibold text-white hover:opacity-90 transition-opacity"
+              >
+                <RefreshCw className="h-4 w-4" /> Coba lagi
+              </button>
             </div>
           ) : !hasRows ? (
             <div className="flex-1 min-h-[420px] flex flex-col items-center justify-center rounded-md border border-dashed border-border bg-muted/20 text-center">

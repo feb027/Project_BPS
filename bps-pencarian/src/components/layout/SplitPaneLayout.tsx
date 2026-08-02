@@ -42,8 +42,15 @@ function loadCompareBasket(): CompareItem[] {
 
 export function SplitPaneLayout() {
   const [query, setQuery] = useState("")
+  // Debounce query: input tetap responsif, tapi fetch hanya setelah user
+  // berhenti mengetik ~300ms (hindari 1 request per huruf).
+  const [debouncedQuery, setDebouncedQuery] = useState("")
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(query), 300)
+    return () => clearTimeout(t)
+  }, [query])
   // Vercel Best Practice: useDeferredValue for input responsiveness during heavy renders
-  const deferredQuery = useDeferredValue(query)
+  const deferredQuery = useDeferredValue(debouncedQuery)
 
   // Jenis Data filter (sidebar) — applied to the catalog browser and to table
   // candidates in search results.

@@ -7,22 +7,22 @@ export const fetcher = (url: string) => fetch(url).then((res) => {
 
 // Vercel Best Practice: SWR for dedup
 export function useSearch(query: string) {
-  const { data, error, isLoading } = useSWR(
+  const { data, error, isLoading, mutate } = useSWR(
     query.length >= 2 ? `/pencarian/api/search/?q=${encodeURIComponent(query)}` : null,
     fetcher
   )
 
-  return { data, error, isLoading }
+  return { data, error, isLoading, mutate }
 }
 
 export function useTimeSeries(id: number | null, type: 'tabel' | 'indikator' | null) {
   const queryParam = type === 'tabel' ? `tabel_id=${id}` : `indikator_id=${id}`
-  const { data, error, isLoading } = useSWR(
+  const { data, error, isLoading, mutate } = useSWR(
     id && type ? `/pencarian/api/timeseries/?${queryParam}` : null,
     fetcher
   )
 
-  return { data, error, isLoading }
+  return { data, error, isLoading, mutate }
 }
 
 export interface CatalogTable {
@@ -79,9 +79,9 @@ export interface CatalogSeriesResponse {
 
 // Merged multi-year time-series for a single table number (all publications).
 export function useCatalogSeries(nomorTabel: string | null) {
-  const { data, error, isLoading } = useSWR<CatalogSeriesResponse>(
+  const { data, error, isLoading, mutate } = useSWR<CatalogSeriesResponse>(
     nomorTabel ? `/pencarian/api/catalog/?nomor_tabel=${encodeURIComponent(nomorTabel)}` : null,
     fetcher
   )
-  return { data, error, isLoading }
+  return { data, error, isLoading, mutate }
 }

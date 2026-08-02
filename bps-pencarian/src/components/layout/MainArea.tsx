@@ -1,4 +1,4 @@
-import { Search, FileText, BarChart3, Loader2, Table2, PanelLeft, Plus, Check, Columns2 } from "lucide-react"
+import { Search, FileText, BarChart3, Loader2, Table2, PanelLeft, Plus, Check, Columns2, RefreshCw } from "lucide-react"
 import { useEffect, useRef } from "react"
 import type { Dispatch, SetStateAction } from "react"
 import { useSearch } from "../../lib/api"
@@ -23,9 +23,10 @@ type EmptyPanelProps = {
   title: string
   description: string
   icon?: "search" | "table" | "loading" | "error"
+  onRetry?: () => void
 }
 
-function EmptyPanel({ title, description, icon = "table" }: EmptyPanelProps) {
+function EmptyPanel({ title, description, icon = "table", onRetry }: EmptyPanelProps) {
   const Icon = icon === "search" ? Search : icon === "loading" ? Loader2 : Table2
   const isLoading = icon === "loading"
   const tone = icon === "error" ? "text-destructive" : "text-muted-foreground"
@@ -41,6 +42,15 @@ function EmptyPanel({ title, description, icon = "table" }: EmptyPanelProps) {
           <Icon className={`h-10 w-10 mb-4 ${tone} ${isLoading ? "animate-spin" : ""}`} />
           <p className="text-lg font-semibold text-foreground">{title}</p>
           <p className="mt-2 max-w-md text-sm text-muted-foreground">{description}</p>
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="mt-5 inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white hover:opacity-90 transition-opacity"
+            >
+              <RefreshCw className="h-4 w-4" /> Coba lagi
+            </button>
+          )}
         </div>
       </div>
     </section>
@@ -53,8 +63,16 @@ function RawResultCard({ children, icon, accent = "primary", onClick, action }: 
 
   return (
     <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
-      className="group bg-background border border-border rounded-lg p-5 hover:border-primary/50 hover:shadow-md transition-all duration-200 cursor-pointer flex flex-col gap-4 relative overflow-hidden"
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault()
+          onClick()
+        }
+      }}
+      className="group bg-background border border-border rounded-lg p-5 hover:border-primary/50 hover:shadow-md transition-all duration-200 cursor-pointer flex flex-col gap-4 relative overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
     >
       <div className={`absolute top-0 left-0 w-1 h-full ${accentClass} scale-y-0 group-hover:scale-y-100 transition-transform origin-bottom`}></div>
       {action && <div className="absolute right-3 top-3 z-10">{action}</div>}
@@ -69,7 +87,7 @@ function RawResultCard({ children, icon, accent = "primary", onClick, action }: 
 }
 
 export function MainArea({ query, setSelectedItem, browseOpen, onToggleBrowse, inCompare, onToggleCompare, onAutoCompare, filterTipe }: MainAreaProps) {
-  const { data, isLoading, error } = useSearch(query)
+  const { data, isLoading, error, mutate } = useSearch(query)
 
   const tabelResults = (data?.tabel ?? []).filter(
     (tab: any) => filterTipe === "all" || tab.tipe_baris === filterTipe
@@ -178,6 +196,7 @@ export function MainArea({ query, setSelectedItem, browseOpen, onToggleBrowse, i
             icon="error"
             title="Gagal memuat data"
             description="Terjadi kesalahan saat mengambil hasil dari API pencarian. Coba ulangi beberapa saat lagi."
+            onRetry={() => mutate()}
           />
         ) : !hasData ? (
           <EmptyPanel
