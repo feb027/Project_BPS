@@ -351,7 +351,14 @@ def tabel_detail(request, pk):
 
     edit = request.GET.get("edit") == "1"
 
-    def buat_baris(sid):
+    def buat_baris(sid, detail=False):
+        if detail:
+            # detail=True dipakai baris TOTAL: sertakan kid (id kolom) per sel
+            # agar sel kosong bisa diisi via cellnew-<sid>-<kid>.
+            return {
+                "id": sid, "nama": subjek[sid]["nama"],
+                "sel": [{"f": fmap.get((sid, k.id)), "kid": k.id} for k in koloms],
+            }
         return {"id": sid, "nama": subjek[sid]["nama"], "sel": [fmap.get((sid, k.id)) for k in koloms]}
 
     ids_reg = sorted((s for s, v in subjek.items() if not v["is_total"]),
@@ -362,7 +369,7 @@ def tabel_detail(request, pk):
     if not ids_reg and ids_tot:
         ids_reg, ids_tot = ids_tot, []
     baris = [buat_baris(s) for s in ids_reg]
-    baris_total = [buat_baris(s) for s in ids_tot]
+    baris_total = [buat_baris(s, detail=True) for s in ids_tot]
 
     crumb = [
         {"label": "Data", "url": "/data/"},

@@ -134,14 +134,26 @@
     <tfoot id="tfoot-baris">
       {% for row in baris_total %}
       <tr class="row-total" data-sid="{{ row.id|unlocalize }}">
-        <td class="rowhead">{{ row.nama }} <span class="tag-total">TOTAL</span></td>
-        {% for f in row.sel %}
+        <td class="rowhead">
+          {% if edit %}
+            <input type="text" name="row-{{ row.id|unlocalize }}-nama" value="{{ row.nama }}" class="cell-edit" style="width:200px; text-align:left; border:1px solid var(--line); background:#fff;">
+            <span class="tag-total">TOTAL</span>
+          {% else %}
+            {{ row.nama }} <span class="tag-total">TOTAL</span>
+          {% endif %}
+        </td>
+        {% for item in row.sel %}
+          {% with f=item.f %}
           <td data-kol="{{ forloop.counter0 }}">
             {% if f is None %}
-              <span class="hint">·</span>
+              {% if edit %}
+                <input type="text" name="cellnew-{{ row.id|unlocalize }}-{{ item.kid|unlocalize }}" class="cell-edit js-total-cell" placeholder="otomatis">
+              {% else %}
+                <span class="hint">·</span>
+              {% endif %}
             {% elif edit %}
               {# baris total: nilai bisa diedit sama seperti baris biasa #}
-              <input type="text" name="f-{{ f.id|unlocalize }}" class="cell-edit"
+              <input type="text" name="f-{{ f.id|unlocalize }}" class="cell-edit js-total-cell"
                 value="{% if f.nilai_num is not None %}{{ f.nilai_num|angka_id }}{% else %}{{ f.nilai_teks }}{% endif %}">
             {% elif f.flag == 'nihil' %}
               <span class="hint">–</span>
@@ -153,6 +165,7 @@
               {{ f.nilai_teks }}
             {% endif %}
           </td>
+          {% endwith %}
         {% endfor %}
         {% if edit %}
           <td style="text-align:center;">
@@ -176,8 +189,9 @@
 {% if edit %}
 <div class="toolbar" style="margin-top:16px;">
   <button type="button" class="btn btn--ghost" onclick="tambahBaris()"><i data-lucide="plus" style="width:15px;height:15px;"></i> Tambah Baris</button>
+  <button type="button" class="btn btn--ghost" onclick="tambahBarisTotal()" style="color:var(--ok);"><i data-lucide="sigma" style="width:15px;height:15px;"></i> Tambah Baris Total</button>
   <button type="button" class="btn btn--ghost" onclick="tambahKolom()"><i data-lucide="plus" style="width:15px;height:15px;"></i> Tambah Kolom</button>
-  <span class="hint" style="margin:0; font-size:12px;">Baris &amp; kolom baru disimpan bersamaan dengan tombol Simpan Perubahan di bawah.</span>
+  <span class="hint" style="margin:0; font-size:12px;">Baris &amp; kolom baru disimpan bersamaan dengan tombol Simpan Perubahan di bawah. Nilai baris Total dihitung otomatis dari jumlah kolom; ketik manual untuk menimpa.</span>
 </div>
 <div class="toolbar" style="margin-top:24px; padding-top:16px; border-top:1px solid var(--line);">
   <button class="btn btn--accent" type="submit"><i data-lucide="save"></i> Simpan Perubahan</button>
@@ -191,6 +205,95 @@
   var rowNewSeq = 0;
   var kolNewSeq = 0;
 
+  // ===== Auto-sum baris TOTAL =====
+  // Nilai baris total dihitung otomatis = jumlah kolom dari baris body.
+  // Sel total yang diketik manual ditandai override dan tidak ditimpa.
+  function parseNum(raw) {
+    if (raw === null || raw === undefined) return NaN;
+    var s = String(raw).trim();
+    if (s === '') return NaN;
+    s = s.replace(/\./g, '').replace(',', '.');
+    return parseFloat(s);
+  }
+  function fmtNum(n) {
+    if (isNaN(n)) return '';
+    return n.toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  }
+
+  function totalRows() {
+    var tfoot = document.getElementById('tfoot-baris');
+    return tfoot ? Array.from(tfoot.querySelectorAll('tr.row-total')).filter(function (tr) { return tr.style.display !== 'none'; }) : [];
+  }
+  function bodyRows() {
+    var tbody = document.getElementById('tbody-baris');
+    return tbody ? Array.from(tbody.querySelectorAll('tr')).filter(function (tr) { return tr.style.display !== 'none'; }) : [];
+  }
+
+  function recalcTotals() {
+    var totals = totalRows();
+    if (totals.length === 0) return;
+    // Jumlah kolom = kolom data (th ber-data-kid / data-nk; rowhead & tombol Hapus diabaikan)
+    var ths = document.querySelectorAll('#tabel-data thead th[data-kid], #tabel-data thead th[data-nk]');
+    var nKol = 0;
+    ths.forEach(function (th) {
+      if (th.style.display === 'none') return;
+      nKol++;
+    });
+    if (nKol === 0) return;
+
+    var body = bodyRows();
+    totals.forEach(function (tr) {
+      var tds = Array.from(tr.querySelectorAll('td[data-kol]'));
+      for (var c = 0; c < nKol; c++) {
+        var td = tds[c];
+        if (!td) continue;
+        var inp = td.querySelector('input.cell-edit');
+        if (!inp) continue;
+        if (inp.dataset.override === '1') continue; // user menimpa manual
+        var sum = 0, has = false;
+        body.forEach(function (btr) {
+          var bt = btr.querySelectorAll('td[data-kol]')[c];
+          if (!bt) return;
+          var bi = bt.querySelector('input.cell-edit');
+          if (!bi) return;
+          var num = parseNum(bi.value);
+          if (!isNaN(num)) { sum += num; has = true; }
+        });
+        if (has) {
+          var old = inp.dataset.autoValue;
+          var next = fmtNum(sum);
+          if (old !== next) {
+            inp.dataset.autoValue = next;
+            inp.value = next;
+          }
+        }
+      }
+    });
+  }
+
+  function bindTotalOverrides() {
+    document.querySelectorAll('#tfoot-baris input.cell-edit').forEach(function (inp) {
+      if (inp.dataset.bindOverride) return;
+      inp.dataset.bindOverride = '1';
+      inp.addEventListener('input', function () {
+        // Ketik manual -> override; hapus isi -> kembali auto
+        if (inp.value.trim() === '') {
+          delete inp.dataset.override;
+          delete inp.dataset.autoValue;
+        } else {
+          inp.dataset.override = '1';
+        }
+      });
+    });
+  }
+
+  function bindBodyRecalc() {
+    var tbody = document.getElementById('tbody-baris');
+    if (!tbody || tbody.dataset.bindRecalc) return;
+    tbody.dataset.bindRecalc = '1';
+    tbody.addEventListener('input', function () { recalcTotals(); });
+  }
+
   function namaKolomTerakhir() {
     // Kolom baru terakhir punya atribut data-nk tertinggi di thead
     var ths = document.querySelectorAll('#tabel-data thead th[data-nk]');
@@ -198,6 +301,74 @@
     ths.forEach(function (th) { var n = parseInt(th.getAttribute('data-nk'), 10); if (!isNaN(n) && n > max) max = n; });
     return max + 1;
   }
+
+  // Tombol "Tambah Baris Total" — sisipkan baris total baru di tfoot
+  window.tambahBarisTotal = function () {
+    var tbl = document.getElementById('tabel-data');
+    if (!tbl) return;
+    var tfoot = document.getElementById('tfoot-baris');
+    if (!tfoot) {
+      tfoot = document.createElement('tfoot');
+      tfoot.id = 'tfoot-baris';
+      tbl.appendChild(tfoot);
+    }
+    var n = rowNewSeq;
+    var tr = document.createElement('tr');
+    tr.className = 'row-total';
+    tr.setAttribute('data-new', '1');
+
+    var tdNama = document.createElement('td');
+    tdNama.className = 'rowhead';
+    var inpNama = document.createElement('input');
+    inpNama.type = 'text';
+    inpNama.name = 'rownew-' + n + '-nama';
+    inpNama.value = 'TOTAL';
+    inpNama.className = 'cell-edit';
+    inpNama.style.cssText = 'width:200px; text-align:left; border:1px solid var(--line); background:#fff;';
+    tdNama.appendChild(inpNama);
+    var tag = document.createElement('span');
+    tag.className = 'tag-total';
+    tag.textContent = 'TOTAL';
+    tdNama.appendChild(tag);
+    tr.appendChild(tdNama);
+
+    var cols = document.querySelectorAll('#tabel-data thead th[data-kid], #tabel-data thead th[data-nk]');
+    var cIdx = 0;
+    cols.forEach(function (th) {
+      if (th.style.display === 'none') return;
+      var td = document.createElement('td');
+      td.setAttribute('data-kol', String(cIdx));
+      var inp = document.createElement('input');
+      inp.type = 'text';
+      if (th.hasAttribute('data-kid')) {
+        inp.name = 'cellnew-' + n + '-' + th.getAttribute('data-kid');
+      } else {
+        inp.name = 'cellnew-' + n + '-NK' + th.getAttribute('data-nk');
+      }
+      inp.className = 'cell-edit js-total-cell';
+      inp.placeholder = 'otomatis';
+      td.appendChild(inp);
+      tr.appendChild(td);
+      cIdx++;
+    });
+
+    var tdDel = document.createElement('td');
+    tdDel.style.cssText = 'text-align:center;';
+    var btnDel = document.createElement('button');
+    btnDel.type = 'button';
+    btnDel.className = 'btn btn--sm btn--ghost';
+    btnDel.style.cssText = 'color:var(--danger); border-color:transparent;';
+    btnDel.innerHTML = '<i data-lucide="x" style="width:14px;height:14px;"></i>';
+    btnDel.onclick = function () { tr.remove(); };
+    tdDel.appendChild(btnDel);
+    tr.appendChild(tdDel);
+
+    tfoot.appendChild(tr);
+    rowNewSeq++;
+    bindTotalOverrides();
+    recalcTotals();
+    if (window.lucide) { try { lucide.createIcons(); } catch (e) {} }
+  };
 
   window.tambahBaris = function () {
     var tbody = document.getElementById('tbody-baris');
@@ -224,8 +395,11 @@
     tr.appendChild(tdNama);
 
     var cols = document.querySelectorAll('#tabel-data thead th[data-kid], #tabel-data thead th[data-nk]');
+    var cIdx = 0;
     cols.forEach(function (th) {
+      if (th.style.display === 'none') return;
       var td = document.createElement('td');
+      td.setAttribute('data-kol', String(cIdx));
       var inp = document.createElement('input');
       inp.type = 'text';
       if (th.hasAttribute('data-kid')) {
@@ -236,6 +410,7 @@
       inp.className = 'cell-edit';
       td.appendChild(inp);
       tr.appendChild(td);
+      cIdx++;
     });
 
     var tdDel = document.createElement('td');
@@ -251,6 +426,7 @@
 
     tbody.appendChild(tr);
     rowNewSeq++;
+    bindBodyRecalc();
     if (window.lucide) { try { lucide.createIcons(); } catch (e) {} }
   };
 
@@ -269,7 +445,7 @@
       '<input type="text" name="kolnew-' + nk + '-nama" placeholder="Nama indikator" style="width:120px; padding:4px; font-size:11px; border:1px solid var(--line); border-radius:4px; text-align:center;">' +
       '<input type="text" name="kolnew-' + nk + '-satuan" placeholder="Satuan" style="width:80px; padding:4px; font-size:11px; border:1px solid var(--line); border-radius:4px; text-align:center;">' +
       '<input type="text" name="kolnew-' + nk + '-tahun" placeholder="Tahun" style="width:80px; padding:4px; font-size:11px; border:1px solid var(--line); border-radius:4px; text-align:center;">' +
-      '<button type="button" class="btn btn--sm btn--ghost" style="color:var(--danger); border-color:transparent; margin-top:2px;" title="Buang kolom baru ini" onclick="this.closest(\'th\').remove(); document.querySelectorAll(\'[data-nkcell=&quot;' + nk + '&quot;]\').forEach(function(el){ el.remove(); });"><i data-lucide="x" style="width:13px;height:13px;"></i></button>';
+      '<button type="button" class="btn btn--sm btn--ghost" style="color:var(--danger); border-color:transparent; margin-top:2px;" title="Buang kolom baru ini" onclick="this.closest(\'th\').remove(); document.querySelectorAll(\'[data-nkcell="' + nk + '"]\').forEach(function(el){ el.remove(); });"><i data-lucide="x" style="width:13px;height:13px;"></i></button>';
     th.appendChild(div);
     theadRow.insertBefore(th, theadRow.lastElementChild);
 
@@ -278,6 +454,8 @@
       var sid = tr.getAttribute('data-sid');
       var td = document.createElement('td');
       td.setAttribute('data-nkcell', String(nk));
+      // data-kol = posisi terakhir (kolom baru ditaruh di ujung sebelum tombol hapus)
+      td.setAttribute('data-kol', String(tr.querySelectorAll('td[data-kol]').length));
       var inp = document.createElement('input');
       inp.type = 'text';
       inp.name = sid ? 'cellnew-' + sid + '-NK' + nk : 'cellnew-' + rowNewSeq + '-NK' + nk;
@@ -287,8 +465,18 @@
     });
 
     kolNewSeq++;
+    recalcTotals();
     if (window.lucide) { try { lucide.createIcons(); } catch (e) {} }
   };
+
+  // Inisialisasi auto-sum saat halaman dimuat (mode edit)
+  if (document.getElementById('tfoot-baris') || document.querySelector('[onclick="tambahBarisTotal()"]')) {
+    document.addEventListener('DOMContentLoaded', function () {
+      bindTotalOverrides();
+      bindBodyRecalc();
+      setTimeout(recalcTotals, 50);
+    });
+  }
 })();
 </script>
 {% endblock %}

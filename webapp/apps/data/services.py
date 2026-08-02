@@ -57,6 +57,9 @@ def _jenis_wilayah(nama: str) -> str:
         return Wilayah.Jenis.KABUPATEN
     if "provinsi" in low:
         return Wilayah.Jenis.PROVINSI
+    # Baris agregat (total/jumlah/kabupaten) — diperlakukan sebagai baris total
+    if low.strip() in ("total", "jumlah", "tasikmalaya") or low.endswith(" tasikmalaya"):
+        return Wilayah.Jenis.KABUPATEN
     return Wilayah.Jenis.KECAMATAN
 
 
