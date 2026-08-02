@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react"
 import type { Dispatch, SetStateAction } from "react"
 import { useSearch } from "../../lib/api"
 import { InlineTimeSeriesAnswer } from "../features/InlineTimeSeriesAnswer"
+import { ResultSkeleton } from "../ui/skeleton"
 import { cleanTitle } from "../../lib/utils"
 import type { CompareItem } from "../features/CompareModal"
 
@@ -186,11 +187,9 @@ export function MainArea({ query, setSelectedItem, browseOpen, onToggleBrowse, i
             description="Ketik nama indikator, rincian, atau wilayah. Area hasil tetap penuh supaya grafik atau tabel berikutnya tidak mengubah tata letak halaman."
           />
         ) : isLoading ? (
-          <EmptyPanel
-            icon="loading"
-            title="Memuat data"
-            description="Sistem sedang mencari indikator, rincian, dan tabel yang cocok dari database publikasi."
-          />
+          <div className="min-h-[calc(100vh-10rem)]">
+            <ResultSkeleton />
+          </div>
         ) : error ? (
           <EmptyPanel
             icon="error"

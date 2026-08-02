@@ -1,9 +1,12 @@
 import { SplitPaneLayout } from "./components/layout/SplitPaneLayout"
+import { ErrorBoundary } from "./components/layout/ErrorBoundary"
 import './App.css'
 
 function App() {
   return (
-    <SplitPaneLayout />
+    <ErrorBoundary>
+      <SplitPaneLayout />
+    </ErrorBoundary>
   )
 }
 

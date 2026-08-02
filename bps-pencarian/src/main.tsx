@@ -1,5 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { SWRConfig } from 'swr'
 import './index.css'
 import App from './App.tsx'
 
@@ -10,8 +11,19 @@ import App from './App.tsx'
 // referenced) so it is not tree-shaken away.
 ;(window as unknown as { __BUILD_STAMP__?: string }).__BUILD_STAMP__ = __BUILD_STAMP__
 
+// SWR global: data statistik jarang berubah — jangan refetch tiap kali tab
+// kembali fokus (hemat bandwidth di jaringan BPS), dan dedupe request
+// identik dalam 10 detik.
+const swrConfig = {
+  revalidateOnFocus: false,
+  revalidateOnReconnect: false,
+  dedupingInterval: 10_000,
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <SWRConfig value={swrConfig}>
+      <App />
+    </SWRConfig>
   </StrictMode>,
 )

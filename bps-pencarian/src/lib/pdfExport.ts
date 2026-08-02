@@ -63,6 +63,40 @@ async function loadBpsLogo(): Promise<string> {
   }
 }
 
+// ─── Fira Sans font embedding (loaded once, cached) ────────────────
+let cachedFontsLoaded = false
+
+async function loadFiraFonts(): Promise<void> {
+  if (cachedFontsLoaded) return
+
+  // Fetch the TTF files as ArrayBuffer -> base64 for jsPDF addFileToVFS.
+  // The TTF must be registered BEFORE creating the jsPDF instance.
+  const [regular, bold] = await Promise.all([
+    fetch("/fonts/FiraSans-Regular.ttf").then((r) => r.arrayBuffer()).catch(() => null),
+    fetch("/fonts/FiraSans-Bold.ttf").then((r) => r.arrayBuffer()).catch(() => null),
+  ])
+
+  const toBase64 = (buf: ArrayBuffer) => {
+    const bytes = new Uint8Array(buf)
+    let binary = ""
+    const CHUNK = 0x8000
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+    }
+    return btoa(binary)
+  }
+
+  if (regular) {
+    ;(jsPDF as any).API.addFileToVFS("FiraSans-Regular.ttf", toBase64(regular))
+    ;(jsPDF as any).API.addFont("FiraSans-Regular.ttf", "FiraSans", "normal")
+  }
+  if (bold) {
+    ;(jsPDF as any).API.addFileToVFS("FiraSans-Bold.ttf", toBase64(bold))
+    ;(jsPDF as any).API.addFont("FiraSans-Bold.ttf", "FiraSans", "bold")
+  }
+  cachedFontsLoaded = true
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────
 function isYearLike(n: number): boolean {
   return Number.isInteger(n) && n >= 1900 && n <= 2099
@@ -147,6 +181,9 @@ export async function exportProfessionalPdf(opts: PdfExportOptions) {
 
   // Auto-detect orientation: ≥5 columns → landscape
   const orient = orientation ?? ((columns?.length ?? 0) >= 5 ? "landscape" : "portrait")
+
+  // Embed Fira Sans (harus sebelum instance jsPDF dibuat)
+  await loadFiraFonts()
   const pdf = new jsPDF(orient, "mm", "a4")
   const pageW = pdf.internal.pageSize.getWidth()
   const pageH = pdf.internal.pageSize.getHeight()
@@ -172,11 +209,11 @@ export async function exportProfessionalPdf(opts: PdfExportOptions) {
 
     // Institution name
     const textX = marginX + logoSize + 4
-    pdf.setFont("helvetica", "bold")
+    pdf.setFont("FiraSans", "bold")
     pdf.setFontSize(11)
     pdf.setTextColor(...DARK)
     pdf.text("BADAN PUSAT STATISTIK", textX, logoY + 6)
-    pdf.setFont("helvetica", "normal")
+    pdf.setFont("FiraSans", "normal")
     pdf.setFontSize(9)
     pdf.setTextColor(...GRAY_MED)
     pdf.text("KABUPATEN TASIKMALAYA", textX, logoY + 12)
@@ -198,7 +235,7 @@ export async function exportProfessionalPdf(opts: PdfExportOptions) {
     pdf.line(marginX, footerY - 4, pageW - marginX, footerY - 4)
 
     // Left: source
-    pdf.setFont("helvetica", "normal")
+    pdf.setFont("FiraSans", "normal")
     pdf.setFontSize(7)
     pdf.setTextColor(...GRAY_MED)
     pdf.text(`Sumber: Basis Data BPS Kab. Tasikmalaya — Diekspor ${timestamp()}`, marginX, footerY)
@@ -215,7 +252,7 @@ export async function exportProfessionalPdf(opts: PdfExportOptions) {
   // ── Title block ──
   let cursorY = headerHeight + 8
 
-  pdf.setFont("helvetica", "bold")
+  pdf.setFont("FiraSans", "bold")
   pdf.setFontSize(13)
   pdf.setTextColor(...DARK)
   // Wrap long titles
@@ -224,7 +261,7 @@ export async function exportProfessionalPdf(opts: PdfExportOptions) {
   cursorY += titleLines.length * 6
 
   if (subtitle) {
-    pdf.setFont("helvetica", "normal")
+    pdf.setFont("FiraSans", "normal")
     pdf.setFontSize(9)
     pdf.setTextColor(...GRAY_MED)
     const subLines = pdf.splitTextToSize(subtitle, contentW)
@@ -337,7 +374,7 @@ export async function exportProfessionalPdf(opts: PdfExportOptions) {
         startY = headerHeight + 10
       }
       if (t.title) {
-        pdf.setFont("helvetica", "bold")
+        pdf.setFont("FiraSans", "bold")
         pdf.setFontSize(10)
         pdf.setTextColor(...DARK)
         const titleLines = pdf.splitTextToSize(t.title, contentW)
@@ -389,7 +426,7 @@ export async function exportProfessionalPdf(opts: PdfExportOptions) {
         cursorY = headerHeight + 8
       }
       if (sec.title) {
-        pdf.setFont("helvetica", "bold")
+        pdf.setFont("FiraSans", "bold")
         pdf.setFontSize(12)
         pdf.setTextColor(...DARK)
         const titleLines = pdf.splitTextToSize(sec.title, contentW)
@@ -397,7 +434,7 @@ export async function exportProfessionalPdf(opts: PdfExportOptions) {
         cursorY += titleLines.length * 6 + 4
       }
       if (sec.subtitle) {
-        pdf.setFont("helvetica", "normal")
+        pdf.setFont("FiraSans", "normal")
         pdf.setFontSize(9)
         pdf.setTextColor(...GRAY_MED)
         const subLines = pdf.splitTextToSize(sec.subtitle, contentW)

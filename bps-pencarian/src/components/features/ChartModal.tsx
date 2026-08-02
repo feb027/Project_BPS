@@ -5,6 +5,7 @@ import html2canvas from "html2canvas-pro"
 import ExcelJS from "exceljs"
 import { exportProfessionalPdf } from "../../lib/pdfExport"
 import { buildStyledSheet, downloadWorkbook, timestampLabel } from "../../lib/excelExport"
+import { ChartSkeleton } from "../ui/skeleton"
 import { useTimeSeries, useCatalogSeries, type CatalogSeriesRow } from "../../lib/api"
 import { YearRangeSlider } from "./YearRangeSlider"
 
@@ -777,10 +778,7 @@ export function ChartModal({ item, onClose }: ChartModalProps) {
         {/* Content */}
         <div className="flex-1 overflow-auto p-6 flex flex-col gap-5">
           {isLoading ? (
-            <div className="flex-1 min-h-[420px] flex flex-col items-center justify-center text-primary rounded-md border border-dashed border-border bg-muted/20">
-              <Loader2 className="h-10 w-10 animate-spin mb-4" />
-              <p className="text-sm font-medium animate-pulse">Memuat data…</p>
-            </div>
+            <ChartSkeleton />
           ) : error ? (
             <div className="flex-1 min-h-[420px] flex flex-col items-center justify-center text-destructive rounded-md border border-destructive/20 bg-destructive/5 text-center">
               <p className="text-base font-semibold">Gagal memuat data dari database.</p>
