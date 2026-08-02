@@ -3,7 +3,7 @@ import { X, Loader2, AlertTriangle, BarChart3, Plus, Check, FileSpreadsheet, Fil
 import { ResponsiveContainer, LineChart, BarChart, Bar, LabelList, CartesianGrid, XAxis, YAxis, Tooltip, Legend, Line } from "recharts"
 import html2canvas from "html2canvas-pro"
 import ExcelJS from "exceljs"
-import { exportProfessionalPdf } from "../../lib/pdfExport"
+import { exportProfessionalPdf, extractChartSvg } from "../../lib/pdfExport"
 import { buildStyledSheet, downloadWorkbook, timestampLabel } from "../../lib/excelExport"
 import { useCatalogSeries, type CatalogSeriesRow } from "../../lib/api"
 import { shortTitleForExport } from "../../lib/utils"
@@ -617,23 +617,29 @@ export function CompareModal({ items, onClose, onRemove }: CompareModalProps) {
     if (entries.length === 0) return
     setExporting("pdf")
     try {
-      // Capture EVERY section's chart individually (html2canvas on the
-      // scrollable container only renders the visible viewport). Each chart
-      // stays its own image so the PDF can render them BIG, one per section —
-      // not scaled down into a single composed thumbnail.
+      // Capture EVERY section's chart: prefer SVG vector (sharp), fallback
+      // ke PNG raster. html2canvas pada container scrollable hanya render
+      // viewport — SVG diambil per <section> sehingga semua grafik dapat.
       const sectionEls = sectionsRef.current
         ? Array.from(sectionsRef.current.querySelectorAll("section"))
         : []
+      const chartSvgs: (string | undefined)[] = []
       const chartUrls: (string | undefined)[] = []
       for (const el of sectionEls) {
-        try {
-          const canvas = await html2canvas(el as HTMLElement, {
-            scale: 2,
-            backgroundColor: "#ffffff",
-            useCORS: true,
-          })
-          chartUrls.push(canvas.toDataURL("image/png"))
-        } catch {
+        const svgMarkup = extractChartSvg(el as HTMLElement)
+        chartSvgs.push(svgMarkup ?? undefined)
+        if (!svgMarkup) {
+          try {
+            const canvas = await html2canvas(el as HTMLElement, {
+              scale: 2,
+              backgroundColor: "#ffffff",
+              useCORS: true,
+            })
+            chartUrls.push(canvas.toDataURL("image/png"))
+          } catch {
+            chartUrls.push(undefined)
+          }
+        } else {
           chartUrls.push(undefined)
         }
       }
@@ -653,6 +659,7 @@ export function CompareModal({ items, onClose, onRemove }: CompareModalProps) {
           return {
             title: `${e.nomor} — ${shortTitleForExport(e.title)}`,
             subtitle: `Indikator: ${e.metric}${pivot.unit ? ` • Satuan: ${pivot.unit}` : ""}`,
+            chartSvg: chartSvgs[i],
             chartImageDataUrl: chartUrls[i],
             columns: pivot.header,
             rows: pivot.body,
