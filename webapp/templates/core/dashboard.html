@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load humanize %}
 {% block title %}Beranda{% endblock %}
 {% block eyebrow %}Ringkasan{% endblock %}
 {% block heading %}Command Center BPS{% endblock %}
@@ -7,28 +8,77 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <style>
-  /* Modern Panel - Override to use global vars */
-  .modern-panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
-  .modern-panel h2 { font-size: 1.1rem; font-weight: 600; color: #0F172A; margin-top: 0; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); padding-bottom: 12px; }
-  
-  /* 2-Col Grid for bottom panels */
-  .two-col-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  /* ===== Panel ===== */
+  .dash-panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 22px 24px;
+    margin-bottom: 24px;
+  }
+  .dash-panel__head {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap;
+    border-bottom: 1px solid var(--line); padding-bottom: 14px; margin-bottom: 18px;
+  }
+  .dash-panel__title { font-size: 1.05rem; font-weight: 600; color: #0F172A; margin: 0; display: flex; align-items: center; gap: 9px; }
+  .dash-panel__title svg { color: var(--accent-2); }
+  .dash-panel__sub { font-size: 13px; color: var(--muted); margin-top: 4px; }
 
-  /* Anomaly List */
-  .anomaly-list { list-style: none; padding: 0; margin: 0; display:flex; flex-direction:column; gap:8px; }
-  .anomaly-item { display: flex; justify-content: space-between; padding: 12px; background: #FEF2F2; border: 1px solid #FECACA; border-left: 4px solid var(--danger); border-radius: 6px; }
+  /* ===== Stat cards ===== */
+  .stat-grid { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+  .stat { overflow: hidden; }
+  .stat__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .stat__icon {
+    width: 36px; height: 36px; border-radius: 8px; flex: none;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: #EFF6FF; color: var(--accent-2);
+  }
+  .stat--warn .stat__icon { background: #FEF3C7; color: #B45309; }
+  .stat-label { text-transform: uppercase; letter-spacing: 0.06em; }
+  .stat-value { margin-top: 10px; }
+  .stat__foot { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+  /* ===== Chart ===== */
+  .chart-wrap { position: relative; height: 420px; }
+  .chart-toolbar { display: flex; align-items: center; gap: 10px; }
+  .chart-toolbar select {
+    font-family: var(--sans); font-size: 13px; font-weight: 500;
+    padding: 7px 12px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--panel); color: var(--ink); cursor: pointer;
+  }
+  .chart-total {
+    font-family: var(--mono); font-size: 13px; font-weight: 600;
+    color: var(--ink-2); background: #EFF6FF; border: 1px solid #BFDBFE;
+    padding: 5px 12px; border-radius: 999px; white-space: nowrap;
+  }
+
+  /* ===== Anomaly ===== */
+  .anomaly-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+  .anomaly-item {
+    display: flex; justify-content: space-between; gap: 12px; padding: 12px 14px;
+    background: #FEF2F2; border: 1px solid #FECACA; border-left: 4px solid var(--danger); border-radius: 6px;
+  }
   .anomaly-item .context { font-size: 13px; color: #64748B; margin-top: 4px; }
-  .anomaly-item .val { font-weight: bold; font-family: var(--mono); background: #fff; color: #991B1B; padding: 4px 8px; border-radius: 4px; border: 1px solid #FECACA; text-align: center; font-size: 12px; }
+  .anomaly-item .val {
+    font-weight: bold; font-family: var(--mono); background: #fff; color: #991B1B;
+    padding: 4px 8px; border-radius: 4px; border: 1px solid #FECACA;
+    text-align: center; font-size: 12px; white-space: nowrap;
+  }
 
-  /* Live Feed */
+  /* ===== Live feed ===== */
   .feed-list { position: relative; padding-left: 20px; border-left: 2px solid var(--line); margin-left: 10px; }
   .feed-item { position: relative; margin-bottom: 20px; }
-  .feed-item::before { content: ''; position: absolute; left: -26px; top: 4px; width: 10px; height: 10px; border-radius: 50%; background: var(--ok); border: 2px solid #fff; box-shadow: 0 0 0 1px var(--line); }
+  .feed-item::before {
+    content: ''; position: absolute; left: -26px; top: 4px; width: 10px; height: 10px;
+    border-radius: 50%; background: var(--ok); border: 2px solid #fff; box-shadow: 0 0 0 1px var(--line);
+  }
   .feed-time { font-size: 12px; color: var(--muted); margin-bottom: 4px; font-weight: 500; }
   .feed-content { font-size: 14px; color: #334155; line-height: 1.4; }
 
   @media (max-width: 768px) {
-      .two-col-grid { grid-template-columns: 1fr; }
+    .two-col-grid { grid-template-columns: 1fr !important; }
+    .chart-wrap { height: 360px; }
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   .animate-spin { animation: spin 1s linear infinite; }
@@ -36,37 +86,64 @@
 
 <div class="stat-grid" style="margin-bottom: 24px; margin-top: 10px;">
   <div class="stat">
-    <div class="stat-label">Total Publikasi</div>
-    <div class="stat-value">{{ jml_publikasi }}</div>
+    <div class="stat__top">
+      <div class="stat-label">Total Publikasi</div>
+      <div class="stat__icon"><i data-lucide="book-open" style="width:18px;height:18px;"></i></div>
+    </div>
+    <div class="stat-value">{{ jml_publikasi|intcomma }}</div>
+    <div class="stat__foot">Terbitan BPS yang dimuat</div>
   </div>
   <div class="stat">
-    <div class="stat-label">Total Tabel</div>
-    <div class="stat-value">{{ jml_tabel }}</div>
+    <div class="stat__top">
+      <div class="stat-label">Total Tabel</div>
+      <div class="stat__icon"><i data-lucide="table-2" style="width:18px;height:18px;"></i></div>
+    </div>
+    <div class="stat-value">{{ jml_tabel|intcomma }}</div>
+    <div class="stat__foot">Tabel tersebar di semua bab</div>
   </div>
   <div class="stat">
-    <div class="stat-label">Total Fakta (Data)</div>
-    <div class="stat-value">{{ jml_fakta }}</div>
+    <div class="stat__top">
+      <div class="stat-label">Total Fakta (Data)</div>
+      <div class="stat__icon"><i data-lucide="database" style="width:18px;height:18px;"></i></div>
+    </div>
+    <div class="stat-value">{{ jml_fakta|intcomma }}</div>
+    <div class="stat__foot">Baris data angka statistik</div>
   </div>
   <div class="stat stat--warn">
-    <div class="stat-label" style="color: var(--danger);">Anomali & Cek</div>
-    <div class="stat-value" style="color: var(--danger);">{{ jml_perlu_cek }}</div>
+    <div class="stat__top">
+      <div class="stat-label" style="color:#B45309;">Anomali &amp; Cek</div>
+      <div class="stat__icon"><i data-lucide="alert-triangle" style="width:18px;height:18px;"></i></div>
+    </div>
+    <div class="stat-value" style="color:#B45309;">{{ jml_perlu_cek|intcomma }}</div>
+    <div class="stat__foot">Menunggu verifikasi manual</div>
   </div>
 </div>
 
-
 <!-- Visualisasi Grafik -->
-<div class="modern-panel">
-  <h2><i data-lucide="bar-chart-2" style="color: var(--accent-2);"></i> Distribusi Fakta per Kategori (Bab)</h2>
-  <div style="height: 300px; width: 100%;">
+<div class="dash-panel">
+  <div class="dash-panel__head">
+    <div>
+      <h2 class="dash-panel__title"><i data-lucide="bar-chart-2" style="width:18px;height:18px;"></i> Distribusi Fakta per Bab</h2>
+      <p class="dash-panel__sub">Jumlah baris data pada setiap bab, per tahun publikasi.</p>
+    </div>
+    <div class="chart-toolbar">
+      <span class="chart-total" id="chartTotal">—</span>
+      <select id="tahunSelect" aria-label="Pilih tahun publikasi"></select>
+    </div>
+  </div>
+  <div class="chart-wrap">
     <canvas id="distribusiChart"></canvas>
   </div>
 </div>
 
-<div class="two-col-grid">
+<div class="two-col-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
   <!-- Anomali Panel -->
-  <div class="modern-panel">
-    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid var(--line); padding-bottom: 12px; margin-bottom: 16px;">
-      <h2 style="color: var(--danger); border:none; padding:0; margin:0;"><i data-lucide="alert-octagon"></i> Data Anomali</h2>
+  <div class="dash-panel">
+    <div class="dash-panel__head" style="border-bottom:1px solid var(--line);">
+      <div>
+        <h2 class="dash-panel__title" style="color:var(--danger);"><i data-lucide="alert-octagon" style="width:18px;height:18px;color:var(--danger);"></i> Data Anomali</h2>
+        <p class="dash-panel__sub">Tabel dengan nilai yang ditandai perlu dicek.</p>
+      </div>
       {% if anomali_list %}
       <button class="btn btn--sm" onclick="amanSemua()" style="background:var(--ok); color:white; border:none; display:flex; align-items:center; gap:6px; font-weight:600; cursor:pointer;"><i data-lucide="check-square" style="width:14px;height:14px;"></i> Aman Semua</button>
       {% endif %}
@@ -78,12 +155,12 @@
         <div style="flex: 1;">
           <div style="font-weight:600; color:#0F172A;">Tabel: {{ a.tabel.judul|truncatechars:50 }}</div>
           <div class="context">
-            <b>Buku:</b> {{ a.tabel.bab.publikasi.judul|truncatechars:30 }} ({{ a.tabel.bab.publikasi.tahun_terbit|stringformat:"s" }})<br>
-            <b>Posisi:</b> Baris {% if a.wilayah %}{{ a.wilayah.nama }}{% elif a.rincian %}{{ a.rincian.nama }}{% else %}-{% endif %}, Kolom {% if a.kolom and a.kolom.indikator %}{{ a.kolom.indikator.nama }}{% else %}-{% endif %}, Tahun {{ a.tahun|default:"-" |stringformat:"s"}}
+            <b>Buku:</b> {{ a.tabel.bab.publikasi.judul|truncatechars:30 }} ({{ a.tabel.bab.publikasi.tahun_terbit }})<br>
+            <b>Posisi:</b> Baris {% if a.wilayah %}{{ a.wilayah.nama }}{% elif a.rincian %}{{ a.rincian.nama }}{% else %}-{% endif %}, Kolom {% if a.kolom and a.kolom.indikator %}{{ a.kolom.indikator.nama }}{% else %}-{% endif %}, Tahun {{ a.tahun|default:"-" }}
           </div>
         </div>
-        <div style="display:flex; flex-direction:column; gap:8px; align-items: flex-end;">
-          <div class="val">Perlu Dicek ⚠️</div>
+        <div style="display:flex; flex-direction:column; gap:8px; align-items:flex-end;">
+          <div class="val">Perlu Dicek</div>
           <div style="display:flex; gap:6px;">
             <a href="{% url 'data:tabel_detail' a.tabel.id %}" class="btn btn--sm btn--ghost" style="display:flex; align-items:center; gap:4px; padding:4px 8px; font-size:12px;"><i data-lucide="external-link" style="width:12px;height:12px;"></i> Cek Tabel</a>
             <form method="POST" action="{% url 'data:mark_fakta_safe' a.id %}" style="margin:0;" onsubmit="handleAman(event, this)">
@@ -103,8 +180,13 @@
   </div>
 
   <!-- Live Feed Ekstraksi -->
-  <div class="modern-panel">
-    <h2><i data-lucide="activity" style="color: var(--ok);"></i> Live Feed Aktivitas</h2>
+  <div class="dash-panel">
+    <div class="dash-panel__head">
+      <div>
+        <h2 class="dash-panel__title" style="color:var(--ok);"><i data-lucide="activity" style="width:18px;height:18px;color:var(--ok);"></i> Live Feed Aktivitas</h2>
+        <p class="dash-panel__sub">Tabel terbaru yang diperbarui.</p>
+      </div>
+    </div>
     {% if live_feed %}
     <div class="feed-list">
       {% for t in live_feed %}
@@ -126,7 +208,7 @@
               {{ t.judul|truncatechars:85 }}
             </div>
             <div style="font-size:12px; color:var(--muted); display:flex; align-items:center; gap:4px;">
-              <i data-lucide="book" style="width:12px;height:12px;"></i> Buku Publikasi: {{ t.bab.publikasi.tahun_terbit|stringformat:"s" }}
+              <i data-lucide="book" style="width:12px;height:12px;"></i> Buku Publikasi: {{ t.bab.publikasi.tahun_terbit }}
             </div>
           </a>
         </div>
@@ -140,43 +222,124 @@
 </div>
 
 <script>
-  // Chart.js init
-  const ctxData = JSON.parse('{{ chart_data|escapejs }}');
-  if(document.getElementById('distribusiChart') && ctxData.labels.length > 0) {
-      const ctx = document.getElementById('distribusiChart').getContext('2d');
-      new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels: ctxData.labels,
-          datasets: [{
-            label: 'Jumlah Baris Data',
-            data: ctxData.data,
-            backgroundColor: '#3B82F6', /* accent-2 */
-            borderRadius: 6,
-          }]
+  // Chart data dari backend: {"publikasi": [{tahun, judul, total, bab: [{nomor, nama, jumlah}]}], "default_tahun": N}
+  const CHART_DATA = JSON.parse('{{ chart_data|escapejs }}');
+  const fmt = new Intl.NumberFormat('id-ID');
+  let chart = null;
+
+  function renderChart(tahun) {
+    const pub = CHART_DATA.publikasi.find(p => p.tahun === tahun) || CHART_DATA.publikasi[0];
+    if (!pub) return;
+
+    // Sortir bab dari terbesar ke terkecil agar paling mudah dibaca
+    const bab = [...pub.bab].sort((a, b) => b.jumlah - a.jumlah);
+    const labels = bab.map(b => `Bab ${b.nomor} · ${b.nama}`);
+    const data = bab.map(b => b.jumlah);
+
+    const el = document.getElementById('chartTotal');
+    if (el) el.textContent = `${pub.bab.length} bab · ${fmt.format(pub.total)} baris data`;
+
+    const canvas = document.getElementById('distribusiChart');
+    if (!canvas) return;
+
+    if (chart) chart.destroy();
+
+    chart = new Chart(canvas.getContext('2d'), {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Jumlah Baris Data',
+          data,
+          backgroundColor: '#3B82F6',
+          hoverBackgroundColor: '#1E40AF',
+          borderRadius: 5,
+          barThickness: 20,
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#0F172A',
+            padding: 10,
+            cornerRadius: 6,
+            titleFont: { family: 'Fira Sans', size: 13 },
+            bodyFont: { family: 'Fira Code', size: 13 },
+            callbacks: {
+              label: (ctx) => ` ${fmt.format(ctx.raw)} baris data`
+            }
+          }
         },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { display: false }
+        scales: {
+          x: {
+            beginAtZero: true,
+            grid: { color: '#E2E8F0', borderDash: [4, 4] },
+            ticks: {
+              font: { family: 'Fira Code', size: 11 },
+              color: '#64748B',
+              callback: (v) => fmt.format(v)
+            }
           },
-          scales: {
-            y: { beginAtZero: true, grid: { borderDash: [4, 4] } },
-            x: { grid: { display: false } }
+          y: {
+            grid: { display: false },
+            ticks: {
+              font: { family: 'Fira Sans', size: 12, weight: '500' },
+              color: '#1E293B',
+              autoSkip: false,
+              callback: function (value, index) {
+                const label = this.getLabelForValue(value);
+                return label.length > 42 ? label.slice(0, 42) + '…' : label;
+              }
+            }
           }
         }
+      },
+      plugins: [{
+        // Tampilkan nilai di ujung bar
+        afterDatasetsDraw(chartInstance) {
+          const ctx = chartInstance.ctx;
+          ctx.save();
+          ctx.font = '600 11px Fira Code, monospace';
+          ctx.fillStyle = '#1E3A8A';
+          const meta = chartInstance.getDatasetMeta(0);
+          meta.data.forEach((bar, i) => {
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(fmt.format(data[i]), bar.x + 6, bar.y);
+          });
+          ctx.restore();
+        }
+      }]
     });
   }
-  
-  
+
+  function initChart() {
+    const sel = document.getElementById('tahunSelect');
+    if (!sel || !CHART_DATA || !CHART_DATA.publikasi || CHART_DATA.publikasi.length === 0) return;
+
+    CHART_DATA.publikasi.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.tahun;
+      opt.textContent = `Tahun ${p.tahun}`;
+      sel.appendChild(opt);
+    });
+    sel.value = CHART_DATA.default_tahun;
+    sel.addEventListener('change', () => renderChart(parseInt(sel.value, 10)));
+    renderChart(parseInt(sel.value, 10));
+  }
+
+  document.addEventListener('DOMContentLoaded', initChart);
+
   // AJAX Handle Aman
   async function handleAman(e, form) {
     e.preventDefault();
     const btn = form.querySelector('button');
     const originalHtml = btn.innerHTML;
-    
-    // UI Feedback (Loading)
+
     btn.style.opacity = '0.7';
     btn.innerHTML = '<i data-lucide="loader-2" class="animate-spin" style="width:12px;height:12px;"></i>';
     if(window.lucide) lucide.createIcons();
@@ -188,12 +351,12 @@
         body: new FormData(form),
         headers: { 'X-Requested-With': 'XMLHttpRequest' }
       });
-      
+
       const item = form.closest('.anomaly-item');
       item.style.transition = 'all 0.3s ease';
       item.style.opacity = '0';
       item.style.transform = 'translateX(30px)';
-      
+
       setTimeout(() => {
         item.remove();
         checkListEmpty();
@@ -227,7 +390,7 @@
     const forms = document.querySelectorAll('.anomaly-item form');
     if(forms.length === 0) return;
     if(!confirm('Tandai ' + forms.length + ' data di bawah ini sebagai Aman sekaligus?')) return;
-    
+
     const promises = Array.from(forms).map(form => {
       const btn = form.querySelector('button');
       btn.innerHTML = '<i data-lucide="loader-2" class="animate-spin" style="width:12px;height:12px;"></i>';
