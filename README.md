@@ -160,6 +160,86 @@ erDiagram
     }
 ```
 
+### Alur lengkap bps-pencarian (query → ekspor)
+
+```mermaid
+sequenceDiagram
+    participant U as Pengguna
+    participant SPA as SplitPaneLayout React
+    participant API as FacetedSearchAPIView
+    participant DB as PostgreSQL pg_trgm
+    participant TS as TimeSeriesAPIView
+    participant EK as Ekspor ExcelJS / jsPDF
+
+    U->>SPA: ketik "jumlah penduduk cisayong"
+    SPA->>API: GET /pencarian/api/search/?q=...
+    API->>DB: trigram similarity + deteksi wilayah + cascade quick-match
+    DB-->>API: kandidat indikator/tabel + observasi time-series
+    API-->>SPA: detected_wilayah, quick_matches, multi_concepts
+    SPA->>SPA: kartu jawaban InlineTimeSeriesAnswer / daftar kandidat
+    SPA->>TS: GET /timeseries/?tabel_id=... saat modal dibuka
+    TS-->>SPA: fakta lintas tahun + satuan
+    SPA->>SPA: LineChart/BarChart + YearRangeSlider
+    SPA->>EK: ekspor Excel/PDF pivot tahun × wilayah/rincian
+```
+
+Langkah detail (per komponen):
+
+1. **Input** — `SearchInput` men-debounce ketikan (±300ms) lalu `SplitPaneLayout` memicu `useSearch(q)` di `lib/api.ts` (SWR, dedupe 10s).
+2. **Backend** — `FacetedSearchAPIView` di `apps/pencarian/api_views.py`: tokenisasi + normalisasi query → deteksi wilayah (kabupaten > kecamatan, nama terpanjang menang) → guard istilah generik (`jumlah`, `penduduk` → banner "terlalu umum", bukan kartu acak) → cascade quick-match:
+   - `_quick_topic_matches` — skor frasa utuh: nama indikator +120, frasa dalam judul tabel +100, frasa dalam nama indikator +90;
+   - `_quick_rincian_matches` — agregasi kabupaten jika tidak ada subjek rincian, breakdown per rincian jika disebut;
+   - `multi_concepts` — query `murid sma + guru sma` / `... dan ...` dipecah menjadi beberapa konsep untuk perbandingan.
+3. **Render** — `MainArea`: bila ada `quick_matches` → kartu jawaban langsung (grafik + tabel); bila tidak → daftar kandidat tabel/indikator; `search_hint` menampilkan banner peringatan.
+4. **Interaksi lanjut** — tombol `+` memasukkan tabel ke keranjang bandingkan (localStorage, maks. 6); klik grafik membuka `ChartModal`; `YearRangeSlider` memfilter rentang tahun (tersimpan di localStorage).
+5. **Ekspor** — `lib/excelExport.ts` (ExcelJS, sel numerik asli, header biru BPS, freeze pane) & `lib/pdfExport.ts` (jsPDF + html2canvas PNG, satu halaman per tabel, orientasi landscape untuk multi-tabel, font Fira Sans, tabel pivot).
+
+### Arsitektur bps-pencarian (SPA publik)
+
+```mermaid
+flowchart LR
+    subgraph BPS["bps-pencarian/ — React 19 + Vite 8 (SPA)"]
+        UI["ui/ — atomik<br/>button input select card skeleton"]
+        LAY["layout/<br/>SplitPaneLayout Sidebar MainArea ErrorBoundary"]
+        FEA["features/<br/>SearchInput CatalogBrowser InlineTimeSeriesAnswer ChartModal CompareModal YearRangeSlider JenisDataChips"]
+        LIB["lib/<br/>api(SWR) excelExport pdfExport utils"]
+    end
+    BPS -->|"fetch /pencarian/api/* (proxy Vite / Caddy)"| DJ[Django pencarian API]
+    DJ --> PG[(PostgreSQL bps_publikasi)]
+```
+
+- **Modular ketat** — logika dipisah `ui/` (atomik), `layout/` (kerangka), `features/` (fitur), `lib/` (logika murni); `App.tsx` hanya komposisi. Setiap utilitas penting (export, pivot, parser label) punya test Vitest.
+- **Performa** — code-splitting lazy chunks (`charts`/`pdf`/`vendor`); index awal ±42KB; debounce pencarian; SWR `revalidateOnFocus: false`.
+- **Rendering data** — data time-series berbentuk long-format; chart LineChart untuk banyak tahun, **BarChart** untuk satu tahun; tema Tailwind v4 (OKLCH), palet identitas BPS.
+- **Tanpa backend sendiri** — SPA murni statis, dikonsumsi via Caddy dari `dist/`.
+
+### Arsitektur bps-hub (Django internal)
+
+```mermaid
+flowchart LR
+    U[Petugas BPS] -->|"Basic Auth di Caddy"| C[Caddy]
+    C -->|"/static/*"| SF[staticfiles/]
+    C --> G[Gunicorn 127.0.0.1:8020]
+    subgraph DJ["webapp/ — Django 5.2 + DRF"]
+        CO[apps.core — dashboard chart semua tahun]
+        KA[apps.katalog — kurasi publikasi/bab/tabel]
+        RE[apps.referensi — master indikator/wilayah/rincian/alias]
+        DA[apps.data — Fakta, ingest, ekspor, time-series]
+        EK[apps.ekstraksi — engine PDF/OCR/Gemini]
+        MI[apps.manual_import — template Excel → commit]
+        PE[apps.pencarian — API publik search/catalog]
+    end
+    G --> DJ
+    DA --> PG[(PostgreSQL bps_publikasi)]
+    EK --> DA
+    MI --> DA
+```
+
+- **Server-rendered + JS** — template Django (`templates/`) dengan JS inline per halaman; dashboard, kurasi/edit nilai (auto-sum baris total), sinkronisasi kolom antar publikasi, dan verifikasi fakta.
+- **API internal** — DRF di bawah `/pencarian/api/*` dipakai SPA publik; endpoint `/importer/*` untuk alur import manual; semua POST import `@csrf_exempt` (hub dilindungi Basic Auth di tingkat Caddy, bukan auth per-endpoint).
+- **Data & cache** — satu basis PostgreSQL `bps_publikasi` (`pg_trgm` untuk pencarian, `DatabaseCache` antar worker), `cache_page` pada endpoint katalog/timeseries.
+- **Deploy** — user systemd unit `project-bps-backend.service`; template/CSS yang berubah butuh restart + `collectstatic` (lihat bagian Deployment).
+
 ## Struktur repositori
 
 ```text
@@ -601,6 +681,45 @@ caddy validate --config /etc/caddy/Caddyfile && sudo systemctl reload caddy
 - [Runbook harmonisasi migrasi](docs/harmonization-migration-runbook.md)
 - [Audit & rencana proses DB](docs/DB_PROCESS_AUDIT_AND_PLAN.md)
 - [Rencana database time-series](docs/plans/2026-07-05-timeseries-database-agent-plan.md)
+
+## Pembagian peran tim (4 anggota)
+
+Pembagian peran berikut memetakan **satu anggota → satu ranah kode** agar scope pekerjaan tidak tumpang tindih dan tiap bagian bisa dipertanggungjawabkan dalam laporan. Kontrak antar peran adalah **skema `Fakta`** (konsumen = frontend, produsen = ekstraksi/ETL).
+
+| Anggota | Peran | Ranah kode | Tugas utama | Deliverable laporan |
+| --- | --- | --- | --- | --- |
+| 1 | **Backend & Ekstraksi PDF** | `webapp/apps/ekstraksi/` + `apps/data/services.py` | Segmentasi halaman PDF → tabel, deteksi nomor/judul/sumber/tahun, tipe baris (kecamatan/kabupaten/kategori), fallback OCR (Tesseract) & Gemini Vision, *ingest* long-format | Pipeline ekstraksi PDF → tabel tidy dengan akurasi pratinjau |
+| 2 | **Frontend Hub Internal (Django)** | `webapp/templates/`, `apps/core/`, `apps/katalog/`, `apps/manual_import/` | Dashboard chart semua tahun, kurasi publikasi/bab/tabel, Edit Nilai (baris total auto-sum), UI import manual Excel, sinkronisasi kolom | Portal administrasi data + alur import manual end-to-end |
+| 3 | **Frontend Pencarian Publik (SPA)** | `bps-pencarian/src/` | Pencarian natural language, kartu jawaban time-series, perbandingan multi-tabel, slider rentang tahun, ekspor Excel/PDF profesional, responsive | SPA pelayanan data publik + UX |
+| 4 | **ETL Database & Harmonisasi** | `apps/referensi/`, `apps/data/` (harmonization/timeseries), schema PostgreSQL | Kanonisasi indikator (`CanonicalIndicator`/`IndicatorAlias`), normalisasi satuan (`UnitAlias`), audit kualitas data, query trigram, backup/restore | Skema tidy + dataset ter-harmonisasi + mekanisme backup |
+
+> [!NOTE]
+> - **API search/catalog** (`apps/pencarian/`) adalah jembatan antara Peran 3 dan Peran 4: Peran 4 bertanggung jawab atas akurasi data & query, Peran 3 atas konsumsi dan tampilannya. Sebaiknya ditulis bersama atau milik Peran 4 dengan kontrak JSON disepakati bersama Peran 3.
+> - Setiap peran dapat berdiri sendiri sebagai bab laporan: 1 = akuisisi & parsing, 2 = sistem administrasi, 3 = antarmuka pelayanan publik, 4 = perancangan basis data & kualitas data.
+
+## Metode pengembangan (bps-pencarian)
+
+Metode pengembangan proyek menggunakan **prototyping iteratif dengan continuous delivery** — setiap fitur melewati siklus *diskusi → implementasi → deploy → verifikasi pengguna* (user-driven validation). Proyek tidak menggunakan fase waterfall tunggal; pengembangan berjalan dalam iterasi pendek berpusat fitur, sejalan dengan prinsip agile ringan.
+
+Tahapan pada tiap iterasi:
+
+| Fase | Aktivitas | Artefak |
+| --- | --- | --- |
+| Analisis kebutuhan | Studi struktur KDA PDF (blok tabel bertingkat), identifikasi pola query pengguna, kebutuhan ekspor laporan | Daftar skenario query, contoh jawaban yang diharapkan |
+| Desain | Arsitektur monorepo (Django backend + React SPA), skema long-format `Fakta`, pemetaan indikator/wilayah | Diagram arsitektur, ERD, kontrak API JSON |
+| Pengembangan backend | Ekstraksi & ETL, endpoint search/timeseries/catalog, harmonisasi alias, import manual | API + dataset ter-harmonisasi |
+| Pengembangan frontend | SPA pencarian, grafik, perbandingan, ekspor; hub Django (dashboard/kurasi/import) | UI publik + UI internal |
+| Pengujian | Unit test Vitest (frontend) & pytest (backend), verifikasi endpoint live, QA visual manual oleh pengguna | Test suite hijau, laporan verifikasi |
+| Deployment | Build `dist/` (Caddy langsung sajikan), restart gunicorn user systemd, `collectstatic`, verifikasi key respons baru | Rilis live di `bps-pencarian.aquarise.my.id` / `bps-hub.aquarise.my.id` |
+| Evaluasi & revisi | Umpan balik pengguna → prioritas perbaikan → iterasi berikutnya | Catatan revisi tiap iterasi |
+
+Prinsip yang dijaga sepanjang iterasi:
+
+- **Jawaban dulu, kandidat belakangan** — query natural langsung menghasilkan kartu time-series, bukan daftar mentah.
+- **Pengguna sebagai verifikator** — perubahan UI/UX dan data selalu dicek langsung oleh pengguna (BPS) sebelum dianggap selesai; hasil pratinjau ekstraksi/import wajib diperiksa manual.
+- **Perubahan kecil & sering** — commit deskriptif per fitur/perbaikan; tiap iterasi selesai dalam kondisi *deployable*.
+- **Kualitas data tanpa kompromi** — data yang diragukan ditandai (`flag`), tidak langsung dihapus; `nilai_teks` asli selalu tersimpan di samping nilai numerik.
+- **Ekspor sebagai fitur kelas satu** — Excel/PDF responden-facing dirancang bersama grafik, bukan tambahan belakangan.
 
 ## Prinsip desain
 
