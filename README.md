@@ -684,18 +684,20 @@ caddy validate --config /etc/caddy/Caddyfile && sudo systemctl reload caddy
 
 ## Pembagian peran tim (4 anggota)
 
-Pembagian peran berikut memetakan **satu anggota → satu ranah kode** agar scope pekerjaan tidak tumpang tindih dan tiap bagian bisa dipertanggungjawabkan dalam laporan. Kontrak antar peran adalah **skema `Fakta`** (konsumen = frontend, produsen = ekstraksi/ETL).
+Pembagian peran memisahkan **dua frontend yang berbeda teknologi** (SPA publik vs hub Django) dan **dua lapisan backend** (data & mesin pencarian). Setiap anggota = satu modul utuh yang bisa menjadi bab laporan sendiri.
+
+Kontrak antar peran: **skema `Fakta`** (produsen = Peran 1, konsumen = Peran 2) dan **JSON `/pencarian/api/*`** (pemilik = Peran 2, konsumen = Peran 3).
 
 | Anggota | Peran | Ranah kode | Tugas utama | Deliverable laporan |
 | --- | --- | --- | --- | --- |
-| 1 | **Backend & Ekstraksi PDF** | `webapp/apps/ekstraksi/` + `apps/data/services.py` | Segmentasi halaman PDF → tabel, deteksi nomor/judul/sumber/tahun, tipe baris (kecamatan/kabupaten/kategori), fallback OCR (Tesseract) & Gemini Vision, *ingest* long-format | Pipeline ekstraksi PDF → tabel tidy dengan akurasi pratinjau |
-| 2 | **Frontend Hub Internal (Django)** | `webapp/templates/`, `apps/core/`, `apps/katalog/`, `apps/manual_import/` | Dashboard chart semua tahun, kurasi publikasi/bab/tabel, Edit Nilai (baris total auto-sum), UI import manual Excel, sinkronisasi kolom | Portal administrasi data + alur import manual end-to-end |
-| 3 | **Frontend Pencarian Publik (SPA)** | `bps-pencarian/src/` | Pencarian natural language, kartu jawaban time-series, perbandingan multi-tabel, slider rentang tahun, ekspor Excel/PDF profesional, responsive | SPA pelayanan data publik + UX |
-| 4 | **ETL Database & Harmonisasi** | `apps/referensi/`, `apps/data/` (harmonization/timeseries), schema PostgreSQL | Kanonisasi indikator (`CanonicalIndicator`/`IndicatorAlias`), normalisasi satuan (`UnitAlias`), audit kualitas data, query trigram, backup/restore | Skema tidy + dataset ter-harmonisasi + mekanisme backup |
+| 1 | **Data & ETL** | `apps/ekstraksi/`, `apps/data/` (ingest, harmonization, timeseries), `apps/referensi/`, schema PostgreSQL | Ekstraksi PDF → tabel (OCR/Gemini), *ingest* long-format, kanonisasi indikator (`CanonicalIndicator`/`IndicatorAlias`), normalisasi satuan (`UnitAlias`), audit kualitas data, backup/restore | Pipeline PDF → dataset tidy ter-harmonisasi |
+| 2 | **Mesin pencarian API** | `apps/pencarian/` | Quick-match cascade (skor frasa, kabupaten vs rincian), deteksi wilayah, `multi_concepts` (`+`/`dan`), guard istilah generik, trigram similarity, endpoint search/timeseries/catalog | API pencarian cerdas + kontrak JSON |
+| 3 | **Frontend bps-pencarian (SPA)** | `bps-pencarian/src/` | Pencarian natural language, kartu jawaban time-series, perbandingan multi-tabel, slider rentang tahun, ekspor Excel/PDF profesional, responsive | SPA pelayanan data publik + UX |
+| 4 | **Frontend bps-hub (Django)** | `webapp/templates/`, `apps/core/`, `apps/katalog/`, `apps/manual_import/` | Dashboard chart semua tahun, kurasi publikasi/bab/tabel, Edit Nilai (baris total auto-sum), alur import manual Excel (template → upload → commit), sinkronisasi kolom | Portal administrasi data + alur import manual end-to-end |
 
 > [!NOTE]
-> - **API search/catalog** (`apps/pencarian/`) adalah jembatan antara Peran 3 dan Peran 4: Peran 4 bertanggung jawab atas akurasi data & query, Peran 3 atas konsumsi dan tampilannya. Sebaiknya ditulis bersama atau milik Peran 4 dengan kontrak JSON disepakati bersama Peran 3.
-> - Setiap peran dapat berdiri sendiri sebagai bab laporan: 1 = akuisisi & parsing, 2 = sistem administrasi, 3 = antarmuka pelayanan publik, 4 = perancangan basis data & kualitas data.
+> - **Peran 4 paling luas** karena hub adalah satu sistem admin utuh (views + services + template). Coretan pembeda dengan Peran 2: Peran 4 tidak pernah menyentuh `apps/pencarian/api_views.py`; Peran 2 tidak pernah menyentuh template/admin.
+> - Setiap peran dapat berdiri sendiri sebagai bab laporan: 1 = akuisisi & transformasi data, 2 = perancangan API / information retrieval, 3 = antarmuka pelayanan publik, 4 = sistem administrasi & import manual.
 
 ## Metode pengembangan (bps-pencarian)
 
